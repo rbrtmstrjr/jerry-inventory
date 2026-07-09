@@ -1,0 +1,664 @@
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { format } from "date-fns";
+import { type ColumnDef } from "@tanstack/react-table";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Check,
+  ChevronsUpDown,
+  FileText,
+  Loader2,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DataTable } from "@/components/data-table/data-table";
+import type {
+  EngineOption,
+  MasterPartOption,
+  ShopPartStock,
+  TransferHistoryRow,
+} from "./page";
+import { deliverStock, returnStock } from "./actions";
+
+interface PartLine {
+  part_id: string;
+  qty: string;
+}
+
+interface ItemOption {
+  part_id: string;
+  name: string;
+  unit: string;
+  available: number;
+  hint?: string;
+}
+
+function ItemCombobox({
+  options,
+  value,
+  onChange,
+  placeholder = "Pick item…",
+}: {
+  options: ItemOption[];
+  value: string;
+  onChange: (id: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const selected = options.find((o) => o.part_id === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+        >
+          <span className="truncate">{selected ? selected.name : placeholder}</span>
+          <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search…" />
+          <CommandList>
+            <CommandEmpty>Nothing available.</CommandEmpty>
+            <CommandGroup>
+              {options.map((o) => (
+                <CommandItem
+                  key={o.part_id}
+                  value={`${o.name} ${o.hint ?? ""}`}
+                  onSelect={() => {
+                    onChange(o.part_id);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "size-4",
+                      o.part_id === value ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm">{o.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {o.available} {o.unit} available
+                    </div>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function EnginePicker({
+  engines,
+  selected,
+  onToggle,
+}: {
+  engines: EngineOption[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="justify-between font-normal">
+          {selected.size > 0
+            ? `${selected.size} engine(s) selected`
+            : "Pick engines…"}
+          <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-96 p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search serial or model…" />
+          <CommandList>
+            <CommandEmpty>No engines available.</CommandEmpty>
+            <CommandGroup>
+              {engines.map((e) => (
+                <CommandItem
+                  key={e.id}
+                  value={e.label}
+                  onSelect={() => onToggle(e.id)}
+                >
+                  <Check
+                    className={cn(
+                      "size-4",
+                      selected.has(e.id) ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  <span className="font-mono text-xs">{e.label}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TransferForm({
+  kind,
+  shops,
+  partOptionsForShop,
+  engineOptionsForShop,
+  onDone,
+}: {
+  kind: "delivery" | "return";
+  shops: { id: string; name: string }[];
+  partOptionsForShop: (shopId: string) => ItemOption[];
+  engineOptionsForShop: (shopId: string) => EngineOption[];
+  onDone: (id?: string) => void;
+}) {
+  const [shopId, setShopId] = React.useState("");
+  const [note, setNote] = React.useState("");
+  const [partLines, setPartLines] = React.useState<PartLine[]>([]);
+  const [engineIds, setEngineIds] = React.useState<Set<string>>(new Set());
+  const [submitting, setSubmitting] = React.useState(false);
+
+  const partOptions = shopId ? partOptionsForShop(shopId) : [];
+  const engineOptions = shopId ? engineOptionsForShop(shopId) : [];
+
+  function updateLine(i: number, patch: Partial<PartLine>) {
+    setPartLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  }
+
+  async function onSubmit() {
+    if (!shopId) {
+      toast.error("Pick a shop first");
+      return;
+    }
+    const parts = [];
+    for (const [i, l] of partLines.entries()) {
+      if (!l.part_id) {
+        toast.error(`Line ${i + 1}: pick an item`);
+        return;
+      }
+      const qty = parseInt(l.qty || "0", 10);
+      const opt = partOptions.find((o) => o.part_id === l.part_id);
+      if (isNaN(qty) || qty <= 0) {
+        toast.error(`Line ${i + 1}: qty must be positive`);
+        return;
+      }
+      if (opt && qty > opt.available) {
+        toast.error(`Line ${i + 1}: only ${opt.available} ${opt.unit} available`);
+        return;
+      }
+      parts.push({ part_id: l.part_id, qty });
+    }
+    if (parts.length + engineIds.size === 0) {
+      toast.error("Add at least one line");
+      return;
+    }
+
+    setSubmitting(true);
+    const action = kind === "delivery" ? deliverStock : returnStock;
+    const res = await action({
+      shop_id: shopId,
+      note: note || null,
+      parts,
+      engine_ids: [...engineIds],
+    });
+    setSubmitting(false);
+
+    if (res.ok) {
+      toast.success(
+        kind === "delivery"
+          ? "Delivered — stock landed at the shop"
+          : "Returned — stock is back in master"
+      );
+      setShopId("");
+      setNote("");
+      setPartLines([]);
+      setEngineIds(new Set());
+      onDone(res.id);
+    } else {
+      toast.error(res.error);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-2">
+          <Label>{kind === "delivery" ? "Deliver to shop" : "Return from shop"}</Label>
+          <Select
+            value={shopId}
+            onValueChange={(v) => {
+              setShopId(v);
+              setPartLines([]);
+              setEngineIds(new Set());
+            }}
+          >
+            <SelectTrigger className="w-full max-w-full [&>span]:truncate">
+              <SelectValue placeholder="Pick a shop" />
+            </SelectTrigger>
+            <SelectContent>
+              {shops.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid min-w-0 gap-2">
+          <Label htmlFor={`${kind}-note`}>
+            {kind === "delivery" ? "Note (shows on delivery note)" : "Reason"}
+          </Label>
+          <Input
+            id={`${kind}-note`}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={
+              kind === "delivery" ? "e.g. weekly restock" : "e.g. slow-mover, redistribute"
+            }
+          />
+        </div>
+      </div>
+
+      {!shopId ? (
+        <p className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
+          Pick a shop above to start adding items.
+        </p>
+      ) : (
+        <>
+          {/* Parts */}
+          <div className="rounded-lg border">
+            <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2.5">
+              <div>
+                <h3 className="text-sm font-semibold">Parts</h3>
+                <p className="text-xs text-muted-foreground">
+                  {kind === "delivery"
+                    ? "From master stock"
+                    : "From this shop's stock"}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setPartLines((ls) => [...ls, { part_id: "", qty: "1" }])
+                }
+              >
+                <Plus className="size-4" /> Add part
+              </Button>
+            </div>
+
+            {partLines.length === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                No part lines yet — click “Add part”.
+              </p>
+            ) : (
+              <div className="thin-scrollbar overflow-x-auto p-4">
+                <div className="grid min-w-[32rem] grid-cols-[minmax(14rem,1fr)_6rem_7rem_2.25rem] items-center gap-x-2 gap-y-2">
+                  <span className="text-xs font-medium text-muted-foreground">Item</span>
+                  <span className="text-xs font-medium text-muted-foreground">Qty</span>
+                  <span className="text-xs font-medium text-muted-foreground">Available</span>
+                  <span />
+                  {partLines.map((l, i) => {
+                    const opt = partOptions.find((o) => o.part_id === l.part_id);
+                    return (
+                      <React.Fragment key={i}>
+                        <ItemCombobox
+                          options={partOptions}
+                          value={l.part_id}
+                          onChange={(id) => {
+                            // re-clamp qty against the newly picked item's stock
+                            const next = partOptions.find((o) => o.part_id === id);
+                            const q = parseInt(l.qty || "1", 10);
+                            updateLine(i, {
+                              part_id: id,
+                              qty: String(
+                                Math.max(
+                                  1,
+                                  Math.min(
+                                    isNaN(q) ? 1 : q,
+                                    next?.available ?? 1
+                                  )
+                                )
+                              ),
+                            });
+                          }}
+                        />
+                        <Input
+                          inputMode="numeric"
+                          min={1}
+                          max={opt?.available}
+                          value={l.qty}
+                          onChange={(e) => {
+                            // digits only, hard-capped at what's actually available
+                            const raw = e.target.value.replace(/\D/g, "");
+                            if (raw === "") {
+                              updateLine(i, { qty: "" });
+                              return;
+                            }
+                            let n = parseInt(raw, 10);
+                            if (opt && n > opt.available) n = opt.available;
+                            updateLine(i, { qty: String(n) });
+                          }}
+                          onBlur={() => {
+                            const n = parseInt(l.qty || "0", 10);
+                            if (isNaN(n) || n < 1) updateLine(i, { qty: "1" });
+                          }}
+                          aria-label="Quantity"
+                        />
+                        <span className="text-sm text-muted-foreground tabular-nums">
+                          {opt ? `${opt.available} ${opt.unit}` : "—"}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Remove line"
+                          onClick={() =>
+                            setPartLines((ls) => ls.filter((_, j) => j !== i))
+                          }
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Engines */}
+          <div className="rounded-lg border">
+            <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2.5">
+              <div>
+                <h3 className="text-sm font-semibold">Engines</h3>
+                <p className="text-xs text-muted-foreground">
+                  {kind === "delivery"
+                    ? "Serials in master stock"
+                    : "Serials at this shop"}
+                </p>
+              </div>
+              <EnginePicker
+                engines={engineOptions}
+                selected={engineIds}
+                onToggle={(id) =>
+                  setEngineIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
+              />
+            </div>
+
+            {engineIds.size === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                No engines selected — use “Pick engines”.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2 p-4">
+                {[...engineIds].map((id) => {
+                  const e = engineOptions.find((x) => x.id === id);
+                  if (!e) return null;
+                  return (
+                    <div
+                      key={id}
+                      className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
+                    >
+                      <span className="font-mono text-sm">{e.label}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Remove ${e.serial_number}`}
+                        onClick={() =>
+                          setEngineIds((prev) => {
+                            const next = new Set(prev);
+                            next.delete(id);
+                            return next;
+                          })
+                        }
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end">
+            <Button onClick={onSubmit} disabled={submitting}>
+              {submitting && <Loader2 className="size-4 animate-spin" />}
+              {kind === "delivery" ? "Deliver (auto-lands)" : "Process return"}
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function DeliveriesView({
+  shops,
+  masterParts,
+  shopParts,
+  engines,
+  history,
+}: {
+  shops: { id: string; name: string }[];
+  masterParts: MasterPartOption[];
+  shopParts: ShopPartStock[];
+  engines: EngineOption[];
+  history: TransferHistoryRow[];
+}) {
+  const sortedHistory = [...history].sort(
+    (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
+  );
+
+  const columns: ColumnDef<TransferHistoryRow>[] = [
+    {
+      accessorKey: "kind",
+      header: "Type",
+      cell: ({ row }) =>
+        row.original.kind === "delivery" ? (
+          <Badge className="gap-1">
+            <ArrowUpRight className="size-3" /> Delivery
+          </Badge>
+        ) : (
+          <Badge variant="secondary" className="gap-1">
+            <ArrowDownLeft className="size-3" /> Return
+          </Badge>
+        ),
+    },
+    {
+      accessorKey: "at",
+      header: "Date",
+      cell: ({ getValue }) =>
+        format(new Date(getValue<string>()), "MMM d, yyyy h:mm a"),
+    },
+    { accessorKey: "shop_name", header: "Shop" },
+    {
+      id: "lines",
+      header: "Lines",
+      cell: ({ row }) => (
+        <div className="flex gap-1">
+          {row.original.part_lines > 0 && (
+            <Badge variant="outline">{row.original.part_lines} parts</Badge>
+          )}
+          {row.original.engine_lines > 0 && (
+            <Badge variant="outline">{row.original.engine_lines} engines</Badge>
+          )}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "total_qty",
+      header: "Qty",
+      cell: ({ getValue }) => (
+        <span className="tabular-nums">{getValue<number>()}</span>
+      ),
+    },
+    {
+      accessorKey: "note",
+      header: "Note",
+      cell: ({ getValue }) => (
+        <span className="line-clamp-1 max-w-xs text-muted-foreground">
+          {getValue<string | null>() ?? "—"}
+        </span>
+      ),
+    },
+    {
+      id: "doc",
+      header: "",
+      cell: ({ row }) =>
+        row.original.kind === "delivery" ? (
+          <Button variant="ghost" size="sm" asChild>
+            <Link href={`/deliveries/${row.original.id}/note`}>
+              <FileText className="size-4" /> Note
+            </Link>
+          </Button>
+        ) : null,
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Deliveries &amp; Returns
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Move stock between master and shops. Deliveries auto-land — no shop
+          confirmation needed.
+        </p>
+      </div>
+
+      <Tabs defaultValue="delivery">
+        <TabsList>
+          <TabsTrigger value="delivery">New Delivery</TabsTrigger>
+          <TabsTrigger value="return">New Return</TabsTrigger>
+        </TabsList>
+        <TabsContent value="delivery" className="pt-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Jerry → Shop</CardTitle>
+              <CardDescription>
+                Stock leaves master and lands in the shop immediately. A
+                printable delivery note is generated.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TransferForm
+                kind="delivery"
+                shops={shops}
+                partOptionsForShop={() =>
+                  masterParts.map((p) => ({
+                    part_id: p.part_id,
+                    name: p.name,
+                    unit: p.unit,
+                    available: p.master_qty,
+                    hint: `${p.sku ?? ""} ${p.barcode ?? ""}`,
+                  }))
+                }
+                engineOptionsForShop={() => engines.filter((e) => e.shop_id === null)}
+                onDone={(id) => {
+                  if (id) window.open(`/deliveries/${id}/note`, "_blank");
+                }}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="return" className="pt-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Shop → Jerry</CardTitle>
+              <CardDescription>
+                Take stock back into master — slow-movers, redistribution, or
+                damaged-for-return.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TransferForm
+                kind="return"
+                shops={shops}
+                partOptionsForShop={(shopId) =>
+                  shopParts
+                    .filter((s) => s.shop_id === shopId)
+                    .map((s) => ({
+                      part_id: s.part_id,
+                      name: s.name,
+                      unit: s.unit,
+                      available: s.qty,
+                    }))
+                }
+                engineOptionsForShop={(shopId) =>
+                  engines.filter((e) => e.shop_id === shopId)
+                }
+                onDone={() => {}}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      <div>
+        <h2 className="mb-2 text-lg font-semibold">History</h2>
+        <DataTable
+          columns={columns}
+          data={sortedHistory}
+          searchPlaceholder="Search history…"
+          emptyMessage="No deliveries or returns yet."
+        />
+      </div>
+    </div>
+  );
+}

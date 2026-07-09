@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Jerry's Marine — Multi-Shop Inventory & Approval System
 
-## Getting Started
+Centralized inventory and sales-approval system for a Philippine marine store
+(outboard engines + parts + fisherman goods) supplying multiple branch shops.
+The owner holds all inventory centrally, delivers stock to shops, and approves
+every sale and loss before stock deducts. Employees record; they never move stock.
 
-First, run the development server:
+## Stack
+
+- **Next.js 16** (App Router) + React 19 + TypeScript
+- **Supabase** — Postgres, Auth, Realtime. **Row-Level Security is the access enforcer.**
+- Tailwind CSS v4 + shadcn/ui · TanStack Table · Recharts · react-hook-form + zod
+- JsBarcode (Code128 labels) · sonner toasts
+- Deploy target: Vercel
+
+## Setup
 
 ```bash
+npm install
+cp .env.example .env.local   # fill in your Supabase project values
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Apply migrations in order (`supabase/migrations/0001…0009`) via the Supabase SQL
+editor, CLI, or Management API. They are idempotent.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Roles
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Role | Access |
+|------|--------|
+| Owner | Everything: master inventory, costs, deliveries, approvals, reports, settings |
+| Employee | ONE shop only: shop stock (selling price only — cost is physically unreachable), record sales/losses, own submissions |
 
-## Learn More
+Money is stored as **integer centavos** everywhere. All stock changes flow
+through SECURITY DEFINER Postgres functions (atomic, append-only ledger).
 
-To learn more about Next.js, take a look at the following resources:
+## Key flows
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. **Receive** (supplier → master) → `fn_receive_stock`
+2. **Deliver** (master → shop, auto-lands) → `fn_deliver_stock` + delivery-note PDF
+3. **Record** (employee, PENDING) → `fn_record_sale` / `fn_record_loss`
+4. **Approve** (owner) → `fn_approve_sale` / `fn_approve_loss` — deducts stock,
+   auto-creates engine warranties, blocks negative stock. Queue is Realtime-live.
+5. **Monthly count** → snapshot → count sheet (blind option) → shortages become
+   reason-coded losses in the same approval queue.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Verification scripts (`scripts/`)
 
-## Deploy on Vercel
+Each deliverable ships with a live test suite (run against the real project):
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+node scripts/test-rls.mjs            # RLS isolation proof (35 checks)
+node scripts/test-receiving.mjs      # receiving + ledger + barcodes
+node scripts/test-deliveries.mjs     # deliveries/returns + guards
+node scripts/test-shop-recording.mjs # employee recording rules
+node scripts/test-approvals.mjs      # approve/question/reject + Realtime
+node scripts/test-warranties.mjs     # warranties, claims, fitment
+node scripts/test-reports.mjs        # report aggregates (needs dev server)
+node scripts/test-counts.mjs         # monthly count cycle
+node scripts/test-admin.mjs          # settings, shops, employee lifecycle
+node scripts/smoke-login.mjs         # role routing (needs dev server)
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Branding
+
+Every color/radius/theme token lives in **`app/theme.css`** (light + dark).
+Rebranding = editing that one file. Chart colors are colorblind-validated —
+re-run the dataviz palette validator if you change them.
+
+## Notes
+
+- `.env.local` contains a `SUPABASE_SERVICE_ROLE_KEY` (server-only; used for
+  employee account management). Never expose it client-side.
+- Dev test accounts exist (`owner@jerrysmarine.test`, `branch1@…`, `branch2@…`).
+  Replace with real accounts and passwords before go-live.

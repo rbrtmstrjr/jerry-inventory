@@ -1,0 +1,125 @@
+/* ============================================================================
+   JERRY'S MARINE — DESIGN TOKENS (single source of truth)
+   ----------------------------------------------------------------------------
+   ALL colors, radius, and theme values live in THIS file.
+   Rebranding the app = editing this file only. Never hardcode colors
+   in components — treat an inline hex value as a bug.
+
+   ┌──────────────────────── BRAND BLOCK ─────────────────────────┐
+   │ Placeholder palette: clean marine / nautical.                │
+   │   • Primary   → deep-sea blue                                │
+   │   • Surfaces  → warm neutrals                                │
+   │   • Accent    → sea-foam cyan                                │
+   │ When the client delivers final brand colors, replace the     │
+   │ oklch() values below (both :root light set and .dark set).   │
+   │ Tip: https://oklch.com to convert hex → oklch.               │
+   └──────────────────────────────────────────────────────────────┘
+   ========================================================================== */
+
+:root {
+  /* ---- Surfaces (warm neutral) ---- */
+  --background: oklch(0.984 0.003 80);
+  --foreground: oklch(0.22 0.02 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.02 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.02 250);
+
+  /* ---- Brand: deep-sea blue primary ---- */
+  --primary: oklch(0.42 0.1 245);
+  --primary-foreground: oklch(0.985 0.005 240);
+
+  /* ---- Supporting tones ---- */
+  --secondary: oklch(0.945 0.012 235);
+  --secondary-foreground: oklch(0.32 0.05 245);
+  --muted: oklch(0.955 0.008 80);
+  --muted-foreground: oklch(0.5 0.02 250);
+  --accent: oklch(0.93 0.03 210);
+  --accent-foreground: oklch(0.3 0.06 235);
+  --destructive: oklch(0.577 0.215 27);
+
+  /* ---- Lines & focus ---- */
+  --border: oklch(0.912 0.008 240);
+  --input: oklch(0.912 0.008 240);
+  --ring: oklch(0.55 0.08 245);
+
+  /* ---- Charts (marine sequence: blue, teal, sand, coral, violet) ----
+     CVD-validated (dataviz six-checks, light surface #fff) — if you change
+     these, re-run the palette validator for BOTH modes. Fixed assignment
+     order; never cycle. */
+  --chart-1: oklch(0.52 0.13 245);
+  --chart-2: oklch(0.65 0.11 195);
+  --chart-3: oklch(0.66 0.13 80);
+  --chart-4: oklch(0.6 0.14 35);
+  --chart-5: oklch(0.5 0.13 300);
+
+  /* ---- Shape ---- */
+  --radius: 0.625rem;
+
+  /* ---- Sidebar (owner/employee shells) ---- */
+  --sidebar: oklch(0.975 0.006 240);
+  --sidebar-foreground: oklch(0.28 0.03 250);
+  --sidebar-primary: oklch(0.42 0.1 245);
+  --sidebar-primary-foreground: oklch(0.985 0.005 240);
+  --sidebar-accent: oklch(0.93 0.02 235);
+  --sidebar-accent-foreground: oklch(0.3 0.06 240);
+  --sidebar-border: oklch(0.905 0.01 240);
+  --sidebar-ring: oklch(0.55 0.08 245);
+
+  /* ---- Status (success / warning for stock & approvals) ---- */
+  --success: oklch(0.58 0.13 155);
+  --success-foreground: oklch(0.985 0.005 155);
+  --warning: oklch(0.75 0.13 80);
+  --warning-foreground: oklch(0.25 0.05 80);
+}
+
+.dark {
+  /* ---- Surfaces (deep navy night) ---- */
+  --background: oklch(0.17 0.02 255);
+  --foreground: oklch(0.96 0.005 240);
+  --card: oklch(0.21 0.022 255);
+  --card-foreground: oklch(0.96 0.005 240);
+  --popover: oklch(0.21 0.022 255);
+  --popover-foreground: oklch(0.96 0.005 240);
+
+  /* ---- Brand: lifted sea blue for dark bg ---- */
+  --primary: oklch(0.68 0.11 240);
+  --primary-foreground: oklch(0.16 0.03 250);
+
+  /* ---- Supporting tones ---- */
+  --secondary: oklch(0.27 0.025 255);
+  --secondary-foreground: oklch(0.96 0.005 240);
+  --muted: oklch(0.26 0.02 255);
+  --muted-foreground: oklch(0.72 0.015 245);
+  --accent: oklch(0.3 0.04 220);
+  --accent-foreground: oklch(0.9 0.03 210);
+  --destructive: oklch(0.704 0.191 22);
+
+  /* ---- Lines & focus ---- */
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.6 0.08 240);
+
+  /* ---- Charts (CVD-validated for dark surface #111922) ---- */
+  --chart-1: oklch(0.62 0.12 245);
+  --chart-2: oklch(0.66 0.11 195);
+  --chart-3: oklch(0.66 0.12 80);
+  --chart-4: oklch(0.62 0.13 35);
+  --chart-5: oklch(0.58 0.13 300);
+
+  /* ---- Sidebar ---- */
+  --sidebar: oklch(0.19 0.022 255);
+  --sidebar-foreground: oklch(0.93 0.008 240);
+  --sidebar-primary: oklch(0.68 0.11 240);
+  --sidebar-primary-foreground: oklch(0.16 0.03 250);
+  --sidebar-accent: oklch(0.27 0.03 250);
+  --sidebar-accent-foreground: oklch(0.93 0.02 235);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.6 0.08 240);
+
+  /* ---- Status ---- */
+  --success: oklch(0.68 0.13 155);
+  --success-foreground: oklch(0.16 0.03 155);
+  --warning: oklch(0.8 0.13 80);
+  --warning-foreground: oklch(0.25 0.05 80);
+}
