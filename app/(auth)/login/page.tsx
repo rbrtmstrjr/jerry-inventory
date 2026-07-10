@@ -19,7 +19,7 @@ export default async function LoginPage() {
           <Anchor className="size-5" />
         </div>
         <div className="leading-tight">
-          <div className="font-semibold">Jerry&apos;s Marine</div>
+          <div className="font-semibold">Maccky&apos;s Marine</div>
           <div className="text-xs text-muted-foreground">
             Inventory &amp; Approvals
           </div>

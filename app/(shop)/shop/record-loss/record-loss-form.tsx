@@ -108,7 +108,7 @@ export function RecordLossForm({
     setSubmitting(false);
 
     if (res.ok) {
-      toast.success("Loss saved — submit your batch to Jerry from Submissions");
+      toast.success("Loss saved — submit your batch to Maccky from Submissions");
       setPartId("");
       setEngineId("");
       setQty("1");

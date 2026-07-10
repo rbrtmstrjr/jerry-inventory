@@ -172,7 +172,7 @@ function Brand() {
         <Anchor className="size-4" />
       </div>
       <div className="leading-tight">
-        <div className="text-sm font-semibold">Jerry&apos;s Marine</div>
+        <div className="text-sm font-semibold">Maccky&apos;s Marine</div>
         <div className="text-xs text-muted-foreground">Inventory System</div>
       </div>
     </div>

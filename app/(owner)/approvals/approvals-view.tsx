@@ -193,7 +193,7 @@ export function ApprovalsView({
     for (const l of losses) {
       groupFor(l.batch_id, l.shop_name, l.batch_submitted_at).losses.push(l);
     }
-    // oldest submission first — Jerry clears the queue in arrival order
+    // oldest submission first — Maccky clears the queue in arrival order
     return [...map.values()].sort((a, b) =>
       (a.submittedAt ?? "").localeCompare(b.submittedAt ?? "")
     );

@@ -276,7 +276,7 @@ export function ReportsView({ data }: { data: ReportData }) {
 
       {/* Range header (visible in print) */}
       <p className="hidden text-sm text-muted-foreground print:block">
-        Jerry&apos;s Marine — Report {format(new Date(data.from), "MMM d, yyyy")} to{" "}
+        Maccky&apos;s Marine — Report {format(new Date(data.from), "MMM d, yyyy")} to{" "}
         {format(new Date(data.to), "MMM d, yyyy")}
       </p>
 

@@ -63,7 +63,7 @@ const STATUS_BADGE: Record<
   { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
   recorded: { label: "Not submitted", variant: "outline" },
-  pending: { label: "With Jerry", variant: "secondary" },
+  pending: { label: "With Maccky", variant: "secondary" },
   questioned: { label: "Questioned", variant: "outline" },
   approved: { label: "Approved", variant: "default" },
   rejected: { label: "Rejected", variant: "destructive" },
@@ -109,7 +109,7 @@ export function SubmissionsView({
   const currentValue = currentSales.reduce((sum, s) => sum + s.total_centavos, 0);
 
   // Group everything already submitted by its batch. A batch stays in
-  // "Submitted" while anything inside still awaits Jerry; once every item
+  // "Submitted" while anything inside still awaits Maccky; once every item
   // is approved/rejected it moves to "Reviewed".
   const { submitted, reviewed } = React.useMemo(() => {
     const map = new Map<string, ShopBatch>();
@@ -150,7 +150,7 @@ export function SubmissionsView({
     setSubmittingBatch(false);
     if (res.ok) {
       toast.success(
-        `Sent to Jerry: ${res.sales} sale(s) and ${res.losses} loss(es)`
+        `Sent to Maccky: ${res.sales} sale(s) and ${res.losses} loss(es)`
       );
     } else {
       toast.error(res.error);
@@ -294,7 +294,7 @@ export function SubmissionsView({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Submissions</h1>
         <p className="text-sm text-muted-foreground">
-          Record all day, then send everything to Jerry as one report whenever
+          Record all day, then send everything to Maccky as one report whenever
           you&apos;re ready.
         </p>
       </div>
@@ -310,7 +310,7 @@ export function SubmissionsView({
               in your current report
             </p>
             <p className="text-xs text-muted-foreground">
-              Jerry can&apos;t see these until you submit. Cancel any mistakes
+              Maccky can&apos;t see these until you submit. Cancel any mistakes
               first.
             </p>
           </div>
@@ -320,7 +320,7 @@ export function SubmissionsView({
             ) : (
               <Send className="size-4" />
             )}
-            Submit {currentTotal} to Jerry
+            Submit {currentTotal} to Maccky
           </Button>
         </div>
       )}
@@ -350,7 +350,7 @@ export function SubmissionsView({
                   {currentLosses.length > 0 &&
                     ` · ${currentLosses.length} loss${currentLosses.length === 1 ? "" : "es"}`}
                   {currentValue > 0 && ` · ${formatCentavos(currentValue)}`} —
-                  everything here goes to Jerry together.
+                  everything here goes to Maccky together.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
@@ -384,7 +384,7 @@ export function SubmissionsView({
         <TabsContent value="submitted" className="flex flex-col gap-3 pt-2">
           {submitted.length === 0 && (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              Nothing with Jerry right now.
+              Nothing with Maccky right now.
             </p>
           )}
           {submitted.map(renderBatchCard)}
@@ -408,7 +408,7 @@ export function SubmissionsView({
             ? "Cancel this sale?"
             : "Cancel this loss report?"
         }
-        description="It's removed from your report (and from Jerry's queue if already submitted). You can record it again anytime."
+        description="It's removed from your report (and from Maccky's queue if already submitted). You can record it again anytime."
         confirmLabel="Yes, cancel it"
         destructive
         onConfirm={async () => {

@@ -244,7 +244,7 @@ export function RecordSaleForm({
     setSubmitting(false);
 
     if (res.ok) {
-      toast.success("Sale saved — submit your batch to Jerry from Submissions");
+      toast.success("Sale saved — submit your batch to Maccky from Submissions");
       setCart([]);
       setCustName("");
       setCustPhone("");

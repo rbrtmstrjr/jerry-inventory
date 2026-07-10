@@ -16,7 +16,7 @@ export default async function SettingsPage() {
     <SettingsForm
       settings={
         data ?? {
-          business_name: "Jerry's Marine",
+          business_name: "Maccky's Marine",
           address: null,
           phone: null,
           receipt_footer: null,

@@ -57,7 +57,7 @@ export default async function DeliveryNotePage({
             </div>
             <div>
               <div className="text-lg font-bold">
-                {settings?.business_name ?? "Jerry's Marine"}
+                {settings?.business_name ?? "Maccky's Marine"}
               </div>
               {settings?.address && (
                 <div className="text-xs text-muted-foreground">{settings.address}</div>

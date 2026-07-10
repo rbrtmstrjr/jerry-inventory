@@ -590,7 +590,7 @@ export function DeliveriesView({
         <TabsContent value="delivery" className="pt-2">
           <Card>
             <CardHeader>
-              <CardTitle>Jerry → Shop</CardTitle>
+              <CardTitle>Maccky → Shop</CardTitle>
               <CardDescription>
                 Stock leaves master and lands in the shop immediately. A
                 printable delivery note is generated.
@@ -620,7 +620,7 @@ export function DeliveriesView({
         <TabsContent value="return" className="pt-2">
           <Card>
             <CardHeader>
-              <CardTitle>Shop → Jerry</CardTitle>
+              <CardTitle>Shop → Maccky</CardTitle>
               <CardDescription>
                 Take stock back into master — slow-movers, redistribution, or
                 damaged-for-return.

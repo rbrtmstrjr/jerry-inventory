@@ -20,7 +20,7 @@ export default function MasterInventoryLayout({
           Master Inventory
         </h1>
         <p className="text-sm text-muted-foreground">
-          Jerry&apos;s central stock — invisible to shops.
+          Maccky&apos;s central stock — invisible to shops.
         </p>
       </div>
       <SectionTabs tabs={tabs} />
