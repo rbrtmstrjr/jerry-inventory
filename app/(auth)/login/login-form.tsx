@@ -29,6 +29,9 @@ type LoginValues = z.infer<typeof loginSchema>;
 export function LoginForm() {
   const router = useRouter();
   const [serverError, setServerError] = React.useState<string | null>(null);
+  // Stays true after a successful sign-in so the button keeps its loading
+  // state while the redirect + server render are still in flight.
+  const [redirecting, setRedirecting] = React.useState(false);
 
   const {
     register,
@@ -76,9 +79,12 @@ export function LoginForm() {
       return;
     }
 
+    setRedirecting(true);
     router.push(prof.role === "owner" ? "/dashboard" : "/shop");
     router.refresh();
   }
+
+  const loading = isSubmitting || redirecting;
 
   return (
     <Card className="w-full max-w-sm">
@@ -124,9 +130,9 @@ export function LoginForm() {
             </p>
           )}
 
-          <Button type="submit" disabled={isSubmitting} className="w-full">
-            {isSubmitting && <Loader2 className="size-4 animate-spin" />}
-            Sign in
+          <Button type="submit" disabled={loading} className="w-full">
+            {loading && <Loader2 className="size-4 animate-spin" />}
+            {redirecting ? "Signing in…" : loading ? "Checking…" : "Sign in"}
           </Button>
         </form>
       </CardContent>
