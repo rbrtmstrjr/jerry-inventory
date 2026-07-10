@@ -1,6 +1,7 @@
 /**
- * Deliverable 5 verification — employees record PENDING sales/losses;
- * prices are catalog-authoritative; stock does NOT move on record.
+ * Deliverable 5 verification — employees record sales/losses (saved as
+ * RECORDED until the shop batch-submits); prices are catalog-authoritative;
+ * stock does NOT move on record.
  * Run: node scripts/test-shop-recording.mjs
  */
 import { createClient } from "@supabase/supabase-js";
@@ -70,7 +71,7 @@ check("fn_record_sale succeeded", !saleErr, saleErr?.message);
     .from("sales")
     .select("status, total_centavos, customer_id, sale_lines(description, qty, unit_price_centavos, line_total_centavos)")
     .eq("id", saleId).single();
-  check("sale is PENDING", s?.status === "pending");
+  check("sale is RECORDED (not yet with owner)", s?.status === "recorded");
   check("total = 2×₱250 + ₱38,000 (catalog prices)", s?.total_centavos === 2 * 25000 + 3_800_000, `(got ${s?.total_centavos})`);
   check("customer captured", !!s?.customer_id);
   const partLine = s?.sale_lines.find((l) => l.qty === 2);
@@ -99,7 +100,7 @@ console.log("\nValidation:");
     p_customer_id: null, p_customer: { name: "X" },
     p_part_lines: [], p_engine_ids: [engine.id],
   });
-  check("engine already in a pending sale rejected", !!error && /pending/i.test(error.message));
+  check("engine already in an open sale rejected", !!error && /open sale/i.test(error.message));
 }
 {
   const { error } = await emp1.rpc("fn_record_sale", {
@@ -132,7 +133,7 @@ check("fn_record_loss succeeded", !lossErr, lossErr?.message);
 {
   const { data: l } = await emp1.from("losses")
     .select("status, reason, description").eq("id", lossId).single();
-  check("loss PENDING, reason nasira, described", l?.status === "pending" && l?.reason === "nasira" && !!l?.description);
+  check("loss RECORDED, reason nasira, described", l?.status === "recorded" && l?.reason === "nasira" && !!l?.description);
 }
 {
   const { error } = await emp2.rpc("fn_record_loss", {
@@ -141,10 +142,10 @@ check("fn_record_loss succeeded", !lossErr, lossErr?.message);
   check("Branch 2 can't report Branch 1's item", !!error);
 }
 
-console.log("\nCancel while pending:");
+console.log("\nCancel before submitting:");
 {
   const { data, error } = await emp1.from("losses").delete().eq("id", lossId).select("id");
-  check("employee can cancel own pending loss", !error && data?.length === 1);
+  check("employee can cancel own recorded loss", !error && data?.length === 1);
 }
 {
   const { data, error } = await emp2.from("sales").delete().eq("id", saleId).select("id");
@@ -152,7 +153,7 @@ console.log("\nCancel while pending:");
 }
 {
   const { data, error } = await emp1.from("sales").delete().eq("id", saleId).select("id");
-  check("employee can cancel own pending sale", !error && data?.length === 1);
+  check("employee can cancel own recorded sale", !error && data?.length === 1);
 }
 
 console.log("\nCleanup:");

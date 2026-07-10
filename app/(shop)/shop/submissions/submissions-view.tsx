@@ -2,7 +2,15 @@
 
 import * as React from "react";
 import { format } from "date-fns";
-import { MessageCircleQuestion, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Loader2,
+  MessageCircleQuestion,
+  NotebookPen,
+  Send,
+  ShoppingCart,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { formatCentavos } from "@/lib/format";
@@ -17,15 +25,17 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { cancelLoss, cancelSale } from "../actions";
+import { cancelLoss, cancelSale, submitShopBatch } from "../actions";
 
 export interface SaleSubmission {
   id: string;
   business_date: string;
-  status: "pending" | "questioned" | "approved" | "rejected";
+  status: "recorded" | "pending" | "questioned" | "approved" | "rejected";
   total_centavos: number;
   owner_note: string | null;
   created_at: string;
+  batch_id: string | null;
+  batch_submitted_at: string | null;
   sale_lines: {
     description: string | null;
     qty: number;
@@ -37,20 +47,23 @@ export interface SaleSubmission {
 export interface LossSubmission {
   id: string;
   business_date: string;
-  status: "pending" | "questioned" | "approved" | "rejected";
+  status: "recorded" | "pending" | "questioned" | "approved" | "rejected";
   reason: "nasira" | "nawala" | "expired" | "sample" | "correction";
   qty: number;
   note: string | null;
   owner_note: string | null;
   description: string | null;
   created_at: string;
+  batch_id: string | null;
+  batch_submitted_at: string | null;
 }
 
 const STATUS_BADGE: Record<
   SaleSubmission["status"],
   { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
-  pending: { label: "Pending", variant: "secondary" },
+  recorded: { label: "Not submitted", variant: "outline" },
+  pending: { label: "With Jerry", variant: "secondary" },
   questioned: { label: "Questioned", variant: "outline" },
   approved: { label: "Approved", variant: "default" },
   rejected: { label: "Rejected", variant: "destructive" },
@@ -69,6 +82,14 @@ function StatusBadge({ status }: { status: SaleSubmission["status"] }) {
   return <Badge variant={s.variant}>{s.label}</Badge>;
 }
 
+/** One report = the current recording session or one submitted batch. */
+interface ShopBatch {
+  key: string;
+  submittedAt: string | null; // null = legacy items from before batching
+  sales: SaleSubmission[];
+  losses: LossSubmission[];
+}
+
 export function SubmissionsView({
   sales,
   losses,
@@ -77,130 +98,305 @@ export function SubmissionsView({
   losses: LossSubmission[];
 }) {
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [submittingBatch, setSubmittingBatch] = React.useState(false);
   const [cancelling, setCancelling] = React.useState<
     { kind: "sale" | "loss"; id: string } | null
   >(null);
 
-  const pendingCount =
-    sales.filter((s) => s.status === "pending" || s.status === "questioned").length +
-    losses.filter((l) => l.status === "pending" || l.status === "questioned").length;
+  const currentSales = sales.filter((s) => s.status === "recorded");
+  const currentLosses = losses.filter((l) => l.status === "recorded");
+  const currentTotal = currentSales.length + currentLosses.length;
+  const currentValue = currentSales.reduce((sum, s) => sum + s.total_centavos, 0);
+
+  // Group everything already submitted by its batch. A batch stays in
+  // "Submitted" while anything inside still awaits Jerry; once every item
+  // is approved/rejected it moves to "Reviewed".
+  const { submitted, reviewed } = React.useMemo(() => {
+    const map = new Map<string, ShopBatch>();
+    const groupFor = (batchId: string | null, submittedAt: string | null) => {
+      const key = batchId ?? "legacy";
+      let g = map.get(key);
+      if (!g) {
+        g = { key, submittedAt, sales: [], losses: [] };
+        map.set(key, g);
+      }
+      return g;
+    };
+    for (const s of sales) {
+      if (s.status === "recorded") continue;
+      groupFor(s.batch_id, s.batch_submitted_at).sales.push(s);
+    }
+    for (const l of losses) {
+      if (l.status === "recorded") continue;
+      groupFor(l.batch_id, l.batch_submitted_at).losses.push(l);
+    }
+    const open = (st: string) => st === "pending" || st === "questioned";
+    const all = [...map.values()].sort((a, b) =>
+      (b.submittedAt ?? "").localeCompare(a.submittedAt ?? "")
+    );
+    return {
+      submitted: all.filter(
+        (g) => g.sales.some((s) => open(s.status)) || g.losses.some((l) => open(l.status))
+      ),
+      reviewed: all.filter(
+        (g) => !g.sales.some((s) => open(s.status)) && !g.losses.some((l) => open(l.status))
+      ),
+    };
+  }, [sales, losses]);
+
+  async function onSubmitBatch() {
+    setSubmittingBatch(true);
+    const res = await submitShopBatch();
+    setSubmittingBatch(false);
+    if (res.ok) {
+      toast.success(
+        `Sent to Jerry: ${res.sales} sale(s) and ${res.losses} loss(es)`
+      );
+    } else {
+      toast.error(res.error);
+    }
+  }
+
+  function renderSaleRow(s: SaleSubmission, showStatus: boolean) {
+    return (
+      <div key={s.id} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-medium tabular-nums">
+            {formatCentavos(s.total_centavos)}
+          </span>
+          <div className="flex items-center gap-2">
+            {showStatus && <StatusBadge status={s.status} />}
+            {(s.status === "recorded" || s.status === "pending") && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label="Cancel sale"
+                disabled={busy === s.id}
+                onClick={() => setCancelling({ kind: "sale", id: s.id })}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {format(new Date(s.created_at), "MMM d, h:mm a")} ·{" "}
+          {s.sale_lines.length} line{s.sale_lines.length === 1 ? "" : "s"}
+        </p>
+        <div className="flex flex-col gap-0.5 text-sm">
+          {s.sale_lines.map((l, i) => (
+            <div key={i} className="flex justify-between">
+              <span className="truncate">
+                {l.description ?? "Item"} × {l.qty}
+              </span>
+              <span className="tabular-nums">
+                {formatCentavos(l.line_total_centavos)}
+              </span>
+            </div>
+          ))}
+        </div>
+        {s.owner_note && (
+          <div className="mt-1 flex items-start gap-2 rounded-md bg-accent p-2 text-sm text-accent-foreground">
+            <MessageCircleQuestion className="mt-0.5 size-4 shrink-0" />
+            <span>Owner: {s.owner_note}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderLossRow(l: LossSubmission, showStatus: boolean) {
+    return (
+      <div key={l.id} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-medium">
+            {l.description ?? "Item"} × {l.qty}
+          </span>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">{REASON_LABEL[l.reason]}</Badge>
+            {showStatus && <StatusBadge status={l.status} />}
+            {(l.status === "recorded" || l.status === "pending") && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label="Cancel loss"
+                disabled={busy === l.id}
+                onClick={() => setCancelling({ kind: "loss", id: l.id })}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {format(new Date(l.created_at), "MMM d, h:mm a")}
+        </p>
+        {l.note && <p className="text-sm text-muted-foreground">{l.note}</p>}
+        {l.owner_note && (
+          <div className="mt-1 flex items-start gap-2 rounded-md bg-accent p-2 text-sm text-accent-foreground">
+            <MessageCircleQuestion className="mt-0.5 size-4 shrink-0" />
+            <span>Owner: {l.owner_note}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderBatchCard(g: ShopBatch) {
+    const salesTotal = g.sales.reduce((sum, s) => sum + s.total_centavos, 0);
+    return (
+      <Card key={g.key}>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">
+            {g.submittedAt
+              ? `Report — submitted ${format(new Date(g.submittedAt), "MMM d, yyyy h:mm a")}`
+              : "Earlier submissions"}
+          </CardTitle>
+          <CardDescription>
+            {g.sales.length} sale{g.sales.length === 1 ? "" : "s"}
+            {g.losses.length > 0 &&
+              ` · ${g.losses.length} loss${g.losses.length === 1 ? "" : "es"}`}
+            {salesTotal > 0 && ` · ${formatCentavos(salesTotal)}`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {g.sales.length > 0 && (
+            <div>
+              {g.losses.length > 0 && (
+                <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                  <ShoppingCart className="size-3.5" /> SALES
+                </p>
+              )}
+              <div className="divide-y">
+                {g.sales.map((s) => renderSaleRow(s, true))}
+              </div>
+            </div>
+          )}
+          {g.losses.length > 0 && (
+            <div>
+              <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                <AlertTriangle className="size-3.5" /> LOSSES / ADJUSTMENTS
+              </p>
+              <div className="divide-y">
+                {g.losses.map((l) => renderLossRow(l, true))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Submissions</h1>
         <p className="text-sm text-muted-foreground">
-          Your shop&apos;s daily batch — {pendingCount} awaiting the owner.
+          Record all day, then send everything to Jerry as one report whenever
+          you&apos;re ready.
         </p>
       </div>
 
-      <Tabs defaultValue="sales">
+      {/* Batch submit banner */}
+      {currentTotal > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
+          <div>
+            <p className="text-sm font-medium">
+              {currentSales.length} sale{currentSales.length === 1 ? "" : "s"}
+              {currentLosses.length > 0 &&
+                ` and ${currentLosses.length} loss${currentLosses.length === 1 ? "" : "es"}`}{" "}
+              in your current report
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Jerry can&apos;t see these until you submit. Cancel any mistakes
+              first.
+            </p>
+          </div>
+          <Button onClick={onSubmitBatch} disabled={submittingBatch}>
+            {submittingBatch ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Send className="size-4" />
+            )}
+            Submit {currentTotal} to Jerry
+          </Button>
+        </div>
+      )}
+
+      <Tabs defaultValue="current">
         <TabsList>
-          <TabsTrigger value="sales">Sales ({sales.length})</TabsTrigger>
-          <TabsTrigger value="losses">Losses ({losses.length})</TabsTrigger>
+          <TabsTrigger value="current">Current ({currentTotal})</TabsTrigger>
+          <TabsTrigger value="submitted">Submitted ({submitted.length})</TabsTrigger>
+          <TabsTrigger value="reviewed">Reviewed ({reviewed.length})</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="sales" className="flex flex-col gap-3 pt-2">
-          {sales.length === 0 && (
+        {/* ONE card for everything not yet sent — it becomes a new report
+            card in Submitted once you press the button above. */}
+        <TabsContent value="current" className="flex flex-col gap-3 pt-2">
+          {currentTotal === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              No sales recorded yet.
+              Nothing recorded yet — new sales and losses land here first.
             </p>
-          )}
-          {sales.map((s) => (
-            <Card key={s.id}>
+          ) : (
+            <Card>
               <CardHeader className="pb-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="text-base tabular-nums">
-                    {formatCentavos(s.total_centavos)}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={s.status} />
-                    {s.status === "pending" && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Cancel sale"
-                        disabled={busy === s.id}
-                        onClick={() => setCancelling({ kind: "sale", id: s.id })}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <NotebookPen className="size-4" /> Current report
+                </CardTitle>
                 <CardDescription>
-                  {format(new Date(s.created_at), "MMM d, yyyy h:mm a")} ·{" "}
-                  {s.sale_lines.length} line{s.sale_lines.length === 1 ? "" : "s"}
+                  {currentSales.length} sale{currentSales.length === 1 ? "" : "s"}
+                  {currentLosses.length > 0 &&
+                    ` · ${currentLosses.length} loss${currentLosses.length === 1 ? "" : "es"}`}
+                  {currentValue > 0 && ` · ${formatCentavos(currentValue)}`} —
+                  everything here goes to Jerry together.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-col gap-1 text-sm">
-                {s.sale_lines.map((l, i) => (
-                  <div key={i} className="flex justify-between">
-                    <span className="truncate">
-                      {l.description ?? "Item"} × {l.qty}
-                    </span>
-                    <span className="tabular-nums">
-                      {formatCentavos(l.line_total_centavos)}
-                    </span>
+              <CardContent className="flex flex-col gap-3">
+                {currentSales.length > 0 && (
+                  <div>
+                    {currentLosses.length > 0 && (
+                      <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                        <ShoppingCart className="size-3.5" /> SALES
+                      </p>
+                    )}
+                    <div className="divide-y">
+                      {currentSales.map((s) => renderSaleRow(s, false))}
+                    </div>
                   </div>
-                ))}
-                {s.owner_note && (
-                  <div className="mt-2 flex items-start gap-2 rounded-md bg-accent p-2 text-accent-foreground">
-                    <MessageCircleQuestion className="mt-0.5 size-4 shrink-0" />
-                    <span>Owner: {s.owner_note}</span>
+                )}
+                {currentLosses.length > 0 && (
+                  <div>
+                    <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                      <AlertTriangle className="size-3.5" /> LOSSES / ADJUSTMENTS
+                    </p>
+                    <div className="divide-y">
+                      {currentLosses.map((l) => renderLossRow(l, false))}
+                    </div>
                   </div>
                 )}
               </CardContent>
             </Card>
-          ))}
+          )}
         </TabsContent>
 
-        <TabsContent value="losses" className="flex flex-col gap-3 pt-2">
-          {losses.length === 0 && (
+        <TabsContent value="submitted" className="flex flex-col gap-3 pt-2">
+          {submitted.length === 0 && (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              No losses recorded yet.
+              Nothing with Jerry right now.
             </p>
           )}
-          {losses.map((l) => (
-            <Card key={l.id}>
-              <CardHeader className="pb-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="text-base">
-                    {l.description ?? "Item"} × {l.qty}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">{REASON_LABEL[l.reason]}</Badge>
-                    <StatusBadge status={l.status} />
-                    {l.status === "pending" && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Cancel loss"
-                        disabled={busy === l.id}
-                        onClick={() => setCancelling({ kind: "loss", id: l.id })}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <CardDescription>
-                  {format(new Date(l.created_at), "MMM d, yyyy h:mm a")}
-                </CardDescription>
-              </CardHeader>
-              {(l.note || l.owner_note) && (
-                <CardContent className="flex flex-col gap-2 text-sm">
-                  {l.note && <p className="text-muted-foreground">{l.note}</p>}
-                  {l.owner_note && (
-                    <div className="flex items-start gap-2 rounded-md bg-accent p-2 text-accent-foreground">
-                      <MessageCircleQuestion className="mt-0.5 size-4 shrink-0" />
-                      <span>Owner: {l.owner_note}</span>
-                    </div>
-                  )}
-                </CardContent>
-              )}
-            </Card>
-          ))}
+          {submitted.map(renderBatchCard)}
+        </TabsContent>
+
+        <TabsContent value="reviewed" className="flex flex-col gap-3 pt-2">
+          {reviewed.length === 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No reviewed reports yet.
+            </p>
+          )}
+          {reviewed.map(renderBatchCard)}
         </TabsContent>
       </Tabs>
 
@@ -209,10 +405,10 @@ export function SubmissionsView({
         onOpenChange={(o) => !o && setCancelling(null)}
         title={
           cancelling?.kind === "sale"
-            ? "Cancel this pending sale?"
-            : "Cancel this pending loss report?"
+            ? "Cancel this sale?"
+            : "Cancel this loss report?"
         }
-        description="It disappears from the owner's queue. You can record it again anytime."
+        description="It's removed from your report (and from Jerry's queue if already submitted). You can record it again anytime."
         confirmLabel="Yes, cancel it"
         destructive
         onConfirm={async () => {

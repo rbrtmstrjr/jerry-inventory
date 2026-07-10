@@ -4,15 +4,18 @@ import * as React from "react";
 import Link from "next/link";
 import {
   Anchor,
+  ArrowRight,
+  BarChart3,
   Boxes,
   KeyRound,
   Loader2,
+  MapPin,
   MoreHorizontal,
   Pencil,
   Plus,
   Store,
   Trash2,
-  UserRound,
+  Users,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -52,10 +55,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  LocationPicker,
+  MapPreview,
+  type LatLng,
+} from "@/components/location-picker";
+import {
   closeShop,
   createEmployee,
-  resetEmployeePassword,
   updateEmployee,
+  updateShopCredentials,
   upsertShop,
 } from "./actions";
 
@@ -63,6 +71,8 @@ export interface ShopRow {
   id: string;
   name: string;
   location: string | null;
+  latitude: number | null;
+  longitude: number | null;
   active: boolean;
   part_units: number;
   engine_count: number;
@@ -79,18 +89,29 @@ export interface EmployeeRow {
   email: string;
 }
 
+export interface StaffLite {
+  id: string;
+  full_name: string;
+  shop_id: string;
+  active: boolean;
+  position: string | null;
+}
+
 export function ShopsView({
   shops,
   employees,
+  staff: payrollStaff,
 }: {
   shops: ShopRow[];
   employees: EmployeeRow[];
+  staff: StaffLite[];
 }) {
   // shop dialog
   const [shopDialog, setShopDialog] = React.useState(false);
   const [editingShop, setEditingShop] = React.useState<ShopRow | null>(null);
   const [shopName, setShopName] = React.useState("");
   const [shopLocation, setShopLocation] = React.useState("");
+  const [shopPin, setShopPin] = React.useState<LatLng | null>(null);
   const [shopActive, setShopActive] = React.useState(true);
 
   // employee dialogs
@@ -102,18 +123,20 @@ export function ShopsView({
   const [empShop, setEmpShop] = React.useState("");
   const [empActive, setEmpActive] = React.useState(true);
 
-  const [resetFor, setResetFor] = React.useState<EmployeeRow | null>(null);
-  const [resetPw, setResetPw] = React.useState("");
+  const [credsFor, setCredsFor] = React.useState<EmployeeRow | null>(null);
   const [closing, setClosing] = React.useState<ShopRow | null>(null);
 
   const [busy, setBusy] = React.useState(false);
-
-  const owners = employees.filter((e) => e.role === "owner");
 
   function openShopDialog(shop: ShopRow | null) {
     setEditingShop(shop);
     setShopName(shop?.name ?? "");
     setShopLocation(shop?.location ?? "");
+    setShopPin(
+      shop?.latitude != null && shop?.longitude != null
+        ? { lat: shop.latitude, lng: shop.longitude }
+        : null
+    );
     setShopActive(shop?.active ?? true);
     setShopDialog(true);
   }
@@ -134,6 +157,8 @@ export function ShopsView({
       id: editingShop?.id,
       name: shopName,
       location: shopLocation || null,
+      latitude: shopPin?.lat ?? null,
+      longitude: shopPin?.lng ?? null,
       active: shopActive,
     });
     setBusy(false);
@@ -165,109 +190,24 @@ export function ShopsView({
     } else toast.error(res.error);
   }
 
-  async function onResetPassword() {
-    if (!resetFor) return;
-    setBusy(true);
-    const res = await resetEmployeePassword({ id: resetFor.id, password: resetPw });
-    setBusy(false);
-    if (res.ok) {
-      toast.success(`Password reset for ${resetFor.full_name}`);
-      setResetFor(null);
-      setResetPw("");
-    } else toast.error(res.error);
-  }
-
-  /** One shared login per shop — helpers/cashiers are people, not accounts. */
-  function ShopLoginRow({ account }: { account: EmployeeRow }) {
-    return (
-      <div
-        className={`flex flex-wrap items-center justify-between gap-3 rounded-md border px-4 py-3 ${
-          !account.active ? "opacity-60" : ""
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
-            <KeyRound className="size-4" />
-          </div>
-          <div>
-            <div className="text-sm font-medium">
-              {account.full_name}
-              <Badge
-                variant={account.active ? "secondary" : "destructive"}
-                className="ml-2"
-              >
-                {account.active ? "Active" : "Disabled"}
-              </Badge>
-            </div>
-            <div className="text-xs text-muted-foreground">
-              Shop login · {account.email || "—"}
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setResetPw("");
-              setResetFor(account);
-            }}
-          >
-            <KeyRound className="size-4" /> Reset password
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => openEmpDialog(account)}
-          >
-            <Pencil className="size-4" /> Edit
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Shops &amp; Employees
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            One card per shop — stock at a glance and its single login account.
-            Helpers and cashiers share the shop&apos;s login.
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          One card per shop — stock at a glance and its single shared login.
+        </p>
         <Button onClick={() => openShopDialog(null)}>
           <Plus className="size-4" /> Add shop
         </Button>
       </div>
 
-      {/* Owner account */}
-      {owners.length > 0 && (
-        <Card>
-          <CardHeader className="py-4">
-            <div className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                <UserRound className="size-4" />
-              </div>
-              <div>
-                <CardTitle className="text-base">{owners[0].full_name}</CardTitle>
-                <CardDescription>
-                  Owner · {owners[0].email || "—"} · full access to everything
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-        </Card>
-      )}
-
-      {/* One card per shop */}
+      {/* One card per shop — two per row on desktop */}
+      <div className="grid items-start gap-6 lg:grid-cols-2">
       {shops.map((shop) => {
         const staff = employees.filter(
           (e) => e.role === "employee" && e.shop_id === shop.id
         );
+        const shopStaff = payrollStaff.filter((p) => p.shop_id === shop.id);
         return (
           <Card key={shop.id} className={!shop.active ? "opacity-75" : undefined}>
             <CardHeader className="pb-3">
@@ -287,6 +227,19 @@ export function ShopsView({
                     </CardTitle>
                     <CardDescription>
                       {shop.location ?? "No location set"}
+                      {shop.latitude != null && shop.longitude != null && (
+                        <>
+                          {" · "}
+                          <a
+                            href={`https://www.google.com/maps?q=${shop.latitude},${shop.longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-0.5 text-primary underline-offset-4 hover:underline"
+                          >
+                            <MapPin className="size-3" /> View on map
+                          </a>
+                        </>
+                      )}
                     </CardDescription>
                   </div>
                 </div>
@@ -307,15 +260,29 @@ export function ShopsView({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => openShopDialog(shop)}>
-                        <Pencil className="size-4" /> Edit shop
+                      <DropdownMenuItem asChild>
+                        <Link href={`/shops/reports?shop=${shop.id}`}>
+                          <BarChart3 className="size-4" /> View Reports
+                        </Link>
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => openShopDialog(shop)}>
+                        <Pencil className="size-4" /> Edit Shop Details
+                      </DropdownMenuItem>
+                      {staff.length > 0 ? (
+                        <DropdownMenuItem onClick={() => setCredsFor(staff[0])}>
+                          <KeyRound className="size-4" /> Change Credentials
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem onClick={() => openEmpDialog(null, shop.id)}>
+                          <KeyRound className="size-4" /> Create Login
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         variant="destructive"
                         onClick={() => setClosing(shop)}
                       >
-                        <Trash2 className="size-4" /> Close shop permanently
+                        <Trash2 className="size-4" /> Close Permanently
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -335,6 +302,11 @@ export function ShopsView({
                   {shop.engine_count === 1 ? "" : "s"}
                 </span>
                 <span className="flex items-center gap-1.5">
+                  <Users className="size-4" />
+                  <span className="tabular-nums">{shopStaff.length}</span>{" "}
+                  employee{shopStaff.length === 1 ? "" : "s"}
+                </span>
+                <span className="flex items-center gap-1.5">
                   <KeyRound className="size-4" />
                   {staff.length === 0
                     ? "no login"
@@ -344,8 +316,17 @@ export function ShopsView({
                 </span>
               </div>
             </CardHeader>
-            <CardContent>
-              {staff.length === 0 ? (
+            <CardContent className="flex flex-col gap-4">
+              {shop.latitude != null && shop.longitude != null && (
+                <MapPreview
+                  lat={shop.latitude}
+                  lng={shop.longitude}
+                  label={shop.name}
+                  className="h-44 w-full"
+                />
+              )}
+
+              {staff.length === 0 && (
                 <div className="flex flex-col items-center gap-3 rounded-md border border-dashed py-5">
                   <p className="text-sm text-muted-foreground">
                     No login account yet — the shop can&apos;t sign in.
@@ -358,17 +339,61 @@ export function ShopsView({
                     <Plus className="size-4" /> Create shop login
                   </Button>
                 </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {staff.map((a) => (
-                    <ShopLoginRow key={a.id} account={a} />
-                  ))}
-                </div>
               )}
+
+              {/* The people working at this shop (payroll staff) */}
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Employees ({shopStaff.length})
+                  </h4>
+                  <Button variant="ghost" size="xs" asChild>
+                    <Link href="/payroll/staff">
+                      Manage in Payroll <ArrowRight className="size-3.5" />
+                    </Link>
+                  </Button>
+                </div>
+                {shopStaff.length === 0 ? (
+                  <p className="rounded-md border border-dashed py-4 text-center text-sm text-muted-foreground">
+                    No employees yet — add the people who work here in Payroll
+                    → Staff.
+                  </p>
+                ) : (
+                  <div className="grid gap-1.5 sm:grid-cols-2">
+                    {shopStaff.map((p) => (
+                      <div
+                        key={p.id}
+                        className={`flex items-center gap-2.5 rounded-md border px-3 py-2 ${
+                          !p.active ? "opacity-60" : ""
+                        }`}
+                      >
+                        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-secondary-foreground">
+                          {p.full_name
+                            .split(/\s+/)
+                            .map((w) => w[0])
+                            .slice(0, 2)
+                            .join("")
+                            .toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium">
+                            {p.full_name}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {p.position ?? "No position"}
+                            {!p.active && " · inactive"}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         );
       })}
+      </div>
 
       {shops.length === 0 && (
         <p className="rounded-md border border-dashed py-10 text-center text-sm text-muted-foreground">
@@ -378,27 +403,36 @@ export function ShopsView({
 
       {/* Shop dialog */}
       <Dialog open={shopDialog} onOpenChange={setShopDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingShop ? "Edit Shop" : "Add Shop"}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="shop-name">Name</Label>
-              <Input
-                id="shop-name"
-                value={shopName}
-                onChange={(e) => setShopName(e.target.value)}
-                placeholder="Branch 3 — Landing"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="shop-name">Name</Label>
+                <Input
+                  id="shop-name"
+                  value={shopName}
+                  onChange={(e) => setShopName(e.target.value)}
+                  placeholder="Branch 3 — Landing"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="shop-loc">Location (text)</Label>
+                <Input
+                  id="shop-loc"
+                  value={shopLocation}
+                  onChange={(e) => setShopLocation(e.target.value)}
+                  placeholder="e.g. Poblacion"
+                />
+              </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="shop-loc">Location</Label>
-              <Input
-                id="shop-loc"
-                value={shopLocation}
-                onChange={(e) => setShopLocation(e.target.value)}
-              />
+              <Label>Map pin (optional)</Label>
+              {shopDialog && (
+                <LocationPicker value={shopPin} onChange={setShopPin} />
+              )}
             </div>
             <Label className="flex cursor-pointer items-center gap-2 text-sm">
               <Checkbox
@@ -505,44 +539,24 @@ export function ShopsView({
         </DialogContent>
       </Dialog>
 
-      {/* Reset password dialog */}
-      <Dialog open={resetFor !== null} onOpenChange={(o) => !o && setResetFor(null)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Reset password — {resetFor?.full_name}</DialogTitle>
-            <DialogDescription>
-              Set a new password and hand it to the employee.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor="reset-pw">New password (min 8 chars)</Label>
-            <Input
-              id="reset-pw"
-              type="text"
-              value={resetPw}
-              onChange={(e) => setResetPw(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setResetFor(null)}>
-              Cancel
-            </Button>
-            <Button onClick={onResetPassword} disabled={busy || resetPw.length < 8}>
-              {busy && <Loader2 className="size-4 animate-spin" />}
-              Reset password
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Change credentials (email/username + optional new password + enable) */}
+      <CredentialsDialog account={credsFor} onClose={() => setCredsFor(null)} />
 
       {/* Close shop — blockers shown upfront; server re-checks everything */}
       <CloseShopDialog
         shop={closing}
+        loginActive={
+          closing
+            ? employees.some(
+                (e) =>
+                  e.role === "employee" && e.shop_id === closing.id && e.active
+              )
+            : false
+        }
         staffCount={
           closing
-            ? employees.filter(
-                (e) => e.role === "employee" && e.shop_id === closing.id && e.active
-              ).length
+            ? payrollStaff.filter((p) => p.shop_id === closing.id && p.active)
+                .length
             : 0
         }
         onClose={() => setClosing(null)}
@@ -551,12 +565,115 @@ export function ShopsView({
   );
 }
 
+/** Email/username + password + enabled state for a shop's shared login. */
+function CredentialsDialog({
+  account,
+  onClose,
+}: {
+  account: EmployeeRow | null;
+  onClose: () => void;
+}) {
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [active, setActive] = React.useState(true);
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (account) {
+      setEmail(account.email);
+      setPassword("");
+      setActive(account.active);
+    }
+  }, [account]);
+
+  async function onSave() {
+    if (!account) return;
+    setBusy(true);
+    const res = await updateShopCredentials({
+      id: account.id,
+      email: email.trim(),
+      password: password || "",
+      active,
+    });
+    setBusy(false);
+    if (res.ok) {
+      toast.success("Credentials updated");
+      onClose();
+    } else {
+      toast.error(res.error);
+    }
+  }
+
+  return (
+    <Dialog open={account !== null} onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Change Credentials — {account?.shop_name}</DialogTitle>
+          <DialogDescription>
+            The shared login everyone at this shop uses. Hand any changes to
+            the staff.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="cred-email">Login email (username)</Label>
+            <Input
+              id="cred-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="cred-pass">New password</Label>
+            <Input
+              id="cred-pass"
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank to keep the current password"
+            />
+            {password !== "" && password.length < 8 && (
+              <p className="text-xs text-destructive">At least 8 characters.</p>
+            )}
+          </div>
+          <Label className="flex cursor-pointer items-center gap-2 text-sm">
+            <Checkbox
+              checked={active}
+              onCheckedChange={(v) => setActive(v === true)}
+            />
+            Login enabled (unchecking blocks this shop from signing in)
+          </Label>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            onClick={onSave}
+            disabled={
+              busy ||
+              email.trim() === "" ||
+              (password !== "" && password.length < 8)
+            }
+          >
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            Save credentials
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CloseShopDialog({
   shop,
+  loginActive,
   staffCount,
   onClose,
 }: {
   shop: ShopRow | null;
+  loginActive: boolean;
   staffCount: number;
   onClose: () => void;
 }) {
@@ -572,9 +689,13 @@ function CloseShopDialog({
           text: `${shop.engine_count} engine(s) still at this shop`,
           fix: "Deliveries & Returns → New Return",
         },
+        loginActive && {
+          text: "The shop's login is still enabled",
+          fix: "… menu → Change Credentials → untick “Login enabled”",
+        },
         staffCount > 0 && {
-          text: `${staffCount} active employee(s) still assigned`,
-          fix: "Reassign or deactivate them below",
+          text: `${staffCount} employee(s) still on payroll here`,
+          fix: "Payroll → Staff — deactivate or reassign them",
         },
         shop.pending_count > 0 && {
           text: `${shop.pending_count} submission(s) awaiting approval`,

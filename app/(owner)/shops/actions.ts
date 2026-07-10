@@ -21,6 +21,8 @@ const shopSchema = z.object({
   id: z.uuid().optional(),
   name: z.string().trim().min(1, "Name is required"),
   location: z.string().trim().max(200).optional().nullable(),
+  latitude: z.number().min(-90).max(90).nullable(),
+  longitude: z.number().min(-180).max(180).nullable(),
   active: z.boolean().default(true),
 });
 
@@ -53,33 +55,42 @@ export async function closeShop(id: string): Promise<ActionResult> {
 
   const supabase = await createClient();
 
-  const [stockRes, enginesRes, staffRes, salesRes, lossesRes] = await Promise.all([
-    supabase.from("stock_levels").select("qty").eq("shop_id", id).gt("qty", 0),
-    supabase
-      .from("engines")
-      .select("id", { count: "exact", head: true })
-      .eq("shop_id", id)
-      .eq("status", "delivered")
-      .is("deleted_at", null),
-    supabase
-      .from("profiles")
-      .select("id", { count: "exact", head: true })
-      .eq("shop_id", id)
-      .eq("active", true)
-      .is("deleted_at", null),
-    supabase
-      .from("sales")
-      .select("id", { count: "exact", head: true })
-      .eq("shop_id", id)
-      .in("status", ["pending", "questioned"])
-      .is("deleted_at", null),
-    supabase
-      .from("losses")
-      .select("id", { count: "exact", head: true })
-      .eq("shop_id", id)
-      .in("status", ["pending", "questioned"])
-      .is("deleted_at", null),
-  ]);
+  const [stockRes, enginesRes, loginRes, payrollStaffRes, salesRes, lossesRes] =
+    await Promise.all([
+      supabase.from("stock_levels").select("qty").eq("shop_id", id).gt("qty", 0),
+      supabase
+        .from("engines")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", id)
+        .eq("status", "delivered")
+        .is("deleted_at", null),
+      // the shop's shared login account
+      supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", id)
+        .eq("active", true)
+        .is("deleted_at", null),
+      // people on payroll at this shop
+      supabase
+        .from("staff")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", id)
+        .eq("active", true)
+        .is("deleted_at", null),
+      supabase
+        .from("sales")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", id)
+        .in("status", ["pending", "questioned"])
+        .is("deleted_at", null),
+      supabase
+        .from("losses")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", id)
+        .in("status", ["pending", "questioned"])
+        .is("deleted_at", null),
+    ]);
 
   const units = (stockRes.data ?? []).reduce((s, r) => s + r.qty, 0);
   if (units > 0) {
@@ -94,10 +105,16 @@ export async function closeShop(id: string): Promise<ActionResult> {
       error: `${enginesRes.count} engine(s) still at this shop — return them to master first.`,
     };
   }
-  if ((staffRes.count ?? 0) > 0) {
+  if ((loginRes.count ?? 0) > 0) {
     return {
       ok: false,
-      error: `${staffRes.count} active employee(s) still assigned — reassign or deactivate them first.`,
+      error: "The shop's login is still enabled — disable it first (… menu → Change Credentials).",
+    };
+  }
+  if ((payrollStaffRes.count ?? 0) > 0) {
+    return {
+      ok: false,
+      error: `${payrollStaffRes.count} employee(s) still on payroll for this shop — deactivate or reassign them in Payroll → Staff.`,
     };
   }
   const pending = (salesRes.count ?? 0) + (lossesRes.count ?? 0);
@@ -214,6 +231,73 @@ export async function updateEmployee(input: unknown): Promise<ActionResult> {
     .eq("id", parsed.data.id)
     .eq("role", "employee");
   if (error) return { ok: false, error: error.message };
+  revalidatePath("/shops");
+  return { ok: true };
+}
+
+/**
+ * Change a shop login's credentials: email (username), optionally a new
+ * password, and whether the account is enabled.
+ */
+const credentialsSchema = z.object({
+  id: z.uuid(),
+  email: z.email("Valid email required"),
+  password: z
+    .string()
+    .min(8, "Password needs at least 8 characters")
+    .optional()
+    .or(z.literal("")),
+  active: z.boolean(),
+});
+
+export async function updateShopCredentials(input: unknown): Promise<ActionResult> {
+  const ownerId = await requireOwnerAction();
+  if (!ownerId) return { ok: false, error: "Only the owner can manage shop logins" };
+
+  const parsed = credentialsSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  if (parsed.data.id === ownerId) {
+    return { ok: false, error: "You cannot edit your own account here." };
+  }
+
+  const supabase = await createClient();
+  const { data: target } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", parsed.data.id)
+    .single();
+  if (target?.role !== "employee") {
+    return { ok: false, error: "Not a shop login account." };
+  }
+
+  const admin = createAdminClient();
+  const authUpdate: { email: string; password?: string; email_confirm?: boolean } = {
+    email: parsed.data.email,
+    email_confirm: true,
+  };
+  if (parsed.data.password) authUpdate.password = parsed.data.password;
+
+  const { error: authError } = await admin.auth.admin.updateUserById(
+    parsed.data.id,
+    authUpdate
+  );
+  if (authError) {
+    return {
+      ok: false,
+      error: /already/i.test(authError.message)
+        ? "That email is already used by another account."
+        : authError.message,
+    };
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ active: parsed.data.active })
+    .eq("id", parsed.data.id);
+  if (error) return { ok: false, error: error.message };
+
   revalidatePath("/shops");
   return { ok: true };
 }

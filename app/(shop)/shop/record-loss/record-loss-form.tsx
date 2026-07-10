@@ -108,7 +108,7 @@ export function RecordLossForm({
     setSubmitting(false);
 
     if (res.ok) {
-      toast.success("Loss recorded — sent to the owner for approval");
+      toast.success("Loss saved — submit your batch to Jerry from Submissions");
       setPartId("");
       setEngineId("");
       setQty("1");
@@ -126,8 +126,8 @@ export function RecordLossForm({
           Record Loss / Adjustment
         </h1>
         <p className="text-sm text-muted-foreground">
-          Reason-tagged write-off request. Stock only deducts when the owner
-          approves.
+          Reason-tagged write-off request. It joins your batch and stock only
+          deducts when the owner approves.
         </p>
       </div>
 
@@ -263,7 +263,7 @@ export function RecordLossForm({
             ) : (
               <Send className="size-4" />
             )}
-            Submit for approval
+            Save loss report
           </Button>
         </CardContent>
       </Card>

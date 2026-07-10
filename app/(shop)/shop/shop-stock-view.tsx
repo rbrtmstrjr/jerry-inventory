@@ -5,6 +5,7 @@ import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   AlertTriangle,
+  Camera,
   ClipboardList,
   PhilippinePeso,
   ShoppingCart,
@@ -19,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable, SortableHeader } from "@/components/data-table/data-table";
 import { ProductCardImage } from "@/components/product-image";
 import { ViewToggle, usePersistedView } from "@/components/view-toggle";
+import { ShopPhotoDialog, type PhotoTarget } from "./shop-photo-dialog";
 import { Input } from "@/components/ui/input";
 import {
   Empty,
@@ -33,17 +35,20 @@ export function ShopStockView({
   engines,
   todayCount,
   todayTotalCentavos,
+  recordedCount,
   pendingCount,
 }: {
   stock: ShopStockRow[];
   engines: ShopEngineRow[];
   todayCount: number;
   todayTotalCentavos: number;
+  recordedCount: number;
   pendingCount: number;
 }) {
   const lowStock = stock.filter((s) => s.qty <= s.reorder_level && s.reorder_level > 0);
   const [view, setView] = usePersistedView("jm-view-shop-stock");
   const [cardSearch, setCardSearch] = React.useState("");
+  const [photoTarget, setPhotoTarget] = React.useState<PhotoTarget | null>(null);
 
   const q = cardSearch.trim().toLowerCase();
   const cardStock = q
@@ -58,14 +63,17 @@ export function ShopStockView({
   const stats = [
     {
       label: "Today's recorded sales",
-      value: `${todayCount}`,
-      hint: formatCentavos(todayTotalCentavos),
+      value: formatCentavos(todayTotalCentavos),
+      hint: `${todayCount} sale${todayCount === 1 ? "" : "s"}`,
       icon: ShoppingCart,
     },
     {
-      label: "Awaiting owner approval",
-      value: `${pendingCount}`,
-      hint: "sales + losses",
+      label: "Not yet submitted",
+      value: `${recordedCount}`,
+      hint:
+        pendingCount > 0
+          ? `${pendingCount} with Jerry for approval`
+          : "sales + losses to batch",
       icon: ClipboardList,
     },
     {
@@ -124,6 +132,27 @@ export function ShopStockView({
         </span>
       ),
     },
+    {
+      id: "photo",
+      header: "",
+      cell: ({ row }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            setPhotoTarget({
+              kind: "part",
+              id: row.original.part_id,
+              name: row.original.name,
+              image_path: row.original.image_path,
+            })
+          }
+        >
+          <Camera className="size-4" />
+          {row.original.image_path ? "Photo" : "Add photo"}
+        </Button>
+      ),
+    },
   ];
 
   const engineColumns: ColumnDef<ShopEngineRow>[] = [
@@ -161,6 +190,27 @@ export function ShopStockView({
         <span className="tabular-nums font-medium">
           {formatCentavos(getValue<number>())}
         </span>
+      ),
+    },
+    {
+      id: "photo",
+      header: "",
+      cell: ({ row }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            setPhotoTarget({
+              kind: "engine",
+              id: row.original.engine_id,
+              name: `${row.original.brand} ${row.original.model} — SN ${row.original.serial_number}`,
+              image_path: row.original.image_path,
+            })
+          }
+        >
+          <Camera className="size-4" />
+          {row.original.image_path ? "Photo" : "Add photo"}
+        </Button>
       ),
     },
   ];
@@ -270,6 +320,24 @@ export function ShopStockView({
                             alt={s.name}
                             className={out ? "grayscale" : undefined}
                           />
+                          <div className="absolute right-1.5 top-1.5">
+                            <Button
+                              variant="secondary"
+                              size="icon-sm"
+                              className="bg-background/80 backdrop-blur-sm"
+                              aria-label={`Edit photo of ${s.name}`}
+                              onClick={() =>
+                                setPhotoTarget({
+                                  kind: "part",
+                                  id: s.part_id,
+                                  name: s.name,
+                                  image_path: s.image_path,
+                                })
+                              }
+                            >
+                              <Camera className="size-4" />
+                            </Button>
+                          </div>
                           {out ? (
                             <Badge
                               variant="destructive"
@@ -351,10 +419,30 @@ export function ShopStockView({
                       key={e.engine_id}
                       className="flex flex-col overflow-hidden rounded-lg border bg-card transition-shadow hover:shadow-md"
                     >
-                      <ProductCardImage
-                        path={e.image_path}
-                        alt={`${e.brand} ${e.model}`}
-                      />
+                      <div className="relative">
+                        <ProductCardImage
+                          path={e.image_path}
+                          alt={`${e.brand} ${e.model}`}
+                        />
+                        <div className="absolute right-1.5 top-1.5">
+                          <Button
+                            variant="secondary"
+                            size="icon-sm"
+                            className="bg-background/80 backdrop-blur-sm"
+                            aria-label={`Edit photo of ${e.brand} ${e.model}`}
+                            onClick={() =>
+                              setPhotoTarget({
+                                kind: "engine",
+                                id: e.engine_id,
+                                name: `${e.brand} ${e.model} — SN ${e.serial_number}`,
+                                image_path: e.image_path,
+                              })
+                            }
+                          >
+                            <Camera className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
                       <div className="flex flex-1 flex-col gap-1 p-3">
                         <div className="line-clamp-2 text-sm font-medium">
                           {e.brand} {e.model}
@@ -380,6 +468,8 @@ export function ShopStockView({
           )}
         </TabsContent>
       </Tabs>
+
+      <ShopPhotoDialog target={photoTarget} onClose={() => setPhotoTarget(null)} />
     </div>
   );
 }

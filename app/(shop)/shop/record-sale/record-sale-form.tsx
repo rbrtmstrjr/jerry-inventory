@@ -8,6 +8,7 @@ import {
   Minus,
   Plus,
   ScanLine,
+  Search,
   Send,
   ShoppingCart,
   Trash2,
@@ -15,7 +16,7 @@ import {
 import { toast } from "sonner";
 
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProductThumb } from "@/components/product-image";
@@ -65,6 +66,7 @@ export function RecordSaleForm({
   const [cart, setCart] = React.useState<CartLine[]>([]);
   const [custName, setCustName] = React.useState("");
   const [custPhone, setCustPhone] = React.useState("");
+  const [tendered, setTendered] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
 
   // Keep the scan box focused — keyboard-wedge scanners type + press Enter.
@@ -104,6 +106,13 @@ export function RecordSaleForm({
     (s, l) => s + (l.kind === "part" ? l.price_centavos * l.qty : l.price_centavos),
     0
   );
+
+  // cash/change helper (display only — payment isn't stored on the sale)
+  const tenderedCentavos = parsePesosToCentavos(tendered || "0");
+  const change =
+    tendered.trim() !== "" && tenderedCentavos !== null
+      ? tenderedCentavos - total
+      : null;
 
   function addPart(p: ShopStockRow) {
     setCart((c) => {
@@ -184,30 +193,24 @@ export function RecordSaleForm({
     );
   }
 
+  // browsable list: show everything, narrow as the employee types
   const q = search.trim().toLowerCase();
-  const matches =
-    q.length >= 2
-      ? [
-          ...stock
-            .filter(
-              (p) =>
-                p.name.toLowerCase().includes(q) ||
-                (p.sku ?? "").toLowerCase().includes(q) ||
-                (p.barcode ?? "").toLowerCase().includes(q)
-            )
-            .slice(0, 6),
-        ]
-      : [];
-  const engineMatches =
-    q.length >= 2
-      ? engines
-          .filter(
-            (en) =>
-              en.serial_number.toLowerCase().includes(q) ||
-              `${en.brand} ${en.model}`.toLowerCase().includes(q)
-          )
-          .slice(0, 4)
-      : [];
+  const matches = q
+    ? stock.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.sku ?? "").toLowerCase().includes(q) ||
+          (p.barcode ?? "").toLowerCase().includes(q) ||
+          (p.category ?? "").toLowerCase().includes(q)
+      )
+    : stock;
+  const engineMatches = q
+    ? engines.filter(
+        (en) =>
+          en.serial_number.toLowerCase().includes(q) ||
+          `${en.brand} ${en.model}`.toLowerCase().includes(q)
+      )
+    : engines;
 
   async function onSubmit() {
     if (cart.length === 0) {
@@ -241,10 +244,11 @@ export function RecordSaleForm({
     setSubmitting(false);
 
     if (res.ok) {
-      toast.success("Sale recorded — sent to the owner for approval");
+      toast.success("Sale saved — submit your batch to Jerry from Submissions");
       setCart([]);
       setCustName("");
       setCustPhone("");
+      setTendered("");
       router.refresh();
       scanRef.current?.focus();
     } else {
@@ -263,9 +267,9 @@ export function RecordSaleForm({
           </p>
         </div>
 
-        {/* Scan box */}
-        <Card>
-          <CardContent className="pt-6">
+        {/* One panel: scan on top, browse/search list below */}
+        <Card className="overflow-hidden py-0 gap-0">
+          <div className="border-b bg-muted/40 px-4 py-3">
             <form onSubmit={onScan} className="flex items-center gap-2">
               <ScanLine className="size-5 shrink-0 text-muted-foreground" />
               <Input
@@ -273,90 +277,97 @@ export function RecordSaleForm({
                 value={scan}
                 onChange={(e) => setScan(e.target.value)}
                 placeholder="Scan barcode or serial, then Enter…"
-                className="text-base"
+                className="bg-background text-base"
                 autoComplete="off"
               />
               <Button type="submit" variant="secondary">
                 <Barcode className="size-4" /> Add
               </Button>
             </form>
-          </CardContent>
-        </Card>
+          </div>
 
-        {/* Search fallback */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">No scanner? Search</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Type at least 2 letters…"
-            />
-            {matches.map((p) => (
-              <button
-                key={p.part_id}
-                type="button"
-                onClick={() => {
-                  addPart(p);
-                  toast.success(`${p.name} added`);
-                }}
-                className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/80"
-              >
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <ProductThumb path={p.image_path} alt={p.name} size={36} />
-                  <span className="min-w-0">
-                    {p.name}
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {p.qty} {p.unit} on hand
-                    </span>
-                    {fitmentHints[p.part_id] && (
-                      <span className="block truncate text-xs text-accent-foreground">
-                        Fits: {fitmentHints[p.part_id]}
+          <div className="flex flex-col gap-2 p-4">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="No scanner? Search or tap an item below…"
+                className="pl-8"
+                aria-label="Search shop stock"
+              />
+            </div>
+
+            <div className="thin-scrollbar flex max-h-[52vh] flex-col gap-1.5 overflow-y-auto pr-1">
+              {matches.map((p) => (
+                <button
+                  key={p.part_id}
+                  type="button"
+                  onClick={() => {
+                    addPart(p);
+                    toast.success(`${p.name} added`);
+                  }}
+                  disabled={p.qty === 0}
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <ProductThumb path={p.image_path} alt={p.name} size={36} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{p.name}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {p.qty} {p.unit} on hand
+                        {fitmentHints[p.part_id] &&
+                          ` · Fits: ${fitmentHints[p.part_id]}`}
                       </span>
-                    )}
-                  </span>
-                </span>
-                <span className="tabular-nums font-medium">
-                  {formatCentavos(p.price_centavos)}
-                </span>
-              </button>
-            ))}
-            {engineMatches.map((en) => (
-              <button
-                key={en.engine_id}
-                type="button"
-                onClick={() => addEngine(en)}
-                className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/80"
-              >
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <ProductThumb
-                    path={en.image_path}
-                    alt={`${en.brand} ${en.model}`}
-                    size={36}
-                  />
-                  <span className="min-w-0">
-                    <Badge variant="secondary" className="mr-2">
-                      Engine
-                    </Badge>
-                    {en.brand} {en.model}
-                    <span className="ml-2 font-mono text-xs text-muted-foreground">
-                      {en.serial_number}
                     </span>
                   </span>
-                </span>
-                <span className="tabular-nums font-medium">
-                  {formatCentavos(en.price_centavos)}
-                </span>
-              </button>
-            ))}
-            {q.length >= 2 && matches.length + engineMatches.length === 0 && (
-              <p className="px-1 text-sm text-muted-foreground">
-                Nothing in your shop stock matches.
-              </p>
-            )}
-          </CardContent>
+                  <span className="shrink-0 tabular-nums font-medium">
+                    {formatCentavos(p.price_centavos)}
+                  </span>
+                </button>
+              ))}
+
+              {engineMatches.map((en) => (
+                <button
+                  key={en.engine_id}
+                  type="button"
+                  onClick={() => addEngine(en)}
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/80"
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <ProductThumb
+                      path={en.image_path}
+                      alt={`${en.brand} ${en.model}`}
+                      size={36}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">
+                        {en.brand} {en.model}
+                        {en.horsepower != null && ` — ${en.horsepower}HP`}
+                      </span>
+                      <span className="block truncate font-mono text-xs text-muted-foreground">
+                        SN {en.serial_number}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <Badge variant="secondary">Engine</Badge>
+                    <span className="tabular-nums font-medium">
+                      {formatCentavos(en.price_centavos)}
+                    </span>
+                  </span>
+                </button>
+              ))}
+
+              {matches.length + engineMatches.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  {q
+                    ? "Nothing in your shop stock matches."
+                    : "No stock delivered yet."}
+                </p>
+              )}
+            </div>
+          </div>
         </Card>
       </div>
 
@@ -373,109 +384,187 @@ export function RecordSaleForm({
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {cart.length === 0 && (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                Scan or search to add items.
+            {cart.length === 0 ? (
+              <p className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
+                Scan or tap items on the left to add them.
               </p>
-            )}
-            {cart.map((l) =>
-              l.kind === "part" ? (
-                <div key={l.part_id} className="flex items-center gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{l.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatCentavos(l.price_centavos)} × {l.qty} ={" "}
-                      {formatCentavos(l.price_centavos * l.qty)}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="size-7"
-                      aria-label="Decrease"
-                      onClick={() => setQty(l.part_id, l.qty - 1)}
+            ) : (
+              <div className="rounded-md border">
+                {cart.map((l, i) =>
+                  l.kind === "part" ? (
+                    <div
+                      key={l.part_id}
+                      className={`flex items-center gap-2 px-3 py-2.5 ${
+                        i > 0 ? "border-t" : ""
+                      }`}
                     >
-                      <Minus className="size-3" />
-                    </Button>
-                    <span className="w-8 text-center tabular-nums text-sm">{l.qty}</span>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="size-7"
-                      aria-label="Increase"
-                      onClick={() => setQty(l.part_id, l.qty + 1)}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">{l.name}</div>
+                        <div className="text-xs text-muted-foreground tabular-nums">
+                          {formatCentavos(l.price_centavos)} × {l.qty} ={" "}
+                          <span className="font-medium text-foreground">
+                            {formatCentavos(l.price_centavos * l.qty)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon-sm"
+                          aria-label="Decrease"
+                          onClick={() => setQty(l.part_id, l.qty - 1)}
+                        >
+                          <Minus className="size-3" />
+                        </Button>
+                        <span className="w-8 text-center tabular-nums text-sm">
+                          {l.qty}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="icon-sm"
+                          aria-label="Increase"
+                          disabled={l.qty >= l.available}
+                          onClick={() => setQty(l.part_id, l.qty + 1)}
+                        >
+                          <Plus className="size-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      key={l.engine_id}
+                      className={`flex items-center gap-2 px-3 py-2.5 ${
+                        i > 0 ? "border-t" : ""
+                      }`}
                     >
-                      <Plus className="size-3" />
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div key={l.engine_id} className="flex items-center gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      <Badge variant="secondary" className="mr-1">
-                        Engine
-                      </Badge>
-                      {l.label}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">
+                          <Badge variant="secondary" className="mr-1">
+                            Engine
+                          </Badge>
+                          {l.label}
+                        </div>
+                        <div className="font-mono text-xs text-muted-foreground">
+                          SN {l.serial} · {formatCentavos(l.price_centavos)}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Remove engine"
+                        onClick={() =>
+                          setCart((c) =>
+                            c.filter(
+                              (x) =>
+                                !(x.kind === "engine" && x.engine_id === l.engine_id)
+                            )
+                          )
+                        }
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
                     </div>
-                    <div className="font-mono text-xs text-muted-foreground">
-                      SN {l.serial} · {formatCentavos(l.price_centavos)}
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7"
-                    aria-label="Remove engine"
-                    onClick={() =>
-                      setCart((c) =>
-                        c.filter(
-                          (x) => !(x.kind === "engine" && x.engine_id === l.engine_id)
-                        )
-                      )
-                    }
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
-              )
+                  )
+                )}
+              </div>
             )}
 
             {cart.length > 0 && (
               <>
-                <div className="flex items-center justify-between border-t pt-3">
+                <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Total</span>
                   <span className="text-lg font-bold tabular-nums">
                     {formatCentavos(total)}
                   </span>
                 </div>
 
-                <div className="grid gap-2">
+                {/* Cash & change helper */}
+                <div className="grid gap-2 rounded-md border p-3">
+                  <Label htmlFor="cash-tendered">Customer&apos;s cash ₱</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="cash-tendered"
+                      inputMode="decimal"
+                      value={tendered}
+                      onChange={(e) =>
+                        setTendered(e.target.value.replace(/[^\d.]/g, ""))
+                      }
+                      placeholder="0.00"
+                      className="text-base tabular-nums"
+                    />
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTendered((total / 100).toFixed(2))}
+                      >
+                        Exact
+                      </Button>
+                      {[10000, 50000, 100000].map((bill) => (
+                        <Button
+                          key={bill}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="tabular-nums"
+                          onClick={() => setTendered(String(bill / 100))}
+                        >
+                          {bill / 100}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  {change !== null &&
+                    (change >= 0 ? (
+                      <div className="flex items-center justify-between rounded-md bg-success/10 px-3 py-2">
+                        <span className="text-sm font-medium text-success">
+                          Change (sukli)
+                        </span>
+                        <span className="text-xl font-bold tabular-nums text-success">
+                          {formatCentavos(change)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between rounded-md bg-destructive/10 px-3 py-2">
+                        <span className="text-sm font-medium text-destructive">
+                          Kulang (short)
+                        </span>
+                        <span className="text-xl font-bold tabular-nums text-destructive">
+                          {formatCentavos(-change)}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+
+                <div className="grid gap-2 rounded-md bg-muted/40 p-3">
                   <Label htmlFor="cust-name">
-                    Customer {hasEngine ? "(required for engine warranty)" : "(optional)"}
+                    Customer{" "}
+                    {hasEngine ? "(required for engine warranty)" : "(optional)"}
                   </Label>
                   <Input
                     id="cust-name"
                     value={custName}
                     onChange={(e) => setCustName(e.target.value)}
                     placeholder="Customer name"
+                    className="bg-background"
                   />
                   <Input
                     value={custPhone}
                     onChange={(e) => setCustPhone(e.target.value)}
                     placeholder="Phone (optional)"
                     aria-label="Customer phone"
+                    className="bg-background"
                   />
                 </div>
 
-                <Button onClick={onSubmit} disabled={submitting} className="w-full">
+                <Button onClick={onSubmit} disabled={submitting} className="self-end">
                   {submitting ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <Send className="size-4" />
                   )}
-                  Submit for approval
+                  Save sale
                 </Button>
               </>
             )}

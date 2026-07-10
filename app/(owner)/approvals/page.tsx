@@ -15,7 +15,8 @@ export default async function ApprovalsPage() {
     supabase
       .from("sales")
       .select(
-        `id, shop_id, business_date, status, total_centavos, owner_note, created_at,
+        `id, shop_id, business_date, status, total_centavos, owner_note, created_at, batch_id,
+         submission_batches(submitted_at),
          shops(name),
          profiles!sales_recorded_by_fkey(full_name),
          customers(name, phone),
@@ -27,7 +28,8 @@ export default async function ApprovalsPage() {
     supabase
       .from("losses")
       .select(
-        `id, shop_id, business_date, status, reason, qty, note, owner_note, description, created_at,
+        `id, shop_id, business_date, status, reason, qty, note, owner_note, description, created_at, batch_id,
+         submission_batches(submitted_at),
          shops(name),
          profiles!losses_recorded_by_fkey(full_name)`
       )
@@ -46,6 +48,8 @@ export default async function ApprovalsPage() {
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const sales: PendingSale[] = (salesRes.data ?? []).map((s: any) => ({
     id: s.id,
+    batch_id: s.batch_id ?? null,
+    batch_submitted_at: s.submission_batches?.submitted_at ?? null,
     shop_name: s.shops?.name ?? "?",
     employee: s.profiles?.full_name ?? "?",
     customer: s.customers?.name ?? null,
@@ -64,6 +68,8 @@ export default async function ApprovalsPage() {
 
   const losses: PendingLoss[] = (lossesRes.data ?? []).map((l: any) => ({
     id: l.id,
+    batch_id: l.batch_id ?? null,
+    batch_submitted_at: l.submission_batches?.submitted_at ?? null,
     shop_name: l.shops?.name ?? "?",
     employee: l.profiles?.full_name ?? "?",
     status: l.status,

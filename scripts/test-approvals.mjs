@@ -70,6 +70,11 @@ const { data: overSaleId } = await emp1.rpc("fn_record_sale", {
   p_part_lines: [{ part_id: part.id, qty: 4 }], p_engine_ids: [],
 });
 check("three submissions recorded", !!saleId && !!lossId && !!overSaleId);
+{
+  // new batch flow: recorded items must be submitted before the owner sees them
+  const { data, error } = await emp1.rpc("fn_submit_shop_batch");
+  check("batch submitted to owner (2 sales + 1 loss)", !error && data?.sales === 2 && data?.losses === 1, error?.message);
+}
 
 console.log("\nSecurity: employee cannot approve");
 {

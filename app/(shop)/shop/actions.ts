@@ -74,7 +74,50 @@ export async function recordLoss(input: unknown): Promise<ActionResult> {
   return { ok: true, id: data as string };
 }
 
-/** Cancel own PENDING sale (RLS blocks anything else). */
+/**
+ * Send everything the shop has recorded (sales + losses) to the owner's
+ * approval queue in one batch — at the employee's chosen moment.
+ */
+export async function submitShopBatch(): Promise<
+  { ok: true; sales: number; losses: number } | { ok: false; error: string }
+> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("fn_submit_shop_batch");
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/shop");
+  revalidatePath("/shop/submissions");
+  const counts = data as { sales: number; losses: number };
+  return { ok: true, sales: counts.sales, losses: counts.losses };
+}
+
+/**
+ * Set/clear a product photo for an item in the employee's OWN shop.
+ * The DB function enforces the shop scope and locks the path to {id}.webp.
+ */
+export async function setShopProductImage(input: unknown): Promise<ActionResult> {
+  const parsed = z
+    .object({
+      kind: z.enum(["part", "engine"]),
+      id: z.uuid(),
+      clear: z.boolean().default(false),
+    })
+    .safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_set_product_image", {
+    p_kind: parsed.data.kind,
+    p_id: parsed.data.id,
+    p_clear: parsed.data.clear,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/shop");
+  revalidatePath("/shop/record-sale");
+  return { ok: true };
+}
+
+/** Cancel own RECORDED or PENDING sale (RLS blocks anything else). */
 export async function cancelSale(id: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -84,13 +127,17 @@ export async function cancelSale(id: string): Promise<ActionResult> {
     .select("id");
   if (error) return { ok: false, error: error.message };
   if (!data || data.length === 0) {
-    return { ok: false, error: "Only pending submissions can be cancelled." };
+    return {
+      ok: false,
+      error: "Only not-yet-reviewed submissions can be cancelled.",
+    };
   }
+  revalidatePath("/shop");
   revalidatePath("/shop/submissions");
   return { ok: true };
 }
 
-/** Cancel own PENDING loss. */
+/** Cancel own RECORDED or PENDING loss. */
 export async function cancelLoss(id: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -100,8 +147,12 @@ export async function cancelLoss(id: string): Promise<ActionResult> {
     .select("id");
   if (error) return { ok: false, error: error.message };
   if (!data || data.length === 0) {
-    return { ok: false, error: "Only pending submissions can be cancelled." };
+    return {
+      ok: false,
+      error: "Only not-yet-reviewed submissions can be cancelled.",
+    };
   }
+  revalidatePath("/shop");
   revalidatePath("/shop/submissions");
   return { ok: true };
 }

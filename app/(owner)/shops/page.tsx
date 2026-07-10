@@ -8,10 +8,10 @@ export const metadata: Metadata = { title: "Shops & Employees" };
 export default async function ShopsPage() {
   const supabase = await createClient();
 
-  const [shopsRes, profilesRes, stockRes, enginesRes, pendSalesRes, pendLossesRes] = await Promise.all([
+  const [shopsRes, profilesRes, stockRes, enginesRes, pendSalesRes, pendLossesRes, staffRes] = await Promise.all([
     supabase
       .from("shops")
-      .select("id, name, location, active")
+      .select("id, name, location, latitude, longitude, active")
       .is("deleted_at", null)
       .order("name"),
     supabase
@@ -39,6 +39,12 @@ export default async function ShopsPage() {
       .select("shop_id")
       .in("status", ["pending", "questioned"])
       .is("deleted_at", null),
+    // payroll staff (the actual people) — shown per shop card
+    supabase
+      .from("staff")
+      .select("id, full_name, shop_id, active, positions(title)")
+      .is("deleted_at", null)
+      .order("full_name"),
   ]);
 
   // per-shop stock summaries
@@ -84,5 +90,15 @@ export default async function ShopsPage() {
     pending_count: pendingByShop[s.id] ?? 0,
   }));
 
-  return <ShopsView shops={shops} employees={employees} />;
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const staff = (staffRes.data ?? []).map((s: any) => ({
+    id: s.id as string,
+    full_name: s.full_name as string,
+    shop_id: s.shop_id as string,
+    active: s.active as boolean,
+    position: (s.positions?.title ?? null) as string | null,
+  }));
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  return <ShopsView shops={shops} employees={employees} staff={staff} />;
 }

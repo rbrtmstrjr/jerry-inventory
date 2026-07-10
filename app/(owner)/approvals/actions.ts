@@ -24,6 +24,23 @@ export async function approveSale(id: string, note?: string): Promise<ActionResu
   return { ok: true };
 }
 
+/** Approve every pending item in a shop's batch in one shot. */
+export async function approveBatch(
+  id: string,
+  note?: string
+): Promise<{ ok: true; sales: number; losses: number } | { ok: false; error: string }> {
+  if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid id" };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("fn_approve_batch", {
+    p_batch_id: id,
+    p_note: note?.trim() || null,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidate();
+  const counts = data as { sales: number; losses: number };
+  return { ok: true, sales: counts.sales, losses: counts.losses };
+}
+
 export async function approveLoss(id: string, note?: string): Promise<ActionResult> {
   if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid id" };
   const supabase = await createClient();

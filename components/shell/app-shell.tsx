@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   LayoutDashboard,
+  LifeBuoy,
   LogOut,
   Menu,
   Moon,
@@ -193,21 +194,50 @@ function ThemeToggle() {
   );
 }
 
-function UserMenu({ userName, contextLabel }: { userName: string; contextLabel: string }) {
+const SUPPORT_URL = "https://www.facebook.com/rbrtmstrjr09";
+
+function useSignOut() {
   const router = useRouter();
+  return async function signOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
+  };
+}
+
+function SidebarFooter({ contextLabel }: { contextLabel: string }) {
+  const signOut = useSignOut();
+  const itemClass =
+    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
+  return (
+    <div className="mt-auto flex flex-col gap-1 border-t border-sidebar-border px-3 py-3">
+      <a
+        href={SUPPORT_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={itemClass}
+      >
+        <LifeBuoy className="size-4 shrink-0" />
+        Support
+      </a>
+      <button type="button" onClick={signOut} className={itemClass}>
+        <LogOut className="size-4 shrink-0" />
+        Log out
+      </button>
+      <div className="px-3 pt-1 text-xs text-muted-foreground">{contextLabel}</div>
+    </div>
+  );
+}
+
+function UserMenu({ userName, contextLabel }: { userName: string; contextLabel: string }) {
+  const signOut = useSignOut();
   const initials = userName
     .split(/\s+/)
     .map((p) => p[0])
     .slice(0, 2)
     .join("")
     .toUpperCase();
-
-  async function signOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
-  }
 
   return (
     <DropdownMenu>
@@ -249,9 +279,7 @@ export function AppShell({ variant, userName, contextLabel, children }: AppShell
           pathname={pathname}
           showApprovalsBadge={variant === "owner"}
         />
-        <div className="mt-auto px-6 py-4 text-xs text-muted-foreground">
-          {contextLabel}
-        </div>
+        <SidebarFooter contextLabel={contextLabel} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto print:overflow-visible">
@@ -264,7 +292,7 @@ export function AppShell({ variant, userName, contextLabel, children }: AppShell
                 <Menu className="size-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-72 bg-sidebar p-0">
+            <SheetContent side="left" className="flex w-72 flex-col bg-sidebar p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <Brand />
               <NavLinks
@@ -273,6 +301,7 @@ export function AppShell({ variant, userName, contextLabel, children }: AppShell
                 onNavigate={() => setMobileOpen(false)}
                 showApprovalsBadge={variant === "owner"}
               />
+              <SidebarFooter contextLabel={contextLabel} />
             </SheetContent>
           </Sheet>
 
