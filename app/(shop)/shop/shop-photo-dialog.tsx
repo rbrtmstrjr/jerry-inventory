@@ -55,15 +55,17 @@ export function ShopPhotoDialog({
     }
     setBusy(true);
     const supabase = createClient();
-    const objectPath = `${target.id}.webp`;
+    const oldPath = target.image_path;
 
     if (action.type === "set") {
+      // versioned name — a fresh URL every replace, so no browser/CDN cache
+      // can keep showing the old photo
+      const objectPath = `${target.id}-${Date.now()}.webp`;
       const { error } = await supabase.storage
         .from(PRODUCT_IMAGE_BUCKET)
         .upload(objectPath, action.image.blob, {
-          upsert: true,
           contentType: "image/webp",
-          cacheControl: "3600",
+          cacheControl: "31536000",
         });
       if (error) {
         setBusy(false);
@@ -73,6 +75,7 @@ export function ShopPhotoDialog({
       const res = await setShopProductImage({
         kind: target.kind,
         id: target.id,
+        path: objectPath,
         clear: false,
       });
       setBusy(false);
@@ -80,12 +83,18 @@ export function ShopPhotoDialog({
         toast.error(res.error);
         return;
       }
+      if (oldPath && oldPath !== objectPath) {
+        await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+      }
       toast.success(`Photo saved for ${target.name}`);
     } else {
-      await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([objectPath]);
+      if (oldPath) {
+        await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+      }
       const res = await setShopProductImage({
         kind: target.kind,
         id: target.id,
+        path: null,
         clear: true,
       });
       setBusy(false);

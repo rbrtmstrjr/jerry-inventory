@@ -112,18 +112,20 @@ export function EngineFormDialog({
       return;
     }
 
-    // upload/remove the photo for a known engine id, then persist the path
+    // upload/remove the photo for a known engine id, then persist the path.
+    // Versioned names give every replace a fresh URL (cache-proof); the old
+    // object is deleted after the swap.
     async function applyImage(engineId: string) {
       if (imageAction.type === "keep") return;
       const supabase = createClient();
-      const objectPath = `${engineId}.webp`;
+      const oldPath = engine?.image_path ?? null;
       if (imageAction.type === "set") {
+        const objectPath = `${engineId}-${Date.now()}.webp`;
         const { error } = await supabase.storage
           .from(PRODUCT_IMAGE_BUCKET)
           .upload(objectPath, imageAction.image.blob, {
-            upsert: true,
             contentType: "image/webp",
-            cacheControl: "3600",
+            cacheControl: "31536000",
           });
         if (error) {
           toast.error(`Engine saved, but the photo upload failed: ${error.message}`);
@@ -131,8 +133,13 @@ export function EngineFormDialog({
         }
         const set = await setEngineImage(engineId, objectPath);
         if (!set.ok) toast.error(set.error);
+        else if (oldPath && oldPath !== objectPath) {
+          await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+        }
       } else {
-        await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([objectPath]);
+        if (oldPath) {
+          await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+        }
         const set = await setEngineImage(engineId, null);
         if (!set.ok) toast.error(set.error);
       }

@@ -99,6 +99,11 @@ export async function setShopProductImage(input: unknown): Promise<ActionResult>
     .object({
       kind: z.enum(["part", "engine"]),
       id: z.uuid(),
+      path: z
+        .string()
+        .regex(/^[0-9a-f-]{36}(-\d+)?\.webp$/)
+        .nullable()
+        .default(null),
       clear: z.boolean().default(false),
     })
     .safeParse(input);
@@ -109,6 +114,7 @@ export async function setShopProductImage(input: unknown): Promise<ActionResult>
   const { error } = await supabase.rpc("fn_set_product_image", {
     p_kind: parsed.data.kind,
     p_id: parsed.data.id,
+    p_path: parsed.data.path,
     p_clear: parsed.data.clear,
   });
   if (error) return { ok: false, error: error.message };

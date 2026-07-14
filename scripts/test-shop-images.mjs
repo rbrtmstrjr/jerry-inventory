@@ -84,6 +84,29 @@ console.log("\nEmployee CAN manage photos for their own shop's items:");
   check("replace (upsert) allowed for own-shop item", !error, error?.message);
 }
 
+console.log("\nVersioned paths (cache-proof replace):");
+const vPath = `${inShop.id}-${Date.now()}.webp`;
+{
+  const up = await emp2.storage
+    .from(BUCKET)
+    .upload(vPath, WEBP_1PX, { contentType: "image/webp" });
+  check("versioned upload allowed for own-shop item", !up.error, up.error?.message);
+  const { data, error } = await emp2.rpc("fn_set_product_image", {
+    p_kind: "part", p_id: inShop.id, p_path: vPath, p_clear: false,
+  });
+  check("versioned path accepted by scoped function", !error && data === vPath, error?.message);
+  const { data: v } = await emp2.from("shop_stock").select("image_path").eq("part_id", inShop.id).single();
+  check("shop_stock view shows the versioned photo", v?.image_path === vPath);
+  const rm = await emp2.storage.from(BUCKET).remove([`${inShop.id}.webp`]);
+  check("old object deletable after the swap", !rm.error, rm.error?.message);
+}
+{
+  const { error } = await emp2.rpc("fn_set_product_image", {
+    p_kind: "part", p_id: inShop.id, p_path: `${notInShop.id}-123.webp`, p_clear: false,
+  });
+  check("path pointing at another product's id rejected", !!error && /invalid image path/i.test(error.message), error?.message);
+}
+
 console.log("\nEmployee CANNOT touch anything outside their shop:");
 {
   const { error } = await emp2.storage
@@ -113,7 +136,7 @@ console.log("\nEmployee can also clear a photo on their own item:");
   const { error } = await emp2.rpc("fn_set_product_image", {
     p_kind: "part", p_id: inShop.id, p_clear: true,
   });
-  const { error: rmErr } = await emp2.storage.from(BUCKET).remove([`${inShop.id}.webp`]);
+  const { error: rmErr } = await emp2.storage.from(BUCKET).remove([vPath]);
   check("clear + object delete allowed for own-shop item", !error && !rmErr, error?.message ?? rmErr?.message);
 }
 

@@ -131,29 +131,35 @@ export function PartFormDialog({
     }
 
     // Image: upload/remove the Storage object (owner-only via Storage RLS),
-    // then persist the path. Path convention: {partId}.webp — upsert on
-    // replace so no duplicates accumulate.
+    // then persist the path. Versioned names ({partId}-<ts>.webp) give every
+    // replace a fresh URL so no browser/CDN cache shows the old photo; the
+    // previous object is deleted after the swap.
     const partId = part?.id ?? res.id;
     if (partId && imageAction.type !== "keep") {
       const supabase = createClient();
-      const objectPath = `${partId}.webp`;
+      const oldPath = part?.image_path ?? null;
 
       if (imageAction.type === "set") {
+        const objectPath = `${partId}-${Date.now()}.webp`;
         const { error } = await supabase.storage
           .from(PRODUCT_IMAGE_BUCKET)
           .upload(objectPath, imageAction.image.blob, {
-            upsert: true,
             contentType: "image/webp",
-            cacheControl: "3600",
+            cacheControl: "31536000",
           });
         if (error) {
           toast.error(`Part saved, but the photo upload failed: ${error.message}`);
         } else {
           const set = await setPartImage(partId, objectPath);
           if (!set.ok) toast.error(set.error);
+          else if (oldPath && oldPath !== objectPath) {
+            await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+          }
         }
       } else {
-        await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([objectPath]);
+        if (oldPath) {
+          await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+        }
         const set = await setPartImage(partId, null);
         if (!set.ok) toast.error(set.error);
       }
