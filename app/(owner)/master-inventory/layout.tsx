@@ -1,11 +1,13 @@
 import { SectionTabs } from "@/components/shell/section-tabs";
 
+// Suppliers moved to /suppliers — stock starts at a supplier, so they head the
+// INVENTORY sidebar group instead of hiding inside Master Inventory. The old
+// route redirects.
 const tabs = [
   { href: "/master-inventory", label: "Products" },
   { href: "/master-inventory/receiving", label: "Receiving" },
   { href: "/master-inventory/bulk-add", label: "Bulk Add" },
   { href: "/master-inventory/labels", label: "Labels" },
-  { href: "/master-inventory/suppliers", label: "Suppliers" },
 ];
 
 export default function MasterInventoryLayout({
@@ -20,7 +22,7 @@ export default function MasterInventoryLayout({
           Master Inventory
         </h1>
         <p className="text-sm text-muted-foreground">
-          Maccky&apos;s central stock — invisible to shops.
+          Admin&apos;s central stock — invisible to shops.
         </p>
       </div>
       <SectionTabs tabs={tabs} />

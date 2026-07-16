@@ -8,7 +8,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { EngineModel, EngineRow } from "@/lib/db-types";
-import { parsePesosToCentavos } from "@/lib/format";
+import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
 import { createClient } from "@/lib/supabase/client";
 import { PRODUCT_IMAGE_BUCKET } from "@/lib/product-image";
 import { Button } from "@/components/ui/button";
@@ -39,16 +39,37 @@ const pesoField = z
   .string()
   .refine((v) => parsePesosToCentavos(v) !== null, "Enter a valid ₱ amount");
 
-const formSchema = z.object({
-  serial_number: z.string().trim().min(1, "Serial is required"),
-  engine_model_id: z.string().min(1, "Pick a model"),
-  condition: z.enum(["brand_new", "second_hand"]),
-  cost: pesoField,
-  price: pesoField,
-  warranty_months: z.string(), // "" = model default
-});
+const pctField = z
+  .string()
+  .refine((v) => v.trim() !== "" && !isNaN(Number(v)) && Number(v) >= 0, "Enter a %");
+
+const formSchema = z
+  .object({
+    serial_number: z.string().trim().min(1, "Serial is required"),
+    engine_model_id: z.string().min(1, "Pick a model"),
+    condition: z.enum(["brand_new", "second_hand"]),
+    cost: pesoField,
+    margin_floor: pctField,
+    margin_mid: pctField,
+    margin_asking: pctField,
+    warranty_months: z.string(), // "" = model default
+  })
+  .refine(
+    (v) => Number(v.margin_floor) <= Number(v.margin_mid),
+    { message: "Floor % can't exceed mid %", path: ["margin_mid"] }
+  )
+  .refine(
+    (v) => Number(v.margin_mid) <= Number(v.margin_asking),
+    { message: "Mid % can't exceed asking %", path: ["margin_asking"] }
+  );
 
 type FormValues = z.infer<typeof formSchema>;
+
+/** Implied margin % from an engine's stored price vs cost (legacy fallback). */
+function impliedPct(priceCentavos: number, costCentavos: number): string {
+  if (!costCentavos) return "";
+  return (((priceCentavos / costCentavos) - 1) * 100).toFixed(0);
+}
 
 export function EngineFormDialog({
   open,
@@ -79,7 +100,9 @@ export function EngineFormDialog({
       engine_model_id: "",
       condition: "brand_new",
       cost: "0",
-      price: "0",
+      margin_floor: "",
+      margin_mid: "",
+      margin_asking: "",
       warranty_months: "",
     },
   });
@@ -87,20 +110,67 @@ export function EngineFormDialog({
   React.useEffect(() => {
     if (open) {
       setImageAction({ type: "keep" });
-      reset(
-        engine
-          ? {
-              serial_number: engine.serial_number,
-              engine_model_id: engine.engine_model_id,
-              condition: engine.condition,
-              cost: (engine.cost_centavos / 100).toFixed(2),
-              price: (engine.price_centavos / 100).toFixed(2),
-              warranty_months: engine.warranty_months?.toString() ?? "",
-            }
-          : undefined
-      );
+      if (engine) {
+        const implied = impliedPct(engine.price_centavos, engine.cost_centavos);
+        reset({
+          serial_number: engine.serial_number,
+          engine_model_id: engine.engine_model_id,
+          condition: engine.condition,
+          cost: (engine.cost_centavos / 100).toFixed(2),
+          margin_floor: engine.margin_floor_pct?.toString() ?? implied,
+          margin_mid: engine.margin_mid_pct?.toString() ?? implied,
+          margin_asking: engine.margin_asking_pct?.toString() ?? implied,
+          warranty_months: engine.warranty_months?.toString() ?? "",
+        });
+      } else {
+        reset();
+      }
     }
   }, [open, engine, reset]);
+
+  const modelValue = watch("engine_model_id");
+  const conditionValue = watch("condition");
+
+  // Live computed tier prices as the owner types (owner-only preview).
+  const costC = parsePesosToCentavos(watch("cost")) ?? 0;
+  const tier = (raw: string): number | null => {
+    const n = Number(raw);
+    if (raw.trim() === "" || isNaN(n) || costC === 0) return null;
+    return Math.round(costC * (1 + n / 100));
+  };
+  const priceFloor = tier(watch("margin_floor"));
+  const priceMid = tier(watch("margin_mid"));
+  const priceAsking = tier(watch("margin_asking"));
+
+  async function applyImage(engineId: string) {
+    if (imageAction.type === "keep") return;
+    const supabase = createClient();
+    const oldPath = engine?.image_path ?? null;
+    if (imageAction.type === "set") {
+      const objectPath = `${engineId}-${Date.now()}.webp`;
+      const { error } = await supabase.storage
+        .from(PRODUCT_IMAGE_BUCKET)
+        .upload(objectPath, imageAction.image.blob, {
+          contentType: "image/webp",
+          cacheControl: "31536000",
+        });
+      if (error) {
+        toast.error(`Engine saved, but the photo upload failed: ${error.message}`);
+        return;
+      }
+      const set = await setEngineImage(engineId, objectPath);
+      if (!set.ok) toast.error(set.error);
+      else if (oldPath && oldPath !== objectPath) {
+        await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+      }
+    } else {
+      if (oldPath) {
+        await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+      }
+      const set = await setEngineImage(engineId, null);
+      if (!set.ok) toast.error(set.error);
+    }
+  }
 
   async function onSubmit(values: FormValues) {
     const warranty =
@@ -111,47 +181,20 @@ export function EngineFormDialog({
       toast.error("Warranty months must be a number");
       return;
     }
-
-    // upload/remove the photo for a known engine id, then persist the path.
-    // Versioned names give every replace a fresh URL (cache-proof); the old
-    // object is deleted after the swap.
-    async function applyImage(engineId: string) {
-      if (imageAction.type === "keep") return;
-      const supabase = createClient();
-      const oldPath = engine?.image_path ?? null;
-      if (imageAction.type === "set") {
-        const objectPath = `${engineId}-${Date.now()}.webp`;
-        const { error } = await supabase.storage
-          .from(PRODUCT_IMAGE_BUCKET)
-          .upload(objectPath, imageAction.image.blob, {
-            contentType: "image/webp",
-            cacheControl: "31536000",
-          });
-        if (error) {
-          toast.error(`Engine saved, but the photo upload failed: ${error.message}`);
-          return;
-        }
-        const set = await setEngineImage(engineId, objectPath);
-        if (!set.ok) toast.error(set.error);
-        else if (oldPath && oldPath !== objectPath) {
-          await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
-        }
-      } else {
-        if (oldPath) {
-          await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
-        }
-        const set = await setEngineImage(engineId, null);
-        if (!set.ok) toast.error(set.error);
-      }
-    }
+    const cost_centavos = parsePesosToCentavos(values.cost)!;
+    const margins = {
+      margin_floor_pct: Number(values.margin_floor),
+      margin_mid_pct: Number(values.margin_mid),
+      margin_asking_pct: Number(values.margin_asking),
+    };
 
     if (engine) {
       const res = await updateEngine({
         id: engine.id,
         condition: values.condition,
-        cost_centavos: parsePesosToCentavos(values.cost)!,
-        price_centavos: parsePesosToCentavos(values.price)!,
+        cost_centavos,
         warranty_months: warranty,
+        ...margins,
       });
       if (res.ok) {
         await applyImage(engine.id);
@@ -159,7 +202,6 @@ export function EngineFormDialog({
         onOpenChange(false);
       } else toast.error(res.error);
     } else {
-      // New engines land in master through the atomic receiving function
       const res = await receiveStock({
         supplier_id: null,
         note: "Manual engine entry",
@@ -169,14 +211,15 @@ export function EngineFormDialog({
             serial_number: values.serial_number,
             engine_model_id: values.engine_model_id,
             condition: values.condition,
-            cost_centavos: parsePesosToCentavos(values.cost)!,
-            price_centavos: parsePesosToCentavos(values.price)!,
+            cost_centavos,
+            // trigger derives the real headline price from asking margin
+            price_centavos: priceAsking ?? 0,
             warranty_months: warranty,
+            ...margins,
           },
         ],
       });
       if (res.ok) {
-        // receiving returns its own id — look the new engine up by serial
         if (imageAction.type === "set") {
           const supabase = createClient();
           const { data: created } = await supabase
@@ -191,9 +234,6 @@ export function EngineFormDialog({
       } else toast.error(res.error);
     }
   }
-
-  const modelValue = watch("engine_model_id");
-  const conditionValue = watch("condition");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -280,19 +320,12 @@ export function EngineFormDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="engine-cost">Cost ₱</Label>
+              <Label htmlFor="engine-cost">Cost ₱ (owner-only)</Label>
               <Input id="engine-cost" inputMode="decimal" {...register("cost")} />
               {errors.cost && (
                 <p className="text-sm text-destructive">{errors.cost.message}</p>
-              )}
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="engine-price">Price ₱</Label>
-              <Input id="engine-price" inputMode="decimal" {...register("price")} />
-              {errors.price && (
-                <p className="text-sm text-destructive">{errors.price.message}</p>
               )}
             </div>
             <div className="grid gap-2">
@@ -304,6 +337,81 @@ export function EngineFormDialog({
                 {...register("warranty_months")}
               />
             </div>
+          </div>
+
+          {/* Tiered pricing — owner sets three margins; prices auto-compute */}
+          <div className="grid gap-3 rounded-md border bg-muted/30 p-3">
+            <div>
+              <Label className="text-sm">Negotiable pricing — margins over cost</Label>
+              <p className="text-xs text-muted-foreground">
+                Floor is the hard minimum a shop can sell at. Employees see the
+                three prices, never the cost or margins.
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="m-floor" className="text-xs">
+                  Floor %
+                </Label>
+                <Input
+                  id="m-floor"
+                  inputMode="decimal"
+                  placeholder="e.g. 30"
+                  {...register("margin_floor")}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="m-mid" className="text-xs">
+                  Mid %
+                </Label>
+                <Input
+                  id="m-mid"
+                  inputMode="decimal"
+                  placeholder="e.g. 40"
+                  {...register("margin_mid")}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="m-asking" className="text-xs">
+                  Asking %
+                </Label>
+                <Input
+                  id="m-asking"
+                  inputMode="decimal"
+                  placeholder="e.g. 50"
+                  {...register("margin_asking")}
+                />
+              </div>
+            </div>
+            {(errors.margin_floor || errors.margin_mid || errors.margin_asking) && (
+              <p className="text-sm text-destructive">
+                {errors.margin_asking?.message ??
+                  errors.margin_mid?.message ??
+                  errors.margin_floor?.message}
+              </p>
+            )}
+            {/* Live computed prices */}
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {[
+                { label: "Floor", value: priceFloor, tone: "text-destructive" },
+                { label: "Mid", value: priceMid, tone: "text-foreground" },
+                { label: "Asking", value: priceAsking, tone: "text-success" },
+              ].map((t) => (
+                <div key={t.label} className="rounded-md bg-background p-2">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {t.label}
+                  </div>
+                  <div className={`text-sm font-semibold tabular-nums ${t.tone}`}>
+                    {t.value != null ? formatCentavos(t.value) : "—"}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {costC === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Enter a cost above to preview computed prices.
+              </p>
+            )}
           </div>
 
           <DialogFooter>

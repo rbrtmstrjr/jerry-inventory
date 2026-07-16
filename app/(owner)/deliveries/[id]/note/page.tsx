@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { Anchor } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { getBusinessIdentity } from "@/lib/business-identity";
 import { PrintButton } from "./print-button";
 
 export const metadata: Metadata = { title: "Delivery Note" };
@@ -16,7 +17,7 @@ export default async function DeliveryNotePage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const [deliveryRes, settingsRes] = await Promise.all([
+  const [deliveryRes, business] = await Promise.all([
     supabase
       .from("deliveries")
       .select(
@@ -27,7 +28,7 @@ export default async function DeliveryNotePage({
       )
       .eq("id", id)
       .single(),
-    supabase.from("settings").select("business_name, address, phone").eq("id", 1).single(),
+    getBusinessIdentity(supabase),
   ]);
 
   const delivery = deliveryRes.data;
@@ -35,7 +36,6 @@ export default async function DeliveryNotePage({
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const d = delivery as any;
-  const settings = settingsRes.data;
   const partLines = (d.delivery_lines ?? []).filter((l: any) => l.parts);
   const engineLines = (d.delivery_lines ?? []).filter((l: any) => l.engines);
   /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -57,13 +57,13 @@ export default async function DeliveryNotePage({
             </div>
             <div>
               <div className="text-lg font-bold">
-                {settings?.business_name ?? "Maccky's Marine"}
+                {business.business_name}
               </div>
-              {settings?.address && (
-                <div className="text-xs text-muted-foreground">{settings.address}</div>
+              {business.address && (
+                <div className="text-xs text-muted-foreground">{business.address}</div>
               )}
-              {settings?.phone && (
-                <div className="text-xs text-muted-foreground">{settings.phone}</div>
+              {business.phone && (
+                <div className="text-xs text-muted-foreground">{business.phone}</div>
               )}
             </div>
           </div>

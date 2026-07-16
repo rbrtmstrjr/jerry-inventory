@@ -23,6 +23,7 @@ export function DatePicker({
   onChange,
   placeholder = "Pick a date",
   className,
+  "aria-label": ariaLabel,
 }: {
   id?: string;
   /** YYYY-MM-DD or "" */
@@ -30,6 +31,8 @@ export function DatePicker({
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  /** For filter bars with no visible sibling <Label> pointing at this field. */
+  "aria-label"?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const selected = value ? new Date(value + "T00:00:00") : undefined;
@@ -41,6 +44,7 @@ export function DatePicker({
           id={id}
           type="button"
           variant="outline"
+          aria-label={ariaLabel}
           className={cn(
             "w-38 justify-start font-normal",
             !value && "text-muted-foreground",

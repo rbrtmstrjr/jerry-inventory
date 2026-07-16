@@ -22,6 +22,7 @@ import {
   ClipboardCheck,
   Download,
   PhilippinePeso,
+  Truck,
 } from "lucide-react";
 
 import { formatCentavos } from "@/lib/format";
@@ -63,6 +64,9 @@ export interface ReportData {
     salesCount: number;
     lossValue: number;
     lossCount: number;
+    /** shrinkage BETWEEN master and a shop — never mixed into lossValue */
+    transitLossValue: number;
+    transitLossQty: number;
     enginesSold: number;
     pendingCount: number;
   };
@@ -75,6 +79,14 @@ export interface ReportData {
   lowStock: { part: string; shop: string; qty: number; reorder_level: number }[];
   salesCsv: Record<string, string | number>[];
   lossesCsv: Record<string, string | number>[];
+  transitLosses: {
+    date: string;
+    shop: string;
+    item: string;
+    qty: number;
+    value_centavos: number;
+    reason: string;
+  }[];
 }
 
 const REASON_LABEL: Record<string, string> = {
@@ -186,10 +198,16 @@ export function ReportsView({ data }: { data: ReportData }) {
       icon: Anchor,
     },
     {
-      label: "Shrinkage (approved losses)",
+      label: "Shrinkage at shops",
       value: formatCentavos(data.totals.lossValue),
       hint: `${data.totals.lossCount} write-off line${data.totals.lossCount === 1 ? "" : "s"} · at cost`,
       icon: AlertTriangle,
+    },
+    {
+      label: "Lost in transit",
+      value: formatCentavos(data.totals.transitLossValue),
+      hint: `${data.totals.transitLossQty} unit(s) never reached a shop · at cost`,
+      icon: Truck,
     },
     {
       label: "Awaiting approval",
@@ -276,7 +294,7 @@ export function ReportsView({ data }: { data: ReportData }) {
 
       {/* Range header (visible in print) */}
       <p className="hidden text-sm text-muted-foreground print:block">
-        Maccky&apos;s Marine — Report {format(new Date(data.from), "MMM d, yyyy")} to{" "}
+        Jerry&apos;s Marine — Report {format(new Date(data.from), "MMM d, yyyy")} to{" "}
         {format(new Date(data.to), "MMM d, yyyy")}
       </p>
 

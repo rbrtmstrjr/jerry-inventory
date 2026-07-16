@@ -37,6 +37,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { DataTable, SortableHeader } from "@/components/data-table/data-table";
 import { DatePicker } from "@/components/date-picker";
 import { addClaim } from "./actions";
@@ -108,13 +115,22 @@ export function WarrantiesView({
   warranties,
   serials,
   today,
+  shops = [],
 }: {
   warranties: WarrantyRow[];
   serials: SerialRow[];
   today: string;
+  shops?: { id: string; name: string }[];
 }) {
   const [claimsFor, setClaimsFor] = React.useState<WarrantyRow | null>(null);
   const [journeyFor, setJourneyFor] = React.useState<SerialRow | null>(null);
+  const [shopFilter, setShopFilter] = React.useState("all");
+
+  // Slice the registry by branch — consistent with the reviewed-history filter.
+  const shownWarranties =
+    shopFilter === "all"
+      ? warranties
+      : warranties.filter((w) => w.shop === shopFilter);
 
   const warrantyColumns: ColumnDef<WarrantyRow>[] = [
     {
@@ -151,15 +167,21 @@ export function WarrantiesView({
       ),
     },
     {
+      accessorKey: "shop",
+      header: ({ column }) => <SortableHeader column={column}>Sold by</SortableHeader>,
+      cell: ({ getValue }) => (
+        <span className="text-sm">
+          {getValue<string | null>() ?? (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </span>
+      ),
+    },
+    {
       accessorKey: "sold_on",
       header: ({ column }) => <SortableHeader column={column}>Sold</SortableHeader>,
       cell: ({ row }) => (
-        <div>
-          {format(new Date(row.original.sold_on), "MMM d, yyyy")}
-          {row.original.shop && (
-            <div className="text-xs text-muted-foreground">{row.original.shop}</div>
-          )}
-        </div>
+        <div>{format(new Date(row.original.sold_on), "MMM d, yyyy")}</div>
       ),
     },
     {
@@ -307,7 +329,7 @@ export function WarrantiesView({
         <TabsContent value="warranties" className="pt-2">
           <DataTable
             columns={warrantyColumns}
-            data={warranties}
+            data={shownWarranties}
             searchPlaceholder="Search serial, customer, model…"
             emptyMessage="No warranties yet — they appear automatically when you approve an engine sale."
             rowClassName={(w) =>
@@ -316,6 +338,23 @@ export function WarrantiesView({
                 : daysLeft(w.expires_on, today) <= 30
                   ? "bg-warning/10"
                   : undefined
+            }
+            toolbar={
+              shops.length > 0 ? (
+                <Select value={shopFilter} onValueChange={setShopFilter}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="All shops" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All shops</SelectItem>
+                    {shops.map((s) => (
+                      <SelectItem key={s.id} value={s.name}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null
             }
           />
         </TabsContent>

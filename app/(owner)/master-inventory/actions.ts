@@ -168,13 +168,22 @@ export async function bulkAddParts(input: unknown): Promise<ActionResult & { cou
 // ---------------------------------------------------------------------------
 // Engines
 // ---------------------------------------------------------------------------
-const engineEditSchema = z.object({
-  id: z.uuid(),
-  condition: z.enum(["brand_new", "second_hand"]),
-  cost_centavos: z.number().int().min(0),
-  price_centavos: z.number().int().min(0),
-  warranty_months: z.number().int().min(0).nullable(),
-});
+const engineEditSchema = z
+  .object({
+    id: z.uuid(),
+    condition: z.enum(["brand_new", "second_hand"]),
+    cost_centavos: z.number().int().min(0),
+    margin_floor_pct: z.number().min(0),
+    margin_mid_pct: z.number().min(0),
+    margin_asking_pct: z.number().min(0),
+    warranty_months: z.number().int().min(0).nullable(),
+  })
+  .refine(
+    (v) =>
+      v.margin_floor_pct <= v.margin_mid_pct &&
+      v.margin_mid_pct <= v.margin_asking_pct,
+    { message: "Margins must be floor ≤ mid ≤ asking", path: ["margin_asking_pct"] }
+  );
 
 export async function updateEngine(input: unknown): Promise<ActionResult> {
   const parsed = engineEditSchema.safeParse(input);
@@ -183,6 +192,8 @@ export async function updateEngine(input: unknown): Promise<ActionResult> {
   }
   const { id, ...fields } = parsed.data;
   const supabase = await createClient();
+  // The DB trigger recomputes price_centavos + the three tier prices from
+  // cost + margins — we never write those prices directly.
   const { error } = await supabase.from("engines").update(fields).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/master-inventory");
@@ -275,6 +286,10 @@ const supplierSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   contact: z.string().trim().max(200).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
+  /** centavos; null = no limit (warns only, never blocks) */
+  credit_limit: z.number().int().min(0).nullable().default(null),
+  payment_terms_days: z.number().int().min(0).max(365).nullable().default(null),
+  terms_note: z.string().trim().max(500).optional().nullable(),
 });
 
 export async function upsertSupplier(input: unknown): Promise<ActionResult> {
@@ -283,14 +298,20 @@ export async function upsertSupplier(input: unknown): Promise<ActionResult> {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
   const { id, ...fields } = parsed.data;
-  const row = { ...fields, contact: fields.contact || null, notes: fields.notes || null };
+  const row = {
+    ...fields,
+    contact: fields.contact || null,
+    notes: fields.notes || null,
+    terms_note: fields.terms_note || null,
+  };
   const supabase = await createClient();
   const query = id
     ? supabase.from("suppliers").update(row).eq("id", id)
     : supabase.from("suppliers").insert(row);
   const { error } = await query;
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/master-inventory/suppliers");
+  revalidatePath("/suppliers");
+  revalidatePath("/suppliers");
   return { ok: true };
 }
 
@@ -301,7 +322,7 @@ export async function softDeleteSupplier(id: string): Promise<ActionResult> {
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/master-inventory/suppliers");
+  revalidatePath("/suppliers");
   return { ok: true };
 }
 
@@ -330,9 +351,24 @@ const receivingSchema = z
           cost_centavos: z.number().int().min(0),
           price_centavos: z.number().int().min(0),
           warranty_months: z.number().int().min(0).nullable(),
+          // optional 3-tier margins; trigger computes tier prices when present
+          margin_floor_pct: z.number().min(0).nullable().default(null),
+          margin_mid_pct: z.number().min(0).nullable().default(null),
+          margin_asking_pct: z.number().min(0).nullable().default(null),
         })
       )
       .default([]),
+    payment_status: z.enum(["unpaid", "partial", "paid"]).default("paid"),
+    /** Only meaningful when payment_status = 'partial'; the RPC derives the rest. */
+    amount_paid_centavos: z.number().int().min(0).nullable().default(null),
+    /** null = let the RPC compute it from the supplier's payment terms. */
+    due_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .default(null),
+    override: z.boolean().default(false),
+    override_reason: z.string().trim().max(500).optional().nullable(),
   })
   .refine((v) => v.parts.length + v.engines.length > 0, {
     message: "Add at least one line",
@@ -349,6 +385,11 @@ export async function receiveStock(input: unknown): Promise<ActionResult> {
     p_note: parsed.data.note || null,
     p_parts: parsed.data.parts,
     p_engines: parsed.data.engines,
+    p_payment_status: parsed.data.payment_status,
+    p_amount_paid: parsed.data.amount_paid_centavos,
+    p_due_date: parsed.data.due_date,
+    p_override: parsed.data.override,
+    p_override_reason: parsed.data.override_reason || null,
   });
   if (error) {
     if (error.code === "23505") {
@@ -357,5 +398,6 @@ export async function receiveStock(input: unknown): Promise<ActionResult> {
     return { ok: false, error: error.message };
   }
   revalidatePath("/master-inventory");
+  revalidatePath("/suppliers");
   return { ok: true, id: data as string };
 }

@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { Anchor } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { getBusinessIdentity } from "@/lib/business-identity";
 import { PrintButton } from "@/components/shell/print-button";
 
 export const metadata: Metadata = { title: "Count Sheet" };
@@ -20,15 +21,18 @@ export default async function CountSheetPage({
   const isBlind = blind === "1";
   const supabase = await createClient();
 
-  const { data: snap } = await supabase
-    .from("count_snapshots")
-    .select(
-      `id, snapshot_date, note, shop_id, shops(name, location),
-       count_snapshot_lines(id, expected_qty, parts(name, unit, barcode))`
-    )
-    .eq("id", id)
-    .is("deleted_at", null)
-    .single();
+  const [{ data: snap }, business] = await Promise.all([
+    supabase
+      .from("count_snapshots")
+      .select(
+        `id, snapshot_date, note, shop_id, shops(name, location),
+         count_snapshot_lines(id, expected_qty, parts(name, unit, barcode))`
+      )
+      .eq("id", id)
+      .is("deleted_at", null)
+      .single(),
+    getBusinessIdentity(supabase),
+  ]);
 
   if (!snap) notFound();
 
@@ -66,8 +70,15 @@ export default async function CountSheetPage({
             <div className="flex size-10 items-center justify-center rounded-md bg-primary text-primary-foreground print:border print:bg-transparent print:text-foreground">
               <Anchor className="size-5" />
             </div>
+            {/* The count sheet was the one document with no letterhead. It gets
+                walked around a shop, initialled and filed, so whose sheet it is
+                matters as much as on any of the others. */}
             <div>
-              <div className="text-lg font-bold">Physical Count Sheet</div>
+              <div className="text-lg font-bold">{business.business_name}</div>
+              {business.address && (
+                <div className="text-xs text-muted-foreground">{business.address}</div>
+              )}
+              <div className="mt-1 text-sm font-medium">Physical Count Sheet</div>
               <div className="text-sm text-muted-foreground">
                 {s.shops?.name}
                 {s.shops?.location && ` — ${s.shops.location}`}

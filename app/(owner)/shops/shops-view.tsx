@@ -261,7 +261,7 @@ export function ShopsView({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem asChild>
-                        <Link href={`/shops/reports?shop=${shop.id}`}>
+                        <Link href={`/reports?tab=shops&shop=${shop.id}`}>
                           <BarChart3 className="size-4" /> View Reports
                         </Link>
                       </DropdownMenuItem>

@@ -56,6 +56,10 @@ export async function softDeletePosition(id: string): Promise<ActionResult> {
 // ---------------------------------------------------------------------------
 // Staff
 // ---------------------------------------------------------------------------
+/** A government ID number is free text — agencies format them differently and
+ *  a stale format rule would reject a valid number. Store what's on the card. */
+const govIdSchema = z.string().trim().max(40).optional().nullable();
+
 const staffSchema = z.object({
   id: z.uuid().optional(),
   full_name: z.string().trim().min(1, "Name is required"),
@@ -69,6 +73,11 @@ const staffSchema = z.object({
     .nullable(),
   active: z.boolean().default(true),
   notes: z.string().trim().max(2000).optional().nullable(),
+  sss_no: govIdSchema,
+  philhealth_no: govIdSchema,
+  pagibig_no: govIdSchema,
+  /** Casual helpers who aren't enrolled → false → zero contributions. */
+  contributions_enabled: z.boolean().default(true),
 });
 
 export async function upsertStaff(input: unknown): Promise<ActionResult> {
@@ -77,7 +86,14 @@ export async function upsertStaff(input: unknown): Promise<ActionResult> {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
   const { id, ...fields } = parsed.data;
-  const row = { ...fields, notes: fields.notes || null };
+  // Empty inputs mean "no number on file", not an empty string.
+  const row = {
+    ...fields,
+    notes: fields.notes || null,
+    sss_no: fields.sss_no || null,
+    philhealth_no: fields.philhealth_no || null,
+    pagibig_no: fields.pagibig_no || null,
+  };
   const supabase = await createClient();
   const query = id
     ? supabase.from("staff").update(row).eq("id", id)

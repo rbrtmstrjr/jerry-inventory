@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Banknote, Download, Users, Wallet } from "lucide-react";
+import { Banknote, Download, TriangleAlert, Users, Wallet } from "lucide-react";
 
 import { formatCentavos } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -52,6 +53,31 @@ export interface PayrollReportData {
     unpaid: number;
   }[];
   byPosition: { position: string; total: number; headcount: number }[];
+  /**
+   * Government contributions, read from the frozen per-entry snapshot.
+   * `ee` is withheld from the staff member's pay; `er` is the employer's own
+   * cost on top of gross. The agency receives `ee + er`.
+   */
+  remittance: {
+    periods: {
+      period_id: string;
+      period: string;
+      agencies: {
+        agency: string;
+        staff_count: number;
+        ee: number;
+        er: number;
+        total: number;
+      }[];
+      ee: number;
+      er: number;
+      total: number;
+    }[];
+    byAgency: { agency: string; ee: number; er: number; total: number }[];
+    totals: { ee: number; er: number; total: number };
+    /** True when a shop filter is on — the totals are then a subset, not the remittance. */
+    shopFiltered: boolean;
+  };
   rows: {
     period: string;
     staff: string;
@@ -81,6 +107,16 @@ function downloadCsv(filename: string, rows: Record<string, string | number>[]) 
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** Display names for the agency enum. Labels, not rates. */
+const AGENCY_LABEL: Record<string, string> = {
+  sss: "SSS",
+  philhealth: "PhilHealth",
+  pagibig: "Pag-IBIG",
+};
+const agencyLabel = (a: string) => AGENCY_LABEL[a] ?? a;
+
+const pesos = (c: number) => (c / 100).toFixed(2);
 
 export function PayrollReports({ data }: { data: PayrollReportData }) {
   const router = useRouter();
@@ -120,6 +156,67 @@ export function PayrollReports({ data }: { data: PayrollReportData }) {
       icon: Users,
     },
   ];
+
+  const rm = data.remittance;
+
+  /**
+   * One row per period × agency — the shape a bookkeeper files from — followed
+   * by each period's all-agency subtotal, then the range roll-up.
+   */
+  function exportRemittanceCsv() {
+    const rows: Record<string, string | number>[] = [];
+    for (const p of rm.periods) {
+      for (const a of p.agencies) {
+        rows.push({
+          period: p.period,
+          agency: agencyLabel(a.agency),
+          staff: a.staff_count,
+          employee_share: pesos(a.ee),
+          employer_share: pesos(a.er),
+          total_to_remit: pesos(a.total),
+        });
+      }
+      rows.push({
+        period: p.period,
+        agency: "ALL AGENCIES",
+        staff: "",
+        employee_share: pesos(p.ee),
+        employer_share: pesos(p.er),
+        total_to_remit: pesos(p.total),
+      });
+    }
+    if (rm.periods.length > 1) {
+      for (const a of rm.byAgency) {
+        rows.push({
+          period: `RANGE TOTAL ${data.from}..${data.to}`,
+          agency: agencyLabel(a.agency),
+          staff: "",
+          employee_share: pesos(a.ee),
+          employer_share: pesos(a.er),
+          total_to_remit: pesos(a.total),
+        });
+      }
+      rows.push({
+        period: `RANGE TOTAL ${data.from}..${data.to}`,
+        agency: "ALL AGENCIES",
+        staff: "",
+        employee_share: pesos(rm.totals.ee),
+        employer_share: pesos(rm.totals.er),
+        total_to_remit: pesos(rm.totals.total),
+      });
+    }
+    if (rm.shopFiltered) {
+      rows.push({
+        period: "NOTE",
+        agency: "Filtered to one shop — NOT the full amount to remit",
+        staff: "",
+        employee_share: "",
+        employer_share: "",
+        total_to_remit: "",
+      });
+    }
+    downloadCsv(`remittances_${data.from}_${data.to}.csv`, rows);
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -183,6 +280,161 @@ export function PayrollReports({ data }: { data: PayrollReportData }) {
           </Card>
         ))}
       </div>
+
+      {/* Government remittances — the payoff */}
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+          <div className="space-y-1.5">
+            <CardTitle className="text-base">
+              Government remittances — SSS · PhilHealth · Pag-IBIG
+            </CardTitle>
+            <CardDescription>
+              Employee share is withheld from pay; employer share is the
+              business&apos;s own cost on top of gross. The agency receives both
+              — <strong>total to remit</strong> is the figure handed over.
+              Amounts are the frozen per-payslip snapshot, so they always tie
+              out to the payslips already issued.
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="print:hidden"
+            disabled={rm.periods.length === 0}
+            onClick={exportRemittanceCsv}
+          >
+            <Download className="size-4" /> CSV
+          </Button>
+        </CardHeader>
+        <CardContent className="thin-scrollbar overflow-x-auto">
+          {rm.shopFiltered && (
+            <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-500" />
+              <span>
+                Filtered to one shop. Contributions are remitted for the{" "}
+                <strong>whole business</strong> in one payment — these totals are
+                a subset, not the amount to hand the agency. Choose{" "}
+                <em>All shops</em> for the remittance figure.
+              </span>
+            </div>
+          )}
+
+          {rm.periods.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No contributions in this range.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Period</TableHead>
+                  <TableHead>Agency</TableHead>
+                  <TableHead className="text-right">Staff</TableHead>
+                  <TableHead className="text-right">Employee share</TableHead>
+                  <TableHead className="text-right">Employer share</TableHead>
+                  <TableHead className="text-right">Total to remit</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rm.periods.map((p) => (
+                  <React.Fragment key={p.period_id}>
+                    {p.agencies.map((a, i) => (
+                      <TableRow key={a.agency}>
+                        <TableCell className="text-sm font-medium">
+                          {i === 0 ? p.period : ""}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {agencyLabel(a.agency)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {a.staff_count}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {formatCentavos(a.ee)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {formatCentavos(a.er)}
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">
+                          {formatCentavos(a.total)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {/* What leaves the bank for this period, all agencies. */}
+                    <TableRow className="border-t bg-muted/40">
+                      <TableCell colSpan={2} className="text-sm font-semibold">
+                        {p.period} — all agencies
+                      </TableCell>
+                      <TableCell />
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {formatCentavos(p.ee)}
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {formatCentavos(p.er)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums">
+                        {formatCentavos(p.total)}
+                      </TableCell>
+                    </TableRow>
+                  </React.Fragment>
+                ))}
+
+                {/* Range roll-up — only meaningful once more than one period is in view. */}
+                {rm.periods.length > 1 && (
+                  <>
+                    {rm.byAgency.map((a, i) => (
+                      <TableRow
+                        key={a.agency}
+                        className={i === 0 ? "border-t-2" : undefined}
+                      >
+                        <TableCell className="text-sm text-muted-foreground">
+                          {i === 0 ? "Range total" : ""}
+                        </TableCell>
+                        <TableCell className="text-sm font-medium">
+                          {agencyLabel(a.agency)}
+                        </TableCell>
+                        <TableCell />
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {formatCentavos(a.ee)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {formatCentavos(a.er)}
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">
+                          {formatCentavos(a.total)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="border-t bg-muted/40">
+                      <TableCell colSpan={2} className="font-semibold">
+                        Range total — all agencies
+                      </TableCell>
+                      <TableCell />
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {formatCentavos(rm.totals.ee)}
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {formatCentavos(rm.totals.er)}
+                      </TableCell>
+                      <TableCell className="text-right text-base font-semibold tabular-nums">
+                        {formatCentavos(rm.totals.total)}
+                      </TableCell>
+                    </TableRow>
+                  </>
+                )}
+              </TableBody>
+            </Table>
+          )}
+
+          <p className="mt-3 text-xs text-muted-foreground">
+            Employer share ({formatCentavos(rm.totals.er)} in range) is{" "}
+            <strong>not</strong> deducted from anyone&apos;s pay — it is a cost
+            of employing, on top of gross. Employee share (
+            {formatCentavos(rm.totals.ee)}) is already reflected in net pay.
+            Rates come from the effective-dated rate book in Settings.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Breakdown tables */}
       <div className="grid gap-4 lg:grid-cols-2">

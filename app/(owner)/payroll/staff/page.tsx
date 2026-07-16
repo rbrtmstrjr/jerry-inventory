@@ -11,7 +11,9 @@ export default async function StaffPage() {
     supabase
       .from("staff")
       .select(
-        "id, full_name, shop_id, position_id, pay_type, pay_rate, date_hired, active, notes, shops(name), positions(title)"
+        `id, full_name, shop_id, position_id, pay_type, pay_rate, date_hired, active, notes,
+         sss_no, philhealth_no, pagibig_no, contributions_enabled,
+         shops(name), positions(title)`
       )
       .is("deleted_at", null)
       .order("full_name"),
@@ -37,6 +39,10 @@ export default async function StaffPage() {
     date_hired: s.date_hired,
     active: s.active,
     notes: s.notes,
+    sss_no: s.sss_no,
+    philhealth_no: s.philhealth_no,
+    pagibig_no: s.pagibig_no,
+    contributions_enabled: s.contributions_enabled,
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 

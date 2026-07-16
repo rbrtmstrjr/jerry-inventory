@@ -1,16 +1,11 @@
-import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
-import { SuppliersTable } from "./suppliers-table";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Suppliers" };
-
-export default async function SuppliersPage() {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("suppliers")
-    .select("id, name, contact, notes")
-    .is("deleted_at", null)
-    .order("name");
-
-  return <SuppliersTable suppliers={data ?? []} />;
+/**
+ * Suppliers moved to /suppliers?tab=directory — stock starts at a supplier, so
+ * Suppliers became a first-class section at the head of INVENTORY rather than
+ * a tab inside Master Inventory. This stub keeps old bookmarks alive, same as
+ * /delivery-requests.
+ */
+export default function SuppliersMovedStub() {
+  redirect("/suppliers?tab=directory");
 }

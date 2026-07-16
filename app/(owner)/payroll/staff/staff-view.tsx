@@ -52,6 +52,10 @@ export interface StaffRow {
   date_hired: string | null;
   active: boolean;
   notes: string | null;
+  sss_no: string | null;
+  philhealth_no: string | null;
+  pagibig_no: string | null;
+  contributions_enabled: boolean;
 }
 
 export interface PositionOption {
@@ -83,6 +87,10 @@ export function StaffView({
   const [hired, setHired] = React.useState("");
   const [active, setActive] = React.useState(true);
   const [notes, setNotes] = React.useState("");
+  const [sssNo, setSssNo] = React.useState("");
+  const [philhealthNo, setPhilhealthNo] = React.useState("");
+  const [pagibigNo, setPagibigNo] = React.useState("");
+  const [contributionsEnabled, setContributionsEnabled] = React.useState(true);
 
   function openDialog(s: StaffRow | null) {
     setEditing(s);
@@ -94,6 +102,10 @@ export function StaffView({
     setHired(s?.date_hired ?? "");
     setActive(s?.active ?? true);
     setNotes(s?.notes ?? "");
+    setSssNo(s?.sss_no ?? "");
+    setPhilhealthNo(s?.philhealth_no ?? "");
+    setPagibigNo(s?.pagibig_no ?? "");
+    setContributionsEnabled(s?.contributions_enabled ?? true);
     setDialogOpen(true);
   }
 
@@ -119,6 +131,10 @@ export function StaffView({
       date_hired: hired || null,
       active,
       notes: notes || null,
+      sss_no: sssNo || null,
+      philhealth_no: philhealthNo || null,
+      pagibig_no: pagibigNo || null,
+      contributions_enabled: contributionsEnabled,
     });
     setBusy(false);
     if (res.ok) {
@@ -164,6 +180,16 @@ export function StaffView({
           <span className="text-muted-foreground">—</span>
         );
       },
+    },
+    {
+      id: "contributions",
+      header: "Contributions",
+      cell: ({ row }) =>
+        row.original.contributions_enabled ? (
+          <Badge variant="secondary">Enrolled</Badge>
+        ) : (
+          <span className="text-xs text-muted-foreground">Not enrolled</span>
+        ),
     },
     {
       accessorKey: "active",
@@ -221,7 +247,7 @@ export function StaffView({
       />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editing ? "Edit Staff" : "Add Staff"}</DialogTitle>
             <DialogDescription>
@@ -318,6 +344,65 @@ export function StaffView({
               <div className="grid gap-2">
                 <Label>Date hired</Label>
                 <DatePicker value={hired} onChange={setHired} className="w-full" />
+              </div>
+            </div>
+            {/* Government contributions — IDs + enrollment. The rates behind
+                them are data (Settings → rate book), never entered here. */}
+            <div className="grid gap-3 rounded-md border p-3">
+              <div>
+                <div className="text-sm font-medium">Government contributions</div>
+                <p className="text-xs text-muted-foreground">
+                  SSS · PhilHealth · Pag-IBIG. Amounts come from the rate book —
+                  only the ID numbers and enrollment live here.
+                </p>
+              </div>
+              <Label className="flex cursor-pointer items-center gap-2 text-sm font-normal">
+                <Checkbox
+                  checked={contributionsEnabled}
+                  onCheckedChange={(v) => setContributionsEnabled(v === true)}
+                />
+                Enrolled — deduct contributions each pay period
+              </Label>
+              {!contributionsEnabled && (
+                <p className="text-xs text-muted-foreground">
+                  Not enrolled — this staff member contributes nothing and takes
+                  home their full gross pay.
+                </p>
+              )}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="grid min-w-0 gap-2">
+                  <Label htmlFor="st-sss" className="text-xs">
+                    SSS no.
+                  </Label>
+                  <Input
+                    id="st-sss"
+                    value={sssNo}
+                    onChange={(e) => setSssNo(e.target.value)}
+                    placeholder="34-1234567-8"
+                  />
+                </div>
+                <div className="grid min-w-0 gap-2">
+                  <Label htmlFor="st-philhealth" className="text-xs">
+                    PhilHealth no.
+                  </Label>
+                  <Input
+                    id="st-philhealth"
+                    value={philhealthNo}
+                    onChange={(e) => setPhilhealthNo(e.target.value)}
+                    placeholder="12-345678901-2"
+                  />
+                </div>
+                <div className="grid min-w-0 gap-2">
+                  <Label htmlFor="st-pagibig" className="text-xs">
+                    Pag-IBIG no.
+                  </Label>
+                  <Input
+                    id="st-pagibig"
+                    value={pagibigNo}
+                    onChange={(e) => setPagibigNo(e.target.value)}
+                    placeholder="1234-5678-9012"
+                  />
+                </div>
               </div>
             </div>
             <div className="grid gap-2">

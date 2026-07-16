@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
-import { SubmissionsView, type SaleSubmission, type LossSubmission } from "./submissions-view";
+import {
+  SubmissionsView,
+  type SaleSubmission,
+  type LossSubmission,
+} from "./submissions-view";
 
 export const metadata: Metadata = { title: "Submissions" };
 

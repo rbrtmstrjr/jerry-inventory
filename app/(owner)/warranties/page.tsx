@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "Warranties & Serials" };
 export default async function WarrantiesPage() {
   const supabase = await createClient();
 
-  const [warrantiesRes, enginesRes] = await Promise.all([
+  const [warrantiesRes, enginesRes, shopsRes] = await Promise.all([
     supabase
       .from("warranties")
       .select(
@@ -31,6 +31,7 @@ export default async function WarrantiesPage() {
         "id, serial_number, status, deleted_at, sold_at, engine_models(brand, model, horsepower), shops(name), customers(name, phone)"
       )
       .order("created_at", { ascending: false }),
+    supabase.from("shops").select("id, name").is("deleted_at", null).order("name"),
   ]);
 
   const today = ph_today();
@@ -72,5 +73,12 @@ export default async function WarrantiesPage() {
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  return <WarrantiesView warranties={warranties} serials={serials} today={today} />;
+  return (
+    <WarrantiesView
+      warranties={warranties}
+      serials={serials}
+      today={today}
+      shops={shopsRes.data ?? []}
+    />
+  );
 }

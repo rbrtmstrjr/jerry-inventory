@@ -10,6 +10,7 @@ import {
   Inbox,
   Loader2,
   MessageCircleQuestion,
+  Receipt,
   ShoppingCart,
   X,
 } from "lucide-react";
@@ -46,6 +47,10 @@ export interface PendingSale {
   customer: string | null;
   status: "pending" | "questioned";
   total_centavos: number;
+  payment_type: "full" | "partial";
+  amount_paid_centavos: number | null;
+  balance_due_centavos: number;
+  receipt_no: string | null;
   owner_note: string | null;
   created_at: string;
   has_engine: boolean;
@@ -54,6 +59,10 @@ export interface PendingSale {
     qty: number;
     line_total_centavos: number;
     is_engine: boolean;
+    agreed_price_centavos: number | null;
+    list_reference_centavos: number | null;
+    discount_centavos: number | null;
+    floor_centavos: number | null;
   }[];
 }
 
@@ -96,17 +105,9 @@ type DialogState =
 export function ApprovalsView({
   sales,
   losses,
-  recent,
 }: {
   sales: PendingSale[];
   losses: PendingLoss[];
-  recent: {
-    id: string;
-    status: string;
-    total_centavos: number;
-    reviewed_at: string | null;
-    shop_name: string;
-  }[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -182,7 +183,14 @@ export function ApprovalsView({
       const key = batchId ?? `legacy-${shopName}`;
       let g = map.get(key);
       if (!g) {
-        g = { key, batchId, shopName, submittedAt, sales: [], losses: [] };
+        g = {
+          key,
+          batchId,
+          shopName,
+          submittedAt,
+          sales: [],
+          losses: [],
+        };
         map.set(key, g);
       }
       return g;
@@ -193,7 +201,7 @@ export function ApprovalsView({
     for (const l of losses) {
       groupFor(l.batch_id, l.shop_name, l.batch_submitted_at).losses.push(l);
     }
-    // oldest submission first — Maccky clears the queue in arrival order
+    // oldest submission first — Admin clears the queue in arrival order
     return [...map.values()].sort((a, b) =>
       (a.submittedAt ?? "").localeCompare(b.submittedAt ?? "")
     );
@@ -204,7 +212,11 @@ export function ApprovalsView({
     const res = kind === "sale" ? await approveSale(id) : await approveLoss(id);
     setBusy(null);
     if (res.ok) {
-      toast.success(kind === "sale" ? "Sale approved — stock deducted" : "Loss approved — written off");
+      toast.success(
+        kind === "sale"
+          ? "Sale approved — stock deducted"
+          : "Loss approved — written off"
+      );
     } else {
       toast.error(res.error);
     }
@@ -316,20 +328,64 @@ export function ApprovalsView({
         </CardHeader>
         <CardContent className="flex flex-col gap-1 text-sm">
           {s.lines.map((l, i) => (
-            <div key={i} className="flex justify-between">
-              <span className="truncate">
-                {l.is_engine && (
-                  <Badge variant="secondary" className="mr-1">
-                    Engine
-                  </Badge>
-                )}
-                {l.description} × {l.qty}
-              </span>
-              <span className="tabular-nums">
-                {formatCentavos(l.line_total_centavos)}
-              </span>
+            <div key={i} className="flex flex-col gap-0.5">
+              <div className="flex justify-between">
+                <span className="truncate">
+                  {l.is_engine && (
+                    <Badge variant="secondary" className="mr-1">
+                      Engine
+                    </Badge>
+                  )}
+                  {l.description} × {l.qty}
+                </span>
+                <span className="tabular-nums">
+                  {formatCentavos(l.line_total_centavos)}
+                </span>
+              </div>
+              {/* Negotiation context: asking / floor / discount (owner-only) */}
+              {l.is_engine && l.floor_centavos != null && (
+                <div className="flex flex-wrap gap-x-3 pl-1 text-xs text-muted-foreground">
+                  {l.list_reference_centavos != null && (
+                    <span>Asking {formatCentavos(l.list_reference_centavos)}</span>
+                  )}
+                  <span>Floor {formatCentavos(l.floor_centavos)}</span>
+                  {l.discount_centavos != null && l.discount_centavos > 0 && (
+                    <span className="text-warning-foreground">
+                      {formatCentavos(l.discount_centavos)} off
+                    </span>
+                  )}
+                  {l.agreed_price_centavos != null &&
+                    l.agreed_price_centavos <= l.floor_centavos && (
+                      <span className="font-medium text-success">at floor</span>
+                    )}
+                </div>
+              )}
             </div>
           ))}
+
+          {/* Payment split + receipt */}
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t pt-2">
+            <div className="text-xs">
+              {s.payment_type === "partial" ? (
+                <span>
+                  <span className="font-medium">Partial</span> · paid{" "}
+                  {formatCentavos(s.amount_paid_centavos ?? 0)} · balance{" "}
+                  <span className="font-medium text-warning-foreground">
+                    {formatCentavos(s.balance_due_centavos)}
+                  </span>
+                </span>
+              ) : (
+                <span className="text-muted-foreground">Paid in full</span>
+              )}
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <a href={`/receipt/${s.id}`} target="_blank" rel="noopener noreferrer">
+                <Receipt className="size-3.5" /> Receipt
+                {s.receipt_no ? ` ${s.receipt_no}` : ""}
+              </a>
+            </Button>
+          </div>
+
           {s.owner_note && (
             <p className="mt-1 text-xs text-muted-foreground">
               Your note: {s.owner_note}
@@ -464,37 +520,7 @@ export function ApprovalsView({
         );
       })}
 
-      {/* Recently reviewed */}
-      {recent.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-muted-foreground">
-            Recently reviewed sales
-          </h2>
-          <div className="flex flex-col gap-1 text-sm">
-            {recent.map((r) => (
-              <div
-                key={r.id}
-                className="flex items-center justify-between rounded-md border px-3 py-1.5"
-              >
-                <span className="text-muted-foreground">
-                  {r.shop_name} ·{" "}
-                  {r.reviewed_at
-                    ? format(new Date(r.reviewed_at), "MMM d, h:mm a")
-                    : ""}
-                </span>
-                <span className="flex items-center gap-2">
-                  <span className="tabular-nums">
-                    {formatCentavos(r.total_centavos)}
-                  </span>
-                  <Badge variant={r.status === "approved" ? "default" : "destructive"}>
-                    {r.status}
-                  </Badge>
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* Reviewed history lives in its own section below (see ReviewedHistory) */}
 
       {/* Question / Reject dialog */}
       <Dialog

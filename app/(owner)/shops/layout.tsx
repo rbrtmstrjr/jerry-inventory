@@ -1,10 +1,6 @@
-import { SectionTabs } from "@/components/shell/section-tabs";
-
-const tabs = [
-  { href: "/shops", label: "Shops" },
-  { href: "/shops/reports", label: "Reports" },
-];
-
+// Per-shop profitability moved to /reports?tab=shops — it's financial
+// reporting, not shop management. This page is now purely operational, so the
+// tab bar went with it (one tab is not a tab bar).
 export default function ShopsLayout({
   children,
 }: {
@@ -17,10 +13,10 @@ export default function ShopsLayout({
           Shops &amp; Employees
         </h1>
         <p className="text-sm text-muted-foreground">
-          Branches, their login accounts, and how each one performs.
+          Branches, their login accounts, map pins, and closing a shop. How each
+          one performs lives in Reports.
         </p>
       </div>
-      <SectionTabs tabs={tabs} />
       {children}
     </div>
   );

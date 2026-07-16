@@ -63,7 +63,7 @@ const STATUS_BADGE: Record<
   { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
   recorded: { label: "Not submitted", variant: "outline" },
-  pending: { label: "With Maccky", variant: "secondary" },
+  pending: { label: "With Admin", variant: "secondary" },
   questioned: { label: "Questioned", variant: "outline" },
   approved: { label: "Approved", variant: "default" },
   rejected: { label: "Rejected", variant: "destructive" },
@@ -109,7 +109,7 @@ export function SubmissionsView({
   const currentValue = currentSales.reduce((sum, s) => sum + s.total_centavos, 0);
 
   // Group everything already submitted by its batch. A batch stays in
-  // "Submitted" while anything inside still awaits Maccky; once every item
+  // "Submitted" while anything inside still awaits Admin; once every item
   // is approved/rejected it moves to "Reviewed".
   const { submitted, reviewed } = React.useMemo(() => {
     const map = new Map<string, ShopBatch>();
@@ -131,16 +131,14 @@ export function SubmissionsView({
       groupFor(l.batch_id, l.batch_submitted_at).losses.push(l);
     }
     const open = (st: string) => st === "pending" || st === "questioned";
+    const isOpen = (g: ShopBatch) =>
+      g.sales.some((s) => open(s.status)) || g.losses.some((l) => open(l.status));
     const all = [...map.values()].sort((a, b) =>
       (b.submittedAt ?? "").localeCompare(a.submittedAt ?? "")
     );
     return {
-      submitted: all.filter(
-        (g) => g.sales.some((s) => open(s.status)) || g.losses.some((l) => open(l.status))
-      ),
-      reviewed: all.filter(
-        (g) => !g.sales.some((s) => open(s.status)) && !g.losses.some((l) => open(l.status))
-      ),
+      submitted: all.filter(isOpen),
+      reviewed: all.filter((g) => !isOpen(g)),
     };
   }, [sales, losses]);
 
@@ -150,7 +148,7 @@ export function SubmissionsView({
     setSubmittingBatch(false);
     if (res.ok) {
       toast.success(
-        `Sent to Maccky: ${res.sales} sale(s) and ${res.losses} loss(es)`
+        `Sent to Admin: ${res.sales} sale(s) and ${res.losses} loss(es)`
       );
     } else {
       toast.error(res.error);
@@ -246,6 +244,9 @@ export function SubmissionsView({
 
   function renderBatchCard(g: ShopBatch) {
     const salesTotal = g.sales.reduce((sum, s) => sum + s.total_centavos, 0);
+    // only label sections when the report mixes types
+    const mixed =
+      [g.sales.length, g.losses.length].filter((n) => n > 0).length > 1;
     return (
       <Card key={g.key}>
         <CardHeader className="pb-2">
@@ -264,7 +265,7 @@ export function SubmissionsView({
         <CardContent className="flex flex-col gap-3">
           {g.sales.length > 0 && (
             <div>
-              {g.losses.length > 0 && (
+              {mixed && (
                 <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                   <ShoppingCart className="size-3.5" /> SALES
                 </p>
@@ -294,7 +295,7 @@ export function SubmissionsView({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Submissions</h1>
         <p className="text-sm text-muted-foreground">
-          Record all day, then send everything to Maccky as one report whenever
+          Record all day, then send everything to Admin as one report whenever
           you&apos;re ready.
         </p>
       </div>
@@ -306,11 +307,12 @@ export function SubmissionsView({
             <p className="text-sm font-medium">
               {currentSales.length} sale{currentSales.length === 1 ? "" : "s"}
               {currentLosses.length > 0 &&
-                ` and ${currentLosses.length} loss${currentLosses.length === 1 ? "" : "es"}`}{" "}
+                ` · ${currentLosses.length} loss${currentLosses.length === 1 ? "" : "es"}`}
+              {" "}
               in your current report
             </p>
             <p className="text-xs text-muted-foreground">
-              Maccky can&apos;t see these until you submit. Cancel any mistakes
+              Admin can&apos;t see these until you submit. Cancel any mistakes
               first.
             </p>
           </div>
@@ -320,7 +322,7 @@ export function SubmissionsView({
             ) : (
               <Send className="size-4" />
             )}
-            Submit {currentTotal} to Maccky
+            Submit {currentTotal} to Admin
           </Button>
         </div>
       )}
@@ -349,14 +351,14 @@ export function SubmissionsView({
                   {currentSales.length} sale{currentSales.length === 1 ? "" : "s"}
                   {currentLosses.length > 0 &&
                     ` · ${currentLosses.length} loss${currentLosses.length === 1 ? "" : "es"}`}
-                  {currentValue > 0 && ` · ${formatCentavos(currentValue)}`} —
-                  everything here goes to Maccky together.
+                  {currentValue > 0 && ` · ${formatCentavos(currentValue)} sold`} —
+                  everything here goes to Admin together.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 {currentSales.length > 0 && (
                   <div>
-                    {currentLosses.length > 0 && (
+                    {currentTotal > currentSales.length && (
                       <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                         <ShoppingCart className="size-3.5" /> SALES
                       </p>
@@ -384,7 +386,7 @@ export function SubmissionsView({
         <TabsContent value="submitted" className="flex flex-col gap-3 pt-2">
           {submitted.length === 0 && (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              Nothing with Maccky right now.
+              Nothing with Admin right now.
             </p>
           )}
           {submitted.map(renderBatchCard)}
@@ -408,7 +410,7 @@ export function SubmissionsView({
             ? "Cancel this sale?"
             : "Cancel this loss report?"
         }
-        description="It's removed from your report (and from Maccky's queue if already submitted). You can record it again anytime."
+        description="It's removed from your report (and from Admin's queue if already submitted). You can record it again anytime."
         confirmLabel="Yes, cancel it"
         destructive
         onConfirm={async () => {

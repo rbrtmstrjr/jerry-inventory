@@ -59,6 +59,127 @@ export default async function PayrollReportsPage({
     .is("deleted_at", null)
     .order("name");
 
+  // ---------------------------------------------------------------------------
+  // Government remittances (SSS / PhilHealth / Pag-IBIG)
+  //
+  // Read straight from the frozen `payroll_entry_contributions` snapshot — the
+  // amounts are never recomputed here, so editing the rate book next year can't
+  // rewrite what was already remitted. No rate, bracket or threshold is known to
+  // this file; it only adds up centavos the database already decided.
+  // ---------------------------------------------------------------------------
+  type RemitRow = {
+    period_id: string;
+    agency: string;
+    staff_count: number;
+    ee: number;
+    er: number;
+    total: number;
+  };
+
+  let remit: RemitRow[] = [];
+  if (periodIds.length === 1 && !shopFilter) {
+    // Canonical path: fn_remittance_totals IS the definition of the number handed
+    // to the agency. It takes no shop argument, so it can only serve the
+    // unfiltered single-period case — the branch below sums the same snapshot
+    // rows for everything else.
+    const { data } = await supabase.rpc("fn_remittance_totals", {
+      p_period_id: periodIds[0],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    remit = ((data ?? []) as any[]).map((r) => ({
+      period_id: periodIds[0],
+      agency: r.agency as string,
+      staff_count: Number(r.staff_count),
+      ee: Number(r.ee_total_centavos),
+      er: Number(r.er_total_centavos),
+      total: Number(r.total_centavos),
+    }));
+  } else if (periodIds.length > 0) {
+    let q = supabase
+      .from("payroll_entry_contributions")
+      .select(
+        "agency, ee_amount_centavos, er_amount_centavos, payroll_entries!inner(pay_period_id, shop_id)"
+      )
+      .in("payroll_entries.pay_period_id", periodIds);
+    if (shopFilter) q = q.eq("payroll_entries.shop_id", shopFilter);
+    const { data } = await q;
+
+    const acc = new Map<string, RemitRow>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const c of (data ?? []) as any[]) {
+      const pid = c.payroll_entries.pay_period_id as string;
+      const key = `${pid}|${c.agency}`;
+      const row = acc.get(key) ?? {
+        period_id: pid,
+        agency: c.agency as string,
+        staff_count: 0,
+        ee: 0,
+        er: 0,
+        total: 0,
+      };
+      // unique(payroll_entry_id, agency) — one row per entry per agency, so a row
+      // IS one staff member on that period's remittance.
+      row.staff_count += 1;
+      row.ee += c.ee_amount_centavos ?? 0;
+      row.er += c.er_amount_centavos ?? 0;
+      row.total += (c.ee_amount_centavos ?? 0) + (c.er_amount_centavos ?? 0);
+      acc.set(key, row);
+    }
+    remit = [...acc.values()];
+  }
+
+  // Enum declaration order — the same order fn_remittance_totals returns.
+  const AGENCY_ORDER = ["sss", "philhealth", "pagibig"];
+  const periodMeta = new Map(
+    (periods ?? []).map((p) => [p.id, { label: p.label, start: p.start_date }])
+  );
+  remit.sort(
+    (a, b) =>
+      (periodMeta.get(a.period_id)?.start ?? "").localeCompare(
+        periodMeta.get(b.period_id)?.start ?? ""
+      ) || AGENCY_ORDER.indexOf(a.agency) - AGENCY_ORDER.indexOf(b.agency)
+  );
+
+  // Group into what the owner actually remits: one bundle per period.
+  const remitPeriods: PayrollReportData["remittance"]["periods"] = [];
+  for (const r of remit) {
+    let g = remitPeriods.find((p) => p.period_id === r.period_id);
+    if (!g) {
+      g = {
+        period_id: r.period_id,
+        period: periodMeta.get(r.period_id)?.label ?? "?",
+        agencies: [],
+        ee: 0,
+        er: 0,
+        total: 0,
+      };
+      remitPeriods.push(g);
+    }
+    g.agencies.push({
+      agency: r.agency,
+      staff_count: r.staff_count,
+      ee: r.ee,
+      er: r.er,
+      total: r.total,
+    });
+    g.ee += r.ee;
+    g.er += r.er;
+    g.total += r.total;
+  }
+
+  // Range roll-up per agency. Deliberately carries no staff count: across several
+  // periods "staff" would either double-count people or stop summing down the
+  // column. The money is the point here.
+  const remitByAgency = AGENCY_ORDER.map((agency) => {
+    const rows = remit.filter((r) => r.agency === agency);
+    return {
+      agency,
+      ee: rows.reduce((s, r) => s + r.ee, 0),
+      er: rows.reduce((s, r) => s + r.er, 0),
+      total: rows.reduce((s, r) => s + r.total, 0),
+    };
+  }).filter((a) => a.total > 0);
+
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const periodLabel = new Map((periods ?? []).map((p) => [p.id, p.label]));
 
@@ -119,6 +240,19 @@ export default async function PayrollReportsPage({
       total: v.total,
       headcount: v.headcount.size,
     })),
+    remittance: {
+      periods: remitPeriods,
+      byAgency: remitByAgency,
+      totals: {
+        ee: remit.reduce((s, r) => s + r.ee, 0),
+        er: remit.reduce((s, r) => s + r.er, 0),
+        total: remit.reduce((s, r) => s + r.total, 0),
+      },
+      // A shop-filtered figure is NOT the amount handed to the agency — the
+      // agency is remitted for the whole business at once. Say so rather than
+      // let a filtered number be mistaken for the real one.
+      shopFiltered: !!shopFilter,
+    },
     rows,
   };
 

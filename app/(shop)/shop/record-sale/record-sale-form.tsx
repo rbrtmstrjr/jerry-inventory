@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Barcode,
   Loader2,
   Minus,
   Plus,
+  Printer,
   ScanLine,
   Search,
   Send,
@@ -16,6 +18,7 @@ import {
 import { toast } from "sonner";
 
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
+import { cn } from "@/lib/utils";
 import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,9 +48,14 @@ interface CartEngine {
   engine_id: string;
   label: string;
   serial: string;
-  price_centavos: number;
+  price_floor: number;
+  price_mid: number;
+  price_asking: number;
+  agreedRaw: string; // pesos string — single source for the agreed price
 }
 type CartLine = CartPart | CartEngine;
+
+const engineAgreed = (l: CartEngine) => parsePesosToCentavos(l.agreedRaw) ?? 0;
 
 export function RecordSaleForm({
   stock,
@@ -67,15 +75,18 @@ export function RecordSaleForm({
   const [custName, setCustName] = React.useState("");
   const [custPhone, setCustPhone] = React.useState("");
   const [tendered, setTendered] = React.useState("");
+  const [paymentType, setPaymentType] = React.useState<"full" | "partial">("full");
+  const [downpayment, setDownpayment] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
+  const [lastReceiptId, setLastReceiptId] = React.useState<string | null>(null);
 
-  // Keep the scan box focused — keyboard-wedge scanners type + press Enter.
   React.useEffect(() => {
     scanRef.current?.focus();
   }, []);
 
   // Draft survives a refresh or brief WiFi drop — restore once on mount.
-  const CART_KEY = "jm-sale-draft";
+  // v2: engine lines now carry tier prices + agreed price (old drafts ignored).
+  const CART_KEY = "jm-sale-draft-v2";
   React.useEffect(() => {
     try {
       const raw = localStorage.getItem(CART_KEY);
@@ -103,18 +114,29 @@ export function RecordSaleForm({
 
   const hasEngine = cart.some((l) => l.kind === "engine");
   const total = cart.reduce(
-    (s, l) => s + (l.kind === "part" ? l.price_centavos * l.qty : l.price_centavos),
+    (s, l) => s + (l.kind === "part" ? l.price_centavos * l.qty : engineAgreed(l)),
     0
   );
 
-  // cash/change helper (display only — payment isn't stored on the sale)
+  // cash/change helper (full payment only — informational, not stored)
   const tenderedCentavos = parsePesosToCentavos(tendered || "0");
   const change =
     tendered.trim() !== "" && tenderedCentavos !== null
       ? tenderedCentavos - total
       : null;
 
+  // partial payment split
+  const amountPaid =
+    paymentType === "partial" ? parsePesosToCentavos(downpayment || "0") ?? 0 : total;
+  const balanceDue = Math.max(0, total - amountPaid);
+
+  // any engine negotiated below its floor?
+  const belowFloor = cart.some(
+    (l) => l.kind === "engine" && engineAgreed(l) < l.price_floor
+  );
+
   function addPart(p: ShopStockRow) {
+    setLastReceiptId(null);
     setCart((c) => {
       const existing = c.find(
         (l): l is CartPart => l.kind === "part" && l.part_id === p.part_id
@@ -140,6 +162,7 @@ export function RecordSaleForm({
   }
 
   function addEngine(e: ShopEngineRow) {
+    setLastReceiptId(null);
     setCart((c) => {
       if (c.some((l) => l.kind === "engine" && l.engine_id === e.engine_id)) {
         toast.info("That engine is already in the sale");
@@ -152,10 +175,24 @@ export function RecordSaleForm({
           engine_id: e.engine_id,
           serial: e.serial_number,
           label: `${e.brand} ${e.model}${e.horsepower != null ? ` ${e.horsepower}HP` : ""}`,
-          price_centavos: e.price_centavos,
+          price_floor: e.price_floor_centavos,
+          price_mid: e.price_mid_centavos,
+          price_asking: e.price_asking_centavos,
+          // default the agreed price to the asking tier
+          agreedRaw: (e.price_asking_centavos / 100).toFixed(2),
         },
       ];
     });
+  }
+
+  function setEngineAgreed(engineId: string, raw: string) {
+    setCart((c) =>
+      c.map((l) =>
+        l.kind === "engine" && l.engine_id === engineId
+          ? { ...l, agreedRaw: raw }
+          : l
+      )
+    );
   }
 
   function onScan(e: React.FormEvent) {
@@ -193,7 +230,6 @@ export function RecordSaleForm({
     );
   }
 
-  // browsable list: show everything, narrow as the employee types
   const q = search.trim().toLowerCase();
   const matches = q
     ? stock.filter(
@@ -221,9 +257,36 @@ export function RecordSaleForm({
       toast.error("Engine sales need the customer's name (for the warranty)");
       return;
     }
+    if (paymentType === "partial" && custName.trim() === "") {
+      toast.error("Partial payment needs the customer's name — that's who owes the balance");
+      return;
+    }
     for (const l of cart) {
       if (l.kind === "part" && l.qty > l.available) {
         toast.error(`${l.name}: only ${l.available} ${l.unit} on hand`);
+        return;
+      }
+      if (l.kind === "engine") {
+        const agreed = engineAgreed(l);
+        if (agreed <= 0) {
+          toast.error(`${l.label}: enter an agreed price`);
+          return;
+        }
+        if (agreed < l.price_floor) {
+          toast.error(
+            `${l.label}: ${formatCentavos(agreed)} is below the floor ${formatCentavos(l.price_floor)}`
+          );
+          return;
+        }
+      }
+    }
+    if (paymentType === "partial") {
+      if (amountPaid <= 0) {
+        toast.error("Enter the downpayment amount");
+        return;
+      }
+      if (amountPaid > total) {
+        toast.error("Downpayment can't be more than the total");
         return;
       }
     }
@@ -237,18 +300,23 @@ export function RecordSaleForm({
       part_lines: cart
         .filter((l): l is CartPart => l.kind === "part")
         .map((l) => ({ part_id: l.part_id, qty: l.qty })),
-      engine_ids: cart
+      engine_lines: cart
         .filter((l): l is CartEngine => l.kind === "engine")
-        .map((l) => l.engine_id),
+        .map((l) => ({ engine_id: l.engine_id, agreed_price_centavos: engineAgreed(l) })),
+      payment_type: paymentType,
+      amount_paid_centavos: paymentType === "partial" ? amountPaid : null,
     });
     setSubmitting(false);
 
     if (res.ok) {
-      toast.success("Sale saved — submit your batch to Maccky from Submissions");
+      toast.success("Sale saved — print the receipt for the customer");
+      setLastReceiptId(res.id ?? null);
       setCart([]);
       setCustName("");
       setCustPhone("");
       setTendered("");
+      setDownpayment("");
+      setPaymentType("full");
       router.refresh();
       scanRef.current?.focus();
     } else {
@@ -266,6 +334,24 @@ export function RecordSaleForm({
             the owner approves.
           </p>
         </div>
+
+        {/* Receipt-ready banner after a successful save */}
+        {lastReceiptId && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-success/40 bg-success/5 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Sale saved & receipt ready</p>
+              <p className="text-xs text-muted-foreground">
+                Print it for the buyer — the amount matches what the owner will
+                review.
+              </p>
+            </div>
+            <Button asChild variant="outline">
+              <Link href={`/receipt/${lastReceiptId}`} target="_blank">
+                <Printer className="size-4" /> Print receipt
+              </Link>
+            </Button>
+          </div>
+        )}
 
         {/* One panel: scan on top, browse/search list below */}
         <Card className="overflow-hidden py-0 gap-0">
@@ -353,7 +439,7 @@ export function RecordSaleForm({
                   <span className="flex shrink-0 items-center gap-2">
                     <Badge variant="secondary">Engine</Badge>
                     <span className="tabular-nums font-medium">
-                      {formatCentavos(en.price_centavos)}
+                      {formatCentavos(en.price_asking_centavos)}
                     </span>
                   </span>
                 </button>
@@ -379,9 +465,7 @@ export function RecordSaleForm({
               <ShoppingCart className="size-4" /> Sale ({cart.length} line
               {cart.length === 1 ? "" : "s"})
             </CardTitle>
-            <CardDescription>
-              Submitted to the owner as PENDING.
-            </CardDescription>
+            <CardDescription>Saved as your current report.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {cart.length === 0 ? (
@@ -389,14 +473,12 @@ export function RecordSaleForm({
                 Scan or tap items on the left to add them.
               </p>
             ) : (
-              <div className="rounded-md border">
-                {cart.map((l, i) =>
+              <div className="flex flex-col gap-2">
+                {cart.map((l) =>
                   l.kind === "part" ? (
                     <div
                       key={l.part_id}
-                      className={`flex items-center gap-2 px-3 py-2.5 ${
-                        i > 0 ? "border-t" : ""
-                      }`}
+                      className="flex items-center gap-2 rounded-md border px-3 py-2.5"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium">{l.name}</div>
@@ -431,39 +513,19 @@ export function RecordSaleForm({
                       </div>
                     </div>
                   ) : (
-                    <div
+                    <EngineCartLine
                       key={l.engine_id}
-                      className={`flex items-center gap-2 px-3 py-2.5 ${
-                        i > 0 ? "border-t" : ""
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">
-                          <Badge variant="secondary" className="mr-1">
-                            Engine
-                          </Badge>
-                          {l.label}
-                        </div>
-                        <div className="font-mono text-xs text-muted-foreground">
-                          SN {l.serial} · {formatCentavos(l.price_centavos)}
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Remove engine"
-                        onClick={() =>
-                          setCart((c) =>
-                            c.filter(
-                              (x) =>
-                                !(x.kind === "engine" && x.engine_id === l.engine_id)
-                            )
+                      line={l}
+                      onAgreedChange={(raw) => setEngineAgreed(l.engine_id, raw)}
+                      onRemove={() =>
+                        setCart((c) =>
+                          c.filter(
+                            (x) =>
+                              !(x.kind === "engine" && x.engine_id === l.engine_id)
                           )
-                        }
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
+                        )
+                      }
+                    />
                   )
                 )}
               </div>
@@ -471,76 +533,116 @@ export function RecordSaleForm({
 
             {cart.length > 0 && (
               <>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between border-t pt-3">
                   <span className="text-sm font-medium">Total</span>
                   <span className="text-lg font-bold tabular-nums">
                     {formatCentavos(total)}
                   </span>
                 </div>
 
-                {/* Cash & change helper */}
+                {/* Payment type */}
                 <div className="grid gap-2 rounded-md border p-3">
-                  <Label htmlFor="cash-tendered">Customer&apos;s cash ₱</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="cash-tendered"
-                      inputMode="decimal"
-                      value={tendered}
-                      onChange={(e) =>
-                        setTendered(e.target.value.replace(/[^\d.]/g, ""))
-                      }
-                      placeholder="0.00"
-                      className="text-base tabular-nums"
-                    />
-                    <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setTendered((total / 100).toFixed(2))}
-                      >
-                        Exact
-                      </Button>
-                      {[10000, 50000, 100000].map((bill) => (
+                  <Label className="text-sm">Payment</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={paymentType === "full" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setPaymentType("full")}
+                    >
+                      Full
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={paymentType === "partial" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setPaymentType("partial")}
+                    >
+                      Partial (downpayment)
+                    </Button>
+                  </div>
+
+                  {paymentType === "full" ? (
+                    <div className="grid gap-2">
+                      <Label htmlFor="cash-tendered" className="text-xs">
+                        Customer&apos;s cash ₱ (for change)
+                      </Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="cash-tendered"
+                          inputMode="decimal"
+                          value={tendered}
+                          onChange={(e) =>
+                            setTendered(e.target.value.replace(/[^\d.]/g, ""))
+                          }
+                          placeholder="0.00"
+                          className="text-base tabular-nums"
+                        />
                         <Button
-                          key={bill}
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="tabular-nums"
-                          onClick={() => setTendered(String(bill / 100))}
+                          onClick={() => setTendered((total / 100).toFixed(2))}
                         >
-                          {bill / 100}
+                          Exact
                         </Button>
-                      ))}
+                      </div>
+                      {change !== null &&
+                        (change >= 0 ? (
+                          <div className="flex items-center justify-between rounded-md bg-success/10 px-3 py-2">
+                            <span className="text-sm font-medium text-success">
+                              Change (sukli)
+                            </span>
+                            <span className="text-xl font-bold tabular-nums text-success">
+                              {formatCentavos(change)}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between rounded-md bg-destructive/10 px-3 py-2">
+                            <span className="text-sm font-medium text-destructive">
+                              Kulang (short)
+                            </span>
+                            <span className="text-xl font-bold tabular-nums text-destructive">
+                              {formatCentavos(-change)}
+                            </span>
+                          </div>
+                        ))}
                     </div>
-                  </div>
-                  {change !== null &&
-                    (change >= 0 ? (
-                      <div className="flex items-center justify-between rounded-md bg-success/10 px-3 py-2">
-                        <span className="text-sm font-medium text-success">
-                          Change (sukli)
+                  ) : (
+                    <div className="grid gap-2">
+                      <Label htmlFor="downpayment" className="text-xs">
+                        Downpayment ₱
+                      </Label>
+                      <Input
+                        id="downpayment"
+                        inputMode="decimal"
+                        value={downpayment}
+                        onChange={(e) =>
+                          setDownpayment(e.target.value.replace(/[^\d.]/g, ""))
+                        }
+                        placeholder="0.00"
+                        className="text-base tabular-nums"
+                      />
+                      <div className="flex items-center justify-between rounded-md bg-warning/10 px-3 py-2">
+                        <span className="text-sm font-medium text-warning-foreground">
+                          Balance due
                         </span>
-                        <span className="text-xl font-bold tabular-nums text-success">
-                          {formatCentavos(change)}
+                        <span className="text-xl font-bold tabular-nums">
+                          {formatCentavos(balanceDue)}
                         </span>
                       </div>
-                    ) : (
-                      <div className="flex items-center justify-between rounded-md bg-destructive/10 px-3 py-2">
-                        <span className="text-sm font-medium text-destructive">
-                          Kulang (short)
-                        </span>
-                        <span className="text-xl font-bold tabular-nums text-destructive">
-                          {formatCentavos(-change)}
-                        </span>
-                      </div>
-                    ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid gap-2 rounded-md bg-muted/40 p-3">
                   <Label htmlFor="cust-name">
                     Customer{" "}
-                    {hasEngine ? "(required for engine warranty)" : "(optional)"}
+                    {hasEngine
+                      ? "(required for engine warranty)"
+                      : paymentType === "partial"
+                        ? "(required — who owes the balance)"
+                        : "(optional)"}
                   </Label>
                   <Input
                     id="cust-name"
@@ -558,7 +660,11 @@ export function RecordSaleForm({
                   />
                 </div>
 
-                <Button onClick={onSubmit} disabled={submitting} className="self-end">
+                <Button
+                  onClick={onSubmit}
+                  disabled={submitting || belowFloor}
+                  className="self-end"
+                >
                   {submitting ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
@@ -570,6 +676,96 @@ export function RecordSaleForm({
             )}
           </CardContent>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+/** Engine cart line: tier quick-picks + a negotiable agreed price with floor guard. */
+function EngineCartLine({
+  line,
+  onAgreedChange,
+  onRemove,
+}: {
+  line: CartEngine;
+  onAgreedChange: (raw: string) => void;
+  onRemove: () => void;
+}) {
+  const agreed = engineAgreed(line);
+  const below = agreed < line.price_floor;
+  const tiers = [
+    { label: "Floor", value: line.price_floor },
+    { label: "Mid", value: line.price_mid },
+    { label: "Asking", value: line.price_asking },
+  ];
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border px-3 py-2.5">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">
+            <Badge variant="secondary" className="mr-1">
+              Engine
+            </Badge>
+            {line.label}
+          </div>
+          <div className="font-mono text-xs text-muted-foreground">
+            SN {line.serial}
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Remove engine"
+          onClick={onRemove}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      </div>
+
+      {/* Tier quick-picks */}
+      <div className="grid grid-cols-3 gap-1.5">
+        {tiers.map((t) => (
+          <button
+            key={t.label}
+            type="button"
+            onClick={() => onAgreedChange((t.value / 100).toFixed(2))}
+            className={cn(
+              "rounded-md border px-2 py-1.5 text-center transition-colors hover:bg-accent",
+              agreed === t.value && "border-primary bg-primary/10"
+            )}
+          >
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              {t.label}
+            </div>
+            <div className="text-xs font-semibold tabular-nums">
+              {formatCentavos(t.value)}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Agreed price */}
+      <div className="grid gap-1.5">
+        <Label htmlFor={`agreed-${line.engine_id}`} className="text-xs">
+          Agreed price ₱
+        </Label>
+        <Input
+          id={`agreed-${line.engine_id}`}
+          inputMode="decimal"
+          value={line.agreedRaw}
+          onChange={(e) => onAgreedChange(e.target.value.replace(/[^\d.]/g, ""))}
+          className={cn(
+            "text-base tabular-nums",
+            below && "border-destructive focus-visible:ring-destructive"
+          )}
+        />
+        {below && (
+          <p className="text-xs font-medium text-destructive">
+            Below the floor {formatCentavos(line.price_floor)} — the owner won&apos;t
+            allow this. Raise the price.
+          </p>
+        )}
       </div>
     </div>
   );

@@ -16,6 +16,13 @@ import {
 import { toast } from "sonner";
 
 import { formatCentavos } from "@/lib/format";
+import type { EntryContribution, RemittanceTotal } from "@/lib/db-types";
+import {
+  AGENCY_LABEL,
+  AGENCY_ORDER,
+  byAgency,
+  employerShare,
+} from "@/lib/contributions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,7 +67,12 @@ export interface EntryRow {
   shop_id: string;
   shop_name: string;
   days_worked: number;
+  gross_pay: number;
+  /** Computed by the DB as gross − employee shares. Read it, never recompute it. */
   net_pay: number;
+  contributions_enabled: boolean;
+  /** Frozen snapshot rows — one per agency, or empty when not enrolled. */
+  contributions: EntryContribution[];
   status: "draft" | "approved" | "paid";
   date_paid: string | null;
 }
@@ -78,10 +90,12 @@ export function PeriodDetail({
   period,
   entries,
   shops,
+  remittance,
 }: {
   period: PeriodInfo;
   entries: EntryRow[];
   shops: { id: string; name: string }[];
+  remittance: RemittanceTotal[];
 }) {
   const locked = period.status === "finalized";
   const [shopFilter, setShopFilter] = React.useState("all");
@@ -96,7 +110,12 @@ export function PeriodDetail({
       ? entries
       : entries.filter((e) => e.shop_id === shopFilter);
 
+  const totalGross = entries.reduce((s, e) => s + e.gross_pay, 0);
   const totalNet = entries.reduce((s, e) => s + e.net_pay, 0);
+  // Summing frozen snapshots — not recomputing anything from the rate book.
+  const totalEE = remittance.reduce((s, r) => s + r.ee_total_centavos, 0);
+  const totalER = remittance.reduce((s, r) => s + r.er_total_centavos, 0);
+  const remitByAgency = Object.fromEntries(remittance.map((r) => [r.agency, r]));
   const draftCount = entries.filter((e) => e.status === "draft").length;
   const approvedCount = entries.filter((e) => e.status === "approved").length;
   const paidCount = entries.filter((e) => e.status === "paid").length;
@@ -173,7 +192,7 @@ export function PeriodDetail({
           </h2>
           <p className="text-sm text-muted-foreground">
             {format(new Date(period.start_date), "MMM d")} –{" "}
-            {format(new Date(period.end_date), "MMM d, yyyy")} · total{" "}
+            {format(new Date(period.end_date), "MMM d, yyyy")} · net{" "}
             <span className="font-medium tabular-nums text-foreground">
               {formatCentavos(totalNet)}
             </span>{" "}
@@ -259,21 +278,53 @@ export function PeriodDetail({
 
       <div className="thin-scrollbar max-h-[62vh] overflow-auto rounded-md border">
         <Table>
+          {/* The grouped header carries the whole point: the middle three
+              columns come OFF the worker's pay; the employer column does not. */}
           <TableHeader className="sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_var(--border)] [&_tr]:border-b-0">
             <TableRow>
-              <TableHead>Staff</TableHead>
-              <TableHead>Shop</TableHead>
-              <TableHead>Rate</TableHead>
-              <TableHead className="w-28">Days worked</TableHead>
-              <TableHead className="text-right">Pay</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="w-40" />
+              <TableHead rowSpan={2}>Staff</TableHead>
+              <TableHead rowSpan={2}>Shop</TableHead>
+              <TableHead rowSpan={2}>Rate</TableHead>
+              <TableHead rowSpan={2} className="w-28">
+                Days worked
+              </TableHead>
+              <TableHead rowSpan={2} className="text-right">
+                Gross
+              </TableHead>
+              <TableHead colSpan={3} className="border-x text-center">
+                Employee share — deducted
+              </TableHead>
+              <TableHead rowSpan={2} className="text-right">
+                Net pay
+              </TableHead>
+              <TableHead rowSpan={2} className="border-l text-right">
+                Employer cost
+                <div className="text-[10px] font-normal normal-case text-muted-foreground">
+                  not deducted
+                </div>
+              </TableHead>
+              <TableHead rowSpan={2}>Status</TableHead>
+              <TableHead rowSpan={2} className="w-40" />
+            </TableRow>
+            <TableRow>
+              {AGENCY_ORDER.map((a, i) => (
+                <TableHead
+                  key={a}
+                  className={`text-right text-xs font-normal ${
+                    i === 0 ? "border-l" : ""
+                  } ${i === AGENCY_ORDER.length - 1 ? "border-r" : ""}`}
+                >
+                  {AGENCY_LABEL[a]}
+                </TableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
             {visible.map((e) => {
               const s = STATUS_BADGE[e.status];
               const editable = !locked && e.status !== "paid" && e.pay_type === "daily";
+              const contrib = byAgency(e.contributions);
+              const erTotal = employerShare(e.contributions);
               return (
                 <TableRow key={e.id}>
                   <TableCell>
@@ -308,8 +359,36 @@ export function PeriodDetail({
                       </span>
                     )}
                   </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {formatCentavos(e.gross_pay)}
+                  </TableCell>
+                  {AGENCY_ORDER.map((a, i) => {
+                    const c = contrib[a];
+                    return (
+                      <TableCell
+                        key={a}
+                        className={`text-right text-sm tabular-nums ${
+                          i === 0 ? "border-l" : ""
+                        } ${i === AGENCY_ORDER.length - 1 ? "border-r" : ""}`}
+                      >
+                        {c && c.ee_amount_centavos > 0 ? (
+                          <span>−{formatCentavos(c.ee_amount_centavos)}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    );
+                  })}
                   <TableCell className="text-right tabular-nums font-medium">
                     {formatCentavos(e.net_pay)}
+                    {!e.contributions_enabled && (
+                      <div className="text-[10px] font-normal text-muted-foreground">
+                        not enrolled
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell className="border-l text-right text-sm tabular-nums text-muted-foreground">
+                    {erTotal > 0 ? formatCentavos(erTotal) : "—"}
                   </TableCell>
                   <TableCell>
                     <Badge variant={s.variant}>{s.label}</Badge>
@@ -355,6 +434,101 @@ export function PeriodDetail({
           Unsaved day changes — click “Save days” before approving.
         </p>
       )}
+
+      {/* Period totals. Every figure is a sum of frozen snapshots. */}
+      <div className="rounded-md border">
+        <div className="border-b px-4 py-3">
+          <h3 className="text-sm font-semibold">Period totals</h3>
+          <p className="text-xs text-muted-foreground">
+            Employee shares come out of gross pay. Employer shares are the
+            business’s own cost — they are remitted alongside, never deducted
+            from anyone’s pay.
+          </p>
+        </div>
+
+        <div className="grid gap-4 p-4 sm:grid-cols-3">
+          <div>
+            <div className="text-xs uppercase text-muted-foreground">Gross</div>
+            <div className="text-lg font-semibold tabular-nums">
+              {formatCentavos(totalGross)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs uppercase text-muted-foreground">
+              Employee deductions
+            </div>
+            <div className="text-lg font-semibold tabular-nums">
+              −{formatCentavos(totalEE)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs uppercase text-muted-foreground">
+              Net pay to staff
+            </div>
+            <div className="text-lg font-semibold tabular-nums">
+              {formatCentavos(totalNet)}
+            </div>
+          </div>
+        </div>
+
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Agency</TableHead>
+              <TableHead className="text-right">Staff</TableHead>
+              <TableHead className="text-right">Employee (deducted)</TableHead>
+              <TableHead className="text-right">
+                Employer (business cost)
+              </TableHead>
+              <TableHead className="text-right">Total to remit</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {AGENCY_ORDER.map((a) => {
+              const r = remitByAgency[a];
+              return (
+                <TableRow key={a}>
+                  <TableCell className="font-medium">{AGENCY_LABEL[a]}</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {r?.staff_count ?? 0}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatCentavos(r?.ee_total_centavos ?? 0)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {formatCentavos(r?.er_total_centavos ?? 0)}
+                  </TableCell>
+                  <TableCell className="text-right font-medium tabular-nums">
+                    {formatCentavos(r?.total_centavos ?? 0)}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            <TableRow className="bg-muted/40">
+              <TableCell className="font-semibold">All agencies</TableCell>
+              <TableCell />
+              <TableCell className="text-right font-semibold tabular-nums">
+                {formatCentavos(totalEE)}
+              </TableCell>
+              <TableCell className="text-right font-semibold tabular-nums">
+                {formatCentavos(totalER)}
+              </TableCell>
+              <TableCell className="text-right font-semibold tabular-nums">
+                {formatCentavos(totalEE + totalER)}
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+
+        <p className="border-t px-4 py-3 text-xs text-muted-foreground">
+          Total cash out this period:{" "}
+          <span className="font-medium tabular-nums text-foreground">
+            {formatCentavos(totalNet + totalEE + totalER)}
+          </span>{" "}
+          — {formatCentavos(totalNet)} net pay to staff plus{" "}
+          {formatCentavos(totalEE + totalER)} remitted to the agencies.
+        </p>
+      </div>
 
       <ConfirmDialog
         open={confirmFinalize}

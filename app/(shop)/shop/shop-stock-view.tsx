@@ -72,7 +72,7 @@ export function ShopStockView({
       value: `${recordedCount}`,
       hint:
         pendingCount > 0
-          ? `${pendingCount} with Maccky for approval`
+          ? `${pendingCount} with Admin for approval`
           : "sales + losses to batch",
       icon: ClipboardList,
     },

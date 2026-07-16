@@ -10,6 +10,7 @@ function revalidate() {
   revalidatePath("/approvals");
   revalidatePath("/dashboard");
   revalidatePath("/master-inventory");
+  revalidatePath("/receivables");
 }
 
 export async function approveSale(id: string, note?: string): Promise<ActionResult> {

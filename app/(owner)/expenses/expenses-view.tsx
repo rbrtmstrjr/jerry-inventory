@@ -135,6 +135,21 @@ export function ExpensesView({
 
   const filteredTotal = filtered.reduce((s, e) => s + e.amount, 0);
 
+  // Company-wide vs per-shop, over whatever the filters currently show.
+  // Company overhead is never spread across shops — it's reported on its own.
+  const companyTotal = filtered
+    .filter((e) => e.scope === "company")
+    .reduce((s, e) => s + e.amount, 0);
+  const shopTotal = filteredTotal - companyTotal;
+  const perShopTotals = (() => {
+    const m = new Map<string, number>();
+    for (const e of filtered) {
+      if (e.scope !== "shop" || !e.shop_name) continue;
+      m.set(e.shop_name, (m.get(e.shop_name) ?? 0) + e.amount);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  })();
+
   // recently-used categories first in the dialog
   const recentCatIds: string[] = [];
   for (const e of expenses) {
@@ -295,12 +310,53 @@ export function ExpensesView({
             ))}
           </SelectContent>
         </Select>
-        <span className="ml-auto text-sm text-muted-foreground">
-          Filtered total:{" "}
-          <span className="font-semibold tabular-nums text-foreground">
-            {formatCentavos(filteredTotal)}
-          </span>
-        </span>
+      </div>
+
+      {/* Summary — company overhead and branch running costs are different
+          animals, so they never get merged into a single number. */}
+      <div className="rounded-lg border">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-b bg-muted/40 px-4 py-2.5">
+          <div>
+            <div className="text-xs text-muted-foreground">Filtered total</div>
+            <div className="text-lg font-semibold tabular-nums">
+              {formatCentavos(filteredTotal)}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            <div>
+              <div className="text-xs text-muted-foreground">Company-wide</div>
+              <div className="font-semibold tabular-nums">
+                {formatCentavos(companyTotal)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">
+                Per-shop ({perShopTotals.length})
+              </div>
+              <div className="font-semibold tabular-nums">
+                {formatCentavos(shopTotal)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {perShopTotals.length > 0 && (
+          <div className="flex flex-wrap gap-x-6 gap-y-1 px-4 py-2 text-sm">
+            {perShopTotals.map(([name, amount]) => (
+              <span key={name} className="text-muted-foreground">
+                {name}{" "}
+                <span className="font-medium tabular-nums text-foreground">
+                  {formatCentavos(amount)}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+          Operating costs only — supplier payments are stock cost (COGS) and
+          belong in Supplier Payables, not here.
+        </p>
       </div>
 
       <DataTable

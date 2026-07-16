@@ -7,8 +7,12 @@ import {
   Anchor,
   AlertTriangle,
   BarChart3,
+  BellRing,
   ClipboardCheck,
+  BookOpen,
   ClipboardList,
+  Handshake,
+  HandCoins,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
@@ -32,6 +36,7 @@ import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { ApprovalsBadge } from "@/components/shell/approvals-badge";
+import { NotificationBell } from "@/components/shell/notification-bell";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
@@ -63,27 +68,35 @@ const OWNER_NAV: NavGroup[] = [
     ],
   },
   {
+    // Ordered as stock actually flows: bought from a supplier → into master →
+    // delivered to shops — then the checks on it (alerts, counts, the ledger).
     label: "Inventory",
     items: [
+      { href: "/suppliers", label: "Suppliers", icon: Handshake },
       { href: "/master-inventory", label: "Master Inventory", icon: Boxes },
       { href: "/deliveries", label: "Deliveries & Returns", icon: Truck },
+      { href: "/stock-alerts", label: "Stock Alerts", icon: BellRing },
       { href: "/counts", label: "Monthly Count", icon: ClipboardList },
+      { href: "/movements", label: "Movements", icon: BookOpen },
     ],
   },
   {
     label: "Sales & Service",
     items: [
       { href: "/approvals", label: "Approval Queue", icon: ClipboardCheck },
+      { href: "/receivables", label: "Receivables", icon: HandCoins },
       { href: "/warranties", label: "Warranties & Serials", icon: ShieldCheck },
     ],
   },
   {
+    // Settings lives in the profile menu (top right), not here — it's about
+    // the owner's account and business config, not a place stock or money
+    // moves through.
     label: "Administration",
     items: [
       { href: "/shops", label: "Shops & Employees", icon: Store },
       { href: "/payroll", label: "Payroll", icon: Wallet },
       { href: "/expenses", label: "Expenses", icon: ReceiptText },
-      { href: "/settings", label: "Settings", icon: Settings },
     ],
   },
 ];
@@ -91,13 +104,19 @@ const OWNER_NAV: NavGroup[] = [
 const EMPLOYEE_NAV: NavGroup[] = [
   {
     label: "My Shop",
-    items: [{ href: "/shop", label: "My Shop Stock", icon: Package }],
+    items: [
+      { href: "/shop", label: "My Shop Stock", icon: Package },
+      { href: "/shop/deliveries", label: "Incoming Deliveries", icon: Truck },
+      { href: "/shop/low-stock", label: "Low Stock", icon: BellRing },
+    ],
   },
   {
     label: "Daily Work",
     items: [
       { href: "/shop/record-sale", label: "Record Sale", icon: ShoppingCart },
       { href: "/shop/record-loss", label: "Record Loss", icon: AlertTriangle },
+      { href: "/shop/receivables", label: "Receivables", icon: HandCoins },
+      { href: "/shop/warranties", label: "Warranties", icon: ShieldCheck },
       { href: "/shop/submissions", label: "Submissions", icon: Send },
     ],
   },
@@ -172,7 +191,7 @@ function Brand() {
         <Anchor className="size-4" />
       </div>
       <div className="leading-tight">
-        <div className="text-sm font-semibold">Maccky&apos;s Marine</div>
+        <div className="text-sm font-semibold">Jerry&apos;s Marine</div>
         <div className="text-xs text-muted-foreground">Inventory System</div>
       </div>
     </div>
@@ -206,31 +225,21 @@ function useSignOut() {
   };
 }
 
-function SidebarFooter({ contextLabel }: { contextLabel: string }) {
-  const signOut = useSignOut();
-  const itemClass =
-    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
-  return (
-    <div className="mt-auto flex flex-col gap-1 border-t border-sidebar-border px-3 py-3">
-      <a
-        href={SUPPORT_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={itemClass}
-      >
-        <LifeBuoy className="size-4 shrink-0" />
-        Support
-      </a>
-      <button type="button" onClick={signOut} className={itemClass}>
-        <LogOut className="size-4 shrink-0" />
-        Log out
-      </button>
-      <div className="px-3 pt-1 text-xs text-muted-foreground">{contextLabel}</div>
-    </div>
-  );
-}
-
-function UserMenu({ userName, contextLabel }: { userName: string; contextLabel: string }) {
+/**
+ * Account actions live here, not in the sidebar — Settings, Support and
+ * Sign out are about the ACCOUNT, not a place to navigate stock or money
+ * through, so they belong under the identity that's always pinned top-right
+ * rather than competing for space with the nav on every page.
+ */
+function UserMenu({
+  variant,
+  userName,
+  contextLabel,
+}: {
+  variant: "owner" | "employee";
+  userName: string;
+  contextLabel: string;
+}) {
   const signOut = useSignOut();
   const initials = userName
     .split(/\s+/)
@@ -254,6 +263,23 @@ function UserMenu({ userName, contextLabel }: { userName: string; contextLabel: 
           <div className="text-sm font-medium">{userName}</div>
           <div className="text-xs font-normal text-muted-foreground">{contextLabel}</div>
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {/* Employees have no business config to reach — same reason /settings
+            never appeared in their sidebar. */}
+        {variant === "owner" && (
+          <DropdownMenuItem asChild>
+            <Link href="/settings">
+              <Settings className="size-4" />
+              Settings
+            </Link>
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem asChild>
+          <a href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">
+            <LifeBuoy className="size-4" />
+            Support
+          </a>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={signOut} variant="destructive">
           <LogOut className="size-4" />
@@ -279,7 +305,6 @@ export function AppShell({ variant, userName, contextLabel, children }: AppShell
           pathname={pathname}
           showApprovalsBadge={variant === "owner"}
         />
-        <SidebarFooter contextLabel={contextLabel} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto print:overflow-visible">
@@ -301,13 +326,13 @@ export function AppShell({ variant, userName, contextLabel, children }: AppShell
                 onNavigate={() => setMobileOpen(false)}
                 showApprovalsBadge={variant === "owner"}
               />
-              <SidebarFooter contextLabel={contextLabel} />
             </SheetContent>
           </Sheet>
 
           <div className="flex-1" />
+          <NotificationBell variant={variant} />
           <ThemeToggle />
-          <UserMenu userName={userName} contextLabel={contextLabel} />
+          <UserMenu variant={variant} userName={userName} contextLabel={contextLabel} />
         </header>
 
         <main className="flex-1 p-4 md:p-6">{children}</main>

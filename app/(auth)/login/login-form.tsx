@@ -16,6 +16,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -26,16 +34,20 @@ const loginSchema = z.object({
 
 type LoginValues = z.infer<typeof loginSchema>;
 
-export function LoginForm() {
+export function LoginForm({ initialError }: { initialError?: string }) {
   const router = useRouter();
-  const [serverError, setServerError] = React.useState<string | null>(null);
+  const [serverError, setServerError] = React.useState<string | null>(
+    initialError ?? null
+  );
   // Stays true after a successful sign-in so the button keeps its loading
   // state while the redirect + server render are still in flight.
   const [redirecting, setRedirecting] = React.useState(false);
+  const [forgotOpen, setForgotOpen] = React.useState(false);
 
   const {
     register,
     handleSubmit,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -110,7 +122,16 @@ export function LoginForm() {
             )}
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="password">Password</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password">Password</Label>
+              <button
+                type="button"
+                onClick={() => setForgotOpen(true)}
+                className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                Forgot password?
+              </button>
+            </div>
             <Input
               id="password"
               type="password"
@@ -136,6 +157,111 @@ export function LoginForm() {
           </Button>
         </form>
       </CardContent>
+
+      {/* Mounted only while open, so it starts fresh every time and simply
+          seeds itself from whatever email is already typed. The alternative —
+          keeping it mounted and resetting in an effect — is a setState in an
+          effect, which is a cascading render for no reason. */}
+      {forgotOpen && (
+        <ForgotPasswordDialog
+          onOpenChange={setForgotOpen}
+          defaultEmail={getValues("email")}
+        />
+      )}
     </Card>
+  );
+}
+
+/**
+ * The way back in. This is the only recovery path that works when nobody can
+ * sign in — if it breaks, Jerry is locked out of his own business with no
+ * support desk to call, so it stays as simple as it can possibly be.
+ */
+function ForgotPasswordDialog({
+  onOpenChange,
+  defaultEmail,
+}: {
+  onOpenChange: (v: boolean) => void;
+  defaultEmail?: string;
+}) {
+  const [email, setEmail] = React.useState(defaultEmail ?? "");
+  const [busy, setBusy] = React.useState(false);
+  const [sent, setSent] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function onSend() {
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      setError("Enter a valid email address");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    const supabase = createClient();
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset`,
+    });
+    setBusy(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setSent(true);
+  }
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reset your password</DialogTitle>
+          <DialogDescription>
+            We&apos;ll email you a link to set a new one.
+          </DialogDescription>
+        </DialogHeader>
+
+        {sent ? (
+          <div className="grid gap-2 text-sm">
+            {/* Deliberately does not confirm whether that address has an account
+                — saying "no such user" would let anyone test addresses against
+                this login. Supabase answers the same way for the same reason. */}
+            <p>
+              If <strong>{email}</strong> has an account, a reset link is on its
+              way. It lasts about an hour.
+            </p>
+            <p className="text-muted-foreground">
+              Open the link in this same browser — for security the link is tied
+              to the browser that asked for it.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            <Label htmlFor="forgot-email">Email</Label>
+            <Input
+              id="forgot-email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+            {error && (
+              <p className="text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          {sent ? (
+            <Button onClick={() => onOpenChange(false)}>Done</Button>
+          ) : (
+            <Button onClick={onSend} disabled={busy || !email}>
+              {busy && <Loader2 className="size-4 animate-spin" />}
+              Send reset link
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

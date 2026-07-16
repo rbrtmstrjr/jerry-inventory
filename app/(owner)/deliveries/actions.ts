@@ -42,6 +42,37 @@ export async function deliverStock(input: unknown): Promise<ActionResult> {
   return { ok: true, id: data as string };
 }
 
+/**
+ * Resolve a shortfall that's still sitting in transit — OWNER ONLY.
+ * Either it's found (back to master) or it's gone (transit write-off, which
+ * reports keep separate from a shop loss and from a return).
+ */
+export async function resolveDeliveryDiscrepancy(input: unknown): Promise<ActionResult> {
+  const parsed = z
+    .object({
+      delivery_line_id: z.uuid(),
+      qty: z.number().int().positive(),
+      resolution: z.enum(["returned_to_master", "written_off"]),
+      reason: z.string().trim().max(2000).optional().nullable(),
+    })
+    .safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_resolve_delivery_discrepancy", {
+    p_delivery_line_id: parsed.data.delivery_line_id,
+    p_qty: parsed.data.qty,
+    p_resolution: parsed.data.resolution,
+    p_reason: parsed.data.reason || null,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/deliveries");
+  revalidatePath("/master-inventory");
+  revalidatePath("/reports");
+  return { ok: true };
+}
+
 export async function returnStock(input: unknown): Promise<ActionResult> {
   const parsed = transferSchema.safeParse(input);
   if (!parsed.success) {

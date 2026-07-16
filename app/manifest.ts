@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Maccky's Marine Inventory",
-    short_name: "Maccky's Marine",
+    name: "Jerry's Marine Inventory",
+    short_name: "Jerry's Marine",
     description: "Multi-shop inventory and sales-approval system",
     start_url: "/",
     display: "standalone",

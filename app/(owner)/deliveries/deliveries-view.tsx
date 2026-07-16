@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
@@ -51,12 +52,30 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/data-table/data-table";
 import type {
+  DeliveryPrefill,
+  DiscrepancyRow,
   EngineOption,
   MasterPartOption,
   ShopPartStock,
   TransferHistoryRow,
 } from "./page";
 import { deliverStock, returnStock } from "./actions";
+import { TransitBanner, TransitPanel } from "./transit-panel";
+import { fulfillDeliveryRequest } from "./request-actions";
+import { RequestsPanel, type RequestRow } from "./requests-panel";
+
+const TAB_VALUES = ["delivery", "return", "transit", "requests"] as const;
+type TabValue = (typeof TAB_VALUES)[number];
+
+const DELIVERY_STATUS: Record<
+  NonNullable<TransferHistoryRow["status"]>,
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+> = {
+  in_transit: { label: "In transit", variant: "secondary" },
+  confirmed: { label: "Confirmed", variant: "default" },
+  discrepancy: { label: "Discrepancy", variant: "destructive" },
+  resolved: { label: "Resolved", variant: "outline" },
+};
 
 interface PartLine {
   part_id: string;
@@ -190,17 +209,24 @@ function TransferForm({
   partOptionsForShop,
   engineOptionsForShop,
   onDone,
+  prefill,
 }: {
   kind: "delivery" | "return";
   shops: { id: string; name: string }[];
   partOptionsForShop: (shopId: string) => ItemOption[];
   engineOptionsForShop: (shopId: string) => EngineOption[];
   onDone: (id?: string) => void;
+  /** set when converting a shop's delivery request */
+  prefill?: DeliveryPrefill | null;
 }) {
-  const [shopId, setShopId] = React.useState("");
-  const [note, setNote] = React.useState("");
-  const [partLines, setPartLines] = React.useState<PartLine[]>([]);
-  const [engineIds, setEngineIds] = React.useState<Set<string>>(new Set());
+  const [shopId, setShopId] = React.useState(prefill?.shopId ?? "");
+  const [note, setNote] = React.useState(prefill?.note ?? "");
+  const [partLines, setPartLines] = React.useState<PartLine[]>(
+    prefill?.partLines ?? []
+  );
+  const [engineIds, setEngineIds] = React.useState<Set<string>>(
+    () => new Set(prefill?.engineIds ?? [])
+  );
   const [submitting, setSubmitting] = React.useState(false);
 
   const partOptions = shopId ? partOptionsForShop(shopId) : [];
@@ -251,9 +277,16 @@ function TransferForm({
     if (res.ok) {
       toast.success(
         kind === "delivery"
-          ? "Delivered — stock landed at the shop"
+          ? "Sent — in transit until the shop confirms what arrived"
           : "Returned — stock is back in master"
       );
+      // Converting a request: link it to this delivery and close it out. The
+      // stock itself moved through the normal delivery flow above.
+      if (kind === "delivery" && prefill?.requestId && res.id) {
+        const link = await fulfillDeliveryRequest(prefill.requestId, res.id);
+        if (link.ok) toast.success("Request marked fulfilled — the shop was told");
+        else toast.error(`Delivered, but linking the request failed: ${link.error}`);
+      }
       setShopId("");
       setNote("");
       setPartLines([]);
@@ -493,13 +526,42 @@ export function DeliveriesView({
   shopParts,
   engines,
   history,
+  transit = [],
+  prefill = null,
+  requests = [],
+  initialTab,
 }: {
   shops: { id: string; name: string }[];
   masterParts: MasterPartOption[];
   shopParts: ShopPartStock[];
   engines: EngineOption[];
   history: TransferHistoryRow[];
+  transit?: DiscrepancyRow[];
+  prefill?: DeliveryPrefill | null;
+  requests?: RequestRow[];
+  /** Deep link (?tab=requests) — e.g. from a delivery-request notification. */
+  initialTab?: string;
 }) {
+  const router = useRouter();
+  const openRequests = requests.filter((r) => r.status === "open").length;
+
+  const [tab, setTab] = React.useState<TabValue>(() => {
+    if (prefill) return "delivery";
+    if (initialTab && TAB_VALUES.includes(initialTab as TabValue)) {
+      return initialTab as TabValue;
+    }
+    if (transit.some((t) => t.status === "discrepancy")) return "transit";
+    return "delivery";
+  });
+
+  // "Convert to delivery" switches tabs here and pushes ?request=<id>; the
+  // server sends the prefill back on the re-render. Landing on that URL
+  // directly (bookmark, old link) is covered by the initializer above.
+  function convertRequest(id: string) {
+    setTab("delivery");
+    router.push(`/deliveries?request=${id}`);
+  }
+
   const sortedHistory = [...history].sort(
     (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
   );
@@ -548,6 +610,26 @@ export function DeliveriesView({
       ),
     },
     {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => {
+        const s = row.original.status;
+        if (!s) return <span className="text-xs text-muted-foreground">—</span>;
+        return (
+          <span className="flex items-center gap-1.5">
+            <Badge variant={DELIVERY_STATUS[s].variant}>
+              {DELIVERY_STATUS[s].label}
+            </Badge>
+            {row.original.qty_outstanding > 0 && (
+              <span className="text-xs font-medium text-warning-foreground tabular-nums">
+                {row.original.qty_outstanding} out
+              </span>
+            )}
+          </span>
+        );
+      },
+    },
+    {
       accessorKey: "note",
       header: "Note",
       cell: ({ getValue }) => (
@@ -577,28 +659,69 @@ export function DeliveriesView({
           Deliveries &amp; Returns
         </h1>
         <p className="text-sm text-muted-foreground">
-          Move stock between master and shops. Deliveries auto-land — no shop
-          confirmation needed.
+          Move stock between master and shops. Stock leaves master into transit
+          and lands only once the shop confirms what actually arrived.
         </p>
       </div>
 
-      <Tabs defaultValue="delivery">
+      {transit.length > 0 && <TransitBanner transit={transit} />}
+
+      <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)}>
         <TabsList>
           <TabsTrigger value="delivery">New Delivery</TabsTrigger>
           <TabsTrigger value="return">New Return</TabsTrigger>
+          <TabsTrigger value="transit">
+            In transit ({transit.length})
+          </TabsTrigger>
+          <TabsTrigger value="requests">
+            Requests
+            {openRequests > 0 && (
+              <Badge className="ml-1.5 h-5 min-w-5 justify-center px-1 tabular-nums">
+                {openRequests}
+              </Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
+        <TabsContent value="transit" className="pt-2">
+          <TransitPanel transit={transit} />
+        </TabsContent>
+        <TabsContent value="requests" className="pt-2">
+          <RequestsPanel requests={requests} onConvert={convertRequest} />
+        </TabsContent>
         <TabsContent value="delivery" className="pt-2">
+          {prefill && (
+            <div className="mb-3 flex flex-col gap-1 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
+              <p className="text-sm font-medium">
+                Filled in from a shop&apos;s delivery request
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Check the quantities, then deliver as normal — the request is
+                marked fulfilled automatically.
+              </p>
+              {prefill.unmatchedEngines.length > 0 && (
+                <p className="mt-1 text-xs font-medium text-warning-foreground">
+                  Not enough engines in master for:{" "}
+                  {prefill.unmatchedEngines
+                    .map((u) => `${u.name} (${u.short} short)`)
+                    .join(", ")}
+                  .
+                </p>
+              )}
+            </div>
+          )}
           <Card>
             <CardHeader>
-              <CardTitle>Maccky → Shop</CardTitle>
+              <CardTitle>Admin → Shop</CardTitle>
               <CardDescription>
-                Stock leaves master and lands in the shop immediately. A
-                printable delivery note is generated.
+                Stock leaves master into transit and lands only once the shop
+                confirms what arrived. A printable delivery note is generated.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <TransferForm
                 kind="delivery"
+                prefill={prefill}
+                key={prefill?.requestId ?? "new"}
                 shops={shops}
                 partOptionsForShop={() =>
                   masterParts.map((p) => ({
@@ -620,7 +743,7 @@ export function DeliveriesView({
         <TabsContent value="return" className="pt-2">
           <Card>
             <CardHeader>
-              <CardTitle>Shop → Maccky</CardTitle>
+              <CardTitle>Shop → Admin</CardTitle>
               <CardDescription>
                 Take stock back into master — slow-movers, redistribution, or
                 damaged-for-return.

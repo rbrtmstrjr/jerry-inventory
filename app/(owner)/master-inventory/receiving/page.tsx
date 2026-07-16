@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import type { ReceivingRow } from "@/lib/db-types";
-import { ReceivingView } from "./receiving-view";
+import { ReceivingView, type SupplierOption } from "./receiving-view";
 
 export const metadata: Metadata = { title: "Receiving" };
 
@@ -17,9 +17,15 @@ export default async function ReceivingPage() {
       .is("deleted_at", null)
       .order("received_at", { ascending: false })
       .limit(100),
+    // `credit_limit`, not `credit_limit_centavos` — the latter has never
+    // existed. PostgREST rejected the whole select, `.data` came back null, and
+    // `?? []` below turned that into "this business has no suppliers": the
+    // picker was empty, every receiving was logged with no supplier, and no
+    // supplier debt was recorded at all. A failed query must never be
+    // indistinguishable from an empty one.
     supabase
       .from("suppliers")
-      .select("id, name")
+      .select("id, name, credit_limit, payment_terms_days, terms_note")
       .is("deleted_at", null)
       .order("name"),
     supabase
@@ -49,7 +55,7 @@ export default async function ReceivingPage() {
   return (
     <ReceivingView
       receivings={receivings}
-      suppliers={suppliersRes.data ?? []}
+      suppliers={(suppliersRes.data ?? []) as SupplierOption[]}
       parts={partsRes.data ?? []}
       models={modelsRes.data ?? []}
     />
