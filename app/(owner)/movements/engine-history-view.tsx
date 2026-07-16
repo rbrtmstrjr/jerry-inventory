@@ -105,7 +105,7 @@ export function EngineHistoryView({
                   autoComplete="off"
                 />
               </div>
-              <Button type="submit" variant="outline" size="icon">
+              <Button type="submit" variant="outline" size="icon" aria-label="Search serial">
                 <Search className="size-4" />
               </Button>
             </div>

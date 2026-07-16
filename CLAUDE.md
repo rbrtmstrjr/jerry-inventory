@@ -594,6 +594,19 @@ are unreachable through PostgREST. Both re-check `is_owner()` for the reason
 0042 exists: a definer function without a role check is the hole RLS exists to
 close.
 
+**Enforced now, not by memory (`test-definer-guards.mjs`).** Every definer
+function granted to `authenticated` must guard its caller in-body. This is a
+STATIC test over the migration SQL — it fails the build the moment a new
+function is authenticated-callable without a guard. 0042 fixed two such holes;
+the audit found three more that shipped *after* 0042 (`fn_supplier_outstanding`,
+`fn_receiving_balance`, `fn_sale_balance` — fixed in **0047**). Two functions are
+documented exceptions in that test: `fn_warranty_alert_days` (returns only a
+non-sensitive settings int) and `fn_apply_entry_contributions` (transitively
+guarded via `fn_contribution_basis`). The guard for the cron-called balance
+functions is `is_owner() OR auth.uid() IS NULL` — **not** a plain `is_owner()`,
+because the daily pg_cron sweeps run with no JWT (is_owner() false there), so an
+owner-only guard would silently kill overdue/limit alerts. See 0047's header.
+
 ---
 
 ## Project Layout
@@ -631,7 +644,7 @@ components/
   shell/                   app-shell (sidebar/nav), approvals-badge, print-button, section-tabs
   ui/                      shadcn/ui primitives
   data-table/ image-upload-field · product-image · receipt-image · location-picker · date-picker · view-toggle · confirm-dialog
-supabase/migrations/       0001–0019 (schema, RLS, functions, features)
+supabase/migrations/       0001–0046 (schema, RLS, functions, features)
 scripts/                   test-*.mjs verification scripts (one per deliverable)
 ```
 

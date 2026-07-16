@@ -349,8 +349,11 @@ export async function cleanup() {
   if (rcvIds.length) await del("receivings").in("id", rcvIds);
   if (suppliers.length) await del("supplier_payments").in("supplier_id", suppliers);
 
-  // alerts + levels
+  // alerts + levels. Notifications by shop_id AND by ref_id: master-context
+  // alerts (master_low_stock etc.) carry shop_id IS NULL, so inShops misses them.
   await inShops("notifications");
+  if (parts.length) await del("notifications").in("ref_id", parts);
+  if (engines.length) await del("notifications").in("ref_id", engines);
   if (parts.length) await del("shop_reorder_levels").in("part_id", parts);
   await inShops("shop_reorder_levels");
   if (parts.length) await del("stock_levels").in("part_id", parts);

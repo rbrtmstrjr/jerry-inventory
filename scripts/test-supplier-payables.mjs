@@ -318,6 +318,31 @@ console.log("\nEmployees have ZERO access to payables:");
   const { error } = await emp.rpc("fn_supplier_limit_check", { p_supplier_id: sup.id, p_additional: 0 });
   check("employee cannot probe credit limits", !!error && /owner/i.test(error.message));
 }
+// 0047: the balance definer functions must not leak cost to a shop even when
+// the shop supplies a valid id. A fresh UNPAID receiving guarantees a non-zero
+// balance to leak — the suite's earlier receivings are settled by now, which
+// would make the shop-gets-0 check pass for the wrong reason.
+{
+  const { data: fresh } = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: sup.id, p_note: `PAYABLE-TEST leak ${RUN}`,
+    p_parts: [{ part_id: part.id, qty: 1, unit_cost_centavos: 77700 }],
+    p_engines: [], p_payment_status: "unpaid",
+  });
+  const ownerBal = await balOf(fresh);
+  check("owner reads the real ₱777 balance (baseline for the leak test)",
+    ownerBal === 77700, `got ${ownerBal}`);
+
+  // These are language-sql read helpers that return an empty result to a
+  // non-owner (rather than raising), so assert 0/null — not an error.
+  const shopBal = await emp.rpc("fn_receiving_balance", { p_receiving_id: fresh });
+  check("employee gets NO receiving balance via fn_receiving_balance (0047)",
+    !shopBal.error && (shopBal.data == null || shopBal.data === 0),
+    `got ${shopBal.data} (leak — apply 0047)`);
+  const shopOut = await emp.rpc("fn_supplier_outstanding", { p_supplier_id: sup.id });
+  check("employee gets 0 from fn_supplier_outstanding (0047)",
+    !shopOut.error && (shopOut.data == null || shopOut.data === 0),
+    `got ${shopOut.data} (leak — apply 0047)`);
+}
 
 // ── Payables are NOT expenses ─────────────────────────────────────────────
 console.log("\nSupplier payments are COGS, not operating expenses:");

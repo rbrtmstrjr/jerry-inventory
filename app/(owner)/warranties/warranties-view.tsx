@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
+import { ph_today } from "@/lib/ph-date";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -394,7 +395,7 @@ function ClaimsDialog({
   React.useEffect(() => {
     if (warranty) {
       setAdding(false);
-      setDate(new Date().toISOString().slice(0, 10));
+      setDate(ph_today());
       setIssue("");
       setAction("");
     }

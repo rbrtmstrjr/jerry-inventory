@@ -27,6 +27,7 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
+import { downloadCsv } from "@/lib/csv";
 import type { ReceivingBalanceRow, SupplierPayableRow } from "@/lib/db-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,26 +80,6 @@ export interface PaymentHistoryRow {
 }
 
 const RECEIPTS_BUCKET = "receipts";
-
-function downloadCsv(filename: string, rows: Record<string, string | number>[]) {
-  if (rows.length === 0) return;
-  const headers = Object.keys(rows[0]);
-  const esc = (v: string | number) => {
-    const s = String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const csv = [
-    headers.join(","),
-    ...rows.map((r) => headers.map((h) => esc(r[h])).join(",")),
-  ].join("\n");
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 /** green → amber at ≥80% → red at ≥100% */
 function utilTone(pct: number | null) {

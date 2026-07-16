@@ -34,7 +34,7 @@ export default async function OwnerDashboardPage() {
     todaySales,
     masterParts,
     masterEngines,
-    shopStock,
+    lowStock,
     recentPending,
   ] = await Promise.all([
     supabase
@@ -64,9 +64,8 @@ export default async function OwnerDashboardPage() {
       .eq("status", "in_master")
       .is("deleted_at", null),
     supabase
-      .from("stock_levels")
-      .select("qty, parts!inner(reorder_level, deleted_at)")
-      .not("shop_id", "is", null),
+      .from("shop_low_stock")
+      .select("product_id", { count: "exact", head: true }),
     supabase
       .from("sales")
       .select("id, total_centavos, created_at, status, shops(name), profiles!sales_recorded_by_fkey(full_name)")
@@ -85,10 +84,7 @@ export default async function OwnerDashboardPage() {
   const masterItemCount =
     (masterParts.data ?? []).filter((r: any) => !r.parts.deleted_at).length +
     (masterEngines.count ?? 0);
-  const lowStockCount = (shopStock.data ?? []).filter(
-    (r: any) =>
-      !r.parts.deleted_at && r.parts.reorder_level > 0 && r.qty <= r.parts.reorder_level
-  ).length;
+  const lowStockCount = lowStock.count ?? 0;
   const recent = (recentPending.data ?? []) as any[];
   /* eslint-enable @typescript-eslint/no-explicit-any */
 

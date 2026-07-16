@@ -167,7 +167,7 @@ export function JournalView({
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Product, serial, receipt no, note…"
               />
-              <Button type="submit" variant="outline" size="icon">
+              <Button type="submit" variant="outline" size="icon" aria-label="Search">
                 <Search className="size-4" />
               </Button>
             </form>

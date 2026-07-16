@@ -18,6 +18,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 
 import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
+import { ph_today } from "@/lib/ph-date";
 import { createClient } from "@/lib/supabase/client";
 import {
   formatBytes,
@@ -461,7 +462,7 @@ function ExpenseDialog({
   React.useEffect(() => {
     if (open) {
       setAmount(expense ? (expense.amount / 100).toFixed(2) : "");
-      setDate(expense?.expense_date ?? new Date().toISOString().slice(0, 10));
+      setDate(expense?.expense_date ?? ph_today());
       setCategoryId(expense?.category_id ?? "");
       setScope(expense?.scope ?? "shop");
       setShopId(expense?.shop_id ?? "");

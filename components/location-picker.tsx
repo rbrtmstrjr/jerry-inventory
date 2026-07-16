@@ -117,8 +117,13 @@ export function LocationPicker({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<LeafletMap | null>(null);
   const markerRef = React.useRef<Marker | null>(null);
+  // Keep a ref to the latest onChange so the once-only map-init effect can call
+  // it without re-subscribing. Assigned in an effect, not during render — a ref
+  // write during render is the react-hooks/refs anti-pattern.
   const onChangeRef = React.useRef(onChange);
-  onChangeRef.current = onChange;
+  React.useEffect(() => {
+    onChangeRef.current = onChange;
+  });
   const [ready, setReady] = React.useState(false);
   const [locating, setLocating] = React.useState(false);
 
