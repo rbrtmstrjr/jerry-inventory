@@ -13,7 +13,7 @@
  * Run: node scripts/test-rls.mjs
  */
 import {
-  owner, anonClient, RUN, check, section, summary,
+  owner, admin, anonClient, RUN, check, section, summary,
   provisionShop, seedPart, seedEngineModel, seedSupplier, cleanup,
 } from "./_harness.mjs";
 
@@ -23,9 +23,11 @@ const emp1 = A.client;
 const emp2 = B.client;
 const anon = anonClient();
 
-section("Setup (as owner):");
+section("Setup:");
+// Catalog fixtures via the service role — 0049 revoked INSERT from app roles
+// (creation is fn_receive_stock's job; test-catalog-lock proves the revoke).
 const part = await seedPart({ label: "Impeller", cost: 15000, price: 25000, reorder_level: 2 });
-check("owner can create a part (with cost)", !!part.id);
+check("part fixture seeded (service role)", !!part.id);
 
 const { error: stockErr } = await owner.from("stock_levels").insert([
   { part_id: part.id, shop_id: null, qty: 50 },
@@ -35,7 +37,7 @@ const { error: stockErr } = await owner.from("stock_levels").insert([
 check("owner can set stock (master + both shops)", !stockErr, stockErr?.message);
 
 const model = await seedEngineModel({ brand: "RLS", model: "Enduro", hp: 40 });
-const { data: engine, error: engErr } = await owner.from("engines").insert({
+const { data: engine, error: engErr } = await admin.from("engines").insert({
   serial_number: `RLS-${RUN}-SN1`,
   engine_model_id: model.id,
   cost_centavos: 8_000_000,
@@ -43,7 +45,7 @@ const { data: engine, error: engErr } = await owner.from("engines").insert({
   status: "delivered",
   shop_id: A.id,
 }).select().single();
-check("owner can create a delivered engine", !!engine, engErr?.message);
+check("delivered-engine fixture seeded (service role)", !!engine, engErr?.message);
 await seedSupplier({ label: "Vendor" });
 
 section("Employee — must be blocked from base tables:");

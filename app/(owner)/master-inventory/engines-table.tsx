@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { Cog, MoreHorizontal, PackagePlus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { EngineModel, EngineRow } from "@/lib/db-types";
@@ -30,6 +31,7 @@ import {
 import { Search } from "lucide-react";
 import { softDeleteEngine } from "./actions";
 import { EngineFormDialog } from "./engine-form-dialog";
+import { ModelManagerDialog } from "./reference-data-dialogs";
 
 const STATUS_BADGE: Record<
   EngineRow["status"],
@@ -53,6 +55,7 @@ export function EnginesTable({
   const [deleting, setDeleting] = React.useState<EngineRow | null>(null);
   const [view, setView] = usePersistedView("jm-view-owner-engines");
   const [cardSearch, setCardSearch] = React.useState("");
+  const [modelMgrOpen, setModelMgrOpen] = React.useState(false);
 
   function RowActions({ engine, onImage }: { engine: EngineRow; onImage?: boolean }) {
     return (
@@ -92,15 +95,19 @@ export function EnginesTable({
     );
   }
 
-  const addButton = (
-    <Button
-      onClick={() => {
-        setEditing(null);
-        setDialogOpen(true);
-      }}
-    >
-      <Plus className="size-4" /> Add Engine
-    </Button>
+  // No Add button — serials are born on a supplier receiving (0049 revokes
+  // direct INSERT at the database). This page is view + edit.
+  const toolbarButtons = (
+    <>
+      <Button variant="outline" onClick={() => setModelMgrOpen(true)}>
+        <Cog className="size-4" /> Models
+      </Button>
+      <Button asChild>
+        <Link href="/suppliers?tab=receiving">
+          <PackagePlus className="size-4" /> Receive engines
+        </Link>
+      </Button>
+    </>
   );
 
   const q = cardSearch.trim().toLowerCase();
@@ -190,11 +197,11 @@ export function EnginesTable({
           columns={columns}
           data={engines}
           searchPlaceholder="Search serial or model…"
-          emptyMessage="No engines yet — add one, or log a receiving."
+          emptyMessage="No engines yet — serials enter through a supplier receiving (Suppliers → Receiving)."
           toolbar={
             <>
               <ViewToggle value={view} onChange={setView} />
-              {addButton}
+              {toolbarButtons}
             </>
           }
         />
@@ -213,7 +220,7 @@ export function EnginesTable({
             </div>
             <div className="ml-auto flex items-center gap-2">
               <ViewToggle value={view} onChange={setView} />
-              {addButton}
+              {toolbarButtons}
             </div>
           </div>
 
@@ -224,7 +231,17 @@ export function EnginesTable({
                   <Search />
                 </EmptyMedia>
                 <EmptyDescription>
-                  {q ? `Nothing matches “${cardSearch}”.` : "No engines yet."}
+                  {q ? (
+                    `Nothing matches “${cardSearch}”.`
+                  ) : (
+                    <>
+                      No engines yet — serials enter through a{" "}
+                      <Link className="underline" href="/suppliers?tab=receiving">
+                        supplier receiving
+                      </Link>
+                      .
+                    </>
+                  )}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -282,6 +299,11 @@ export function EnginesTable({
         onOpenChange={setDialogOpen}
         models={models}
         engine={editing}
+      />
+      <ModelManagerDialog
+        open={modelMgrOpen}
+        models={models}
+        onClose={() => setModelMgrOpen(false)}
       />
       <ConfirmDialog
         open={deleting !== null}

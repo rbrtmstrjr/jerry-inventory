@@ -1,12 +1,11 @@
 import { SectionTabs } from "@/components/shell/section-tabs";
 
-// Suppliers moved to /suppliers — stock starts at a supplier, so they head the
-// INVENTORY sidebar group instead of hiding inside Master Inventory. The old
-// route redirects.
+// Master Inventory is view + edit only — products land here because a
+// supplier delivered them. Receiving moved to /suppliers?tab=receiving (it's
+// a supplier transaction); Bulk Add was retired by 0048. Both old routes
+// redirect.
 const tabs = [
   { href: "/master-inventory", label: "Products" },
-  { href: "/master-inventory/receiving", label: "Receiving" },
-  { href: "/master-inventory/bulk-add", label: "Bulk Add" },
   { href: "/master-inventory/labels", label: "Labels" },
 ];
 

@@ -14,8 +14,8 @@ const c = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_AN
   auth: { persistSession: false },
 });
 const { data, error } = await c.auth.signInWithPassword({
-  email: "owner@jerrysmarine.test",
-  password: "Owner!Dev2026",
+  email: "robertmaestro09@gmail.com",
+  password: "rajonrondo09",
 });
 if (error) throw new Error(error.message);
 const cookie = `sb-${ref}-auth-token=base64-${Buffer.from(JSON.stringify(data.session)).toString("base64url")}`;
@@ -31,14 +31,13 @@ for (const path of [
   "/approvals",
   "/deliveries",
   "/master-inventory",
-  "/master-inventory/receiving",
-  "/master-inventory/bulk-add",
   "/master-inventory/labels",
+  "/suppliers?tab=receiving",
   "/master-inventory/suppliers",
 ]) {
   const res = await fetch("http://localhost:3000" + path, { headers: { cookie }, redirect: "manual" });
   const ok = res.status === 200;
   if (!ok) fail++;
-  console.log(`${ok ? "✓" : "✗"} GET ${path} → ${res.status}`);
+  console.log(`${ok ? "âœ“" : "âœ—"} GET ${path} â†’ ${res.status}`);
 }
 process.exit(fail ? 1 : 0);

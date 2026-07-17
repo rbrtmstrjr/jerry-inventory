@@ -4,14 +4,20 @@ import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 
+// Order tells the story: order it · receive it · owe it · compare it.
 const TABS = [
   { value: "directory", label: "Directory" },
+  { value: "receiving", label: "Receiving" },
   { value: "payables", label: "Payables" },
   { value: "comparison", label: "Price Comparison" },
 ] as const;
 
 /** `?tab=` links, same shape as /reports and /movements. */
-export function SupplierTabs({ active }: { active: "directory" | "payables" | "comparison" }) {
+export function SupplierTabs({
+  active,
+}: {
+  active: "directory" | "receiving" | "payables" | "comparison";
+}) {
   return (
     <nav
       aria-label="Suppliers"

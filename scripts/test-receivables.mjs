@@ -1,5 +1,5 @@
 /**
- * Receivables / utang verification — customer required on partial sales,
+ * Receivables / utang verification â€” customer required on partial sales,
  * payments POST IMMEDIATELY (no approval queue) + alert the owner, void
  * restores the balance and keeps history, over-payment blocked server-side,
  * shop isolation, and balance reconciliation.
@@ -26,7 +26,7 @@ const RUN = Date.now().toString(36).toUpperCase();
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "✓" : "✗"} ${name} ${ok ? "" : detail}`);
+  console.log(`  ${ok ? "âœ“" : "âœ—"} ${name} ${ok ? "" : detail}`);
   ok ? pass++ : fail++;
 };
 
@@ -62,9 +62,9 @@ async function makeShop(label) {
   return { shop, userId: u.user.id, client: await signIn(email, password) };
 }
 
-const owner = await signIn("owner@jerrysmarine.test", "Owner!Dev2026");
+const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
 
-/** Deliveries no longer auto-land (0028/0029) — the shop must confirm arrival. */
+/** Deliveries no longer auto-land (0028/0029) â€” the shop must confirm arrival. */
 async function confirmAll(shopClient, deliveryId) {
   const { data: lines } = await shopClient
     .from("shop_incoming_delivery_lines")
@@ -81,12 +81,16 @@ async function confirmAll(shopClient, deliveryId) {
   if (error) throw new Error(`confirm delivery: ${error.message}`);
 }
 
-console.log("Setup: two temp shops + employees, engine ₱20,000 @ 50/75/100%");
+console.log("Setup: two temp shops + employees, engine â‚±20,000 @ 50/75/100%");
 const A = await makeShop("ShopA");
 const B = await makeShop("ShopB");
 
-const { data: model } = await owner
-  .from("engine_models").select("id").eq("model", "15MH").single();
+// Self-provisioned model — the DB can start empty; service role seeds (0049).
+const { data: model } = await admin
+  .from("engine_models")
+  .insert({ brand: "ZZ-TEST", model: `15MH-${RUN}`, horsepower: 15, default_warranty_months: 12 })
+  .select("id")
+  .single();
 
 const SERIAL = `UTANG-TEST-${RUN}`;
 await owner.rpc("fn_receive_stock", {
@@ -108,7 +112,7 @@ const { data: dlvId, error: dlvErr } = await owner.rpc("fn_deliver_stock", {
 check("engine delivered to Shop A", !dlvErr, dlvErr?.message);
 await confirmAll(A.client, dlvId);
 
-// ── Partial sale requires a customer ───────────────────────────────────────
+// â”€â”€ Partial sale requires a customer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nEvery utang is traceable to a person:");
 {
   const { error } = await A.client.rpc("fn_record_sale", {
@@ -123,8 +127,8 @@ console.log("\nEvery utang is traceable to a person:");
     !!error && /customer/i.test(error.message), error?.message);
 }
 
-// ── The utang sale: ₱37,000 agreed, ₱10,000 down → ₱27,000 balance ─────────
-console.log("\nPartial engine sale (agreed ₱37,000, ₱10,000 down):");
+// â”€â”€ The utang sale: â‚±37,000 agreed, â‚±10,000 down â†’ â‚±27,000 balance â”€â”€â”€â”€â”€â”€â”€â”€â”€
+console.log("\nPartial engine sale (agreed â‚±37,000, â‚±10,000 down):");
 const { data: saleId, error: saleErr } = await A.client.rpc("fn_record_sale", {
   p_customer_id: null,
   p_customer: { name: `UTANG-TEST Ka Ambo ${RUN}`, phone: "0917-555-0000" },
@@ -152,14 +156,14 @@ console.log("\nReceivables surface:");
 {
   const { data: r } = await A.client
     .from("shop_receivables").select("*").eq("sale_id", saleId).single();
-  check("shop sees the open balance ₱27,000", r?.balance_centavos === 2700000, `(got ${r?.balance_centavos})`);
+  check("shop sees the open balance â‚±27,000", r?.balance_centavos === 2700000, `(got ${r?.balance_centavos})`);
   check("customer is attached", (r?.customer_name ?? "").includes("Ka Ambo"));
   const keys = Object.keys(r ?? {});
   check("no cost columns exposed", !keys.some((k) => k.includes("cost")));
   check("owner sees it too", (await balanceOf(owner, saleId)) === 2700000);
 }
 
-// ── Shop isolation ─────────────────────────────────────────────────────────
+// â”€â”€ Shop isolation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nShop isolation:");
 {
   const { data } = await B.client.from("shop_receivables").select("sale_id").eq("sale_id", saleId);
@@ -173,24 +177,24 @@ console.log("\nShop isolation:");
     !!error && /another shop/i.test(error.message), error?.message);
 }
 
-// ── Over-payment blocked ───────────────────────────────────────────────────
+// â”€â”€ Over-payment blocked â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nOver-payment guard (server-side):");
 {
   const { error } = await A.client.rpc("fn_record_utang_payment", {
-    p_sale_id: saleId, p_amount_centavos: 2700001, // ₱0.01 over
+    p_sale_id: saleId, p_amount_centavos: 2700001, // â‚±0.01 over
   });
   check("payment above the balance is rejected",
     !!error && /exceeds/i.test(error.message), error?.message);
 }
 
-// ── Payments post immediately (no approval queue) ──────────────────────────
+// â”€â”€ Payments post immediately (no approval queue) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nPayment posts immediately (utang = money already owed):");
 const { data: payId, error: payErr } = await A.client.rpc("fn_record_utang_payment", {
   p_sale_id: saleId, p_amount_centavos: 1000000,
 });
 check("payment recorded", !payErr, payErr?.message);
 {
-  check("balance drops AT ONCE to ₱17,000 (27,000 − 10,000)",
+  check("balance drops AT ONCE to â‚±17,000 (27,000 âˆ’ 10,000)",
     (await balanceOf(A.client, saleId)) === 1700000,
     `(got ${await balanceOf(A.client, saleId)})`);
 }
@@ -207,8 +211,8 @@ check("payment recorded", !payErr, payErr?.message);
   check("alert carries the shop context", data?.[0]?.shop_id === A.shop.id);
 }
 
-// ── Void restores the balance and keeps the history ────────────────────────
-console.log("\nVoid (mistake/typo) — balance restored, history kept:");
+// â”€â”€ Void restores the balance and keeps the history â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+console.log("\nVoid (mistake/typo) â€” balance restored, history kept:");
 {
   const { error } = await B.client.rpc("fn_void_utang_payment", { p_id: payId, p_reason: "x" });
   check("another shop cannot void it", !!error && /your own shop/i.test(error.message), error?.message);
@@ -218,7 +222,7 @@ console.log("\nVoid (mistake/typo) — balance restored, history kept:");
     p_id: payId, p_reason: "ALERT-TEST typo",
   });
   check("shop voided its own payment", !error, error?.message);
-  check("balance restored to ₱27,000", (await balanceOf(A.client, saleId)) === 2700000);
+  check("balance restored to â‚±27,000", (await balanceOf(A.client, saleId)) === 2700000);
   const { data: p } = await A.client
     .from("utang_payments").select("deleted_at, owner_note").eq("id", payId).single();
   check("voided row STAYS in history (soft-deleted)", !!p?.deleted_at);
@@ -233,11 +237,11 @@ console.log("\nVoid (mistake/typo) — balance restored, history kept:");
     p_sale_id: saleId, p_amount_centavos: 1000000,
   });
   check("payment re-recorded after the void", !error, error?.message);
-  check("balance back down to ₱17,000", (await balanceOf(A.client, saleId)) === 1700000);
+  check("balance back down to â‚±17,000", (await balanceOf(A.client, saleId)) === 1700000);
 }
 
-// ── Reconciliation ─────────────────────────────────────────────────────────
-console.log("\nReconciliation (agreed − down − Σ approved = balance):");
+// â”€â”€ Reconciliation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+console.log("\nReconciliation (agreed âˆ’ down âˆ’ Î£ approved = balance):");
 {
   const { data: r } = await owner
     .from("receivables")
@@ -245,12 +249,12 @@ console.log("\nReconciliation (agreed − down − Σ approved = balance):");
     .eq("sale_id", saleId).single();
   const expected = r.total_centavos - r.amount_paid_centavos - r.paid_since_centavos;
   check("view balance reconciles", r.balance_centavos === expected,
-    `(${r.total_centavos} − ${r.amount_paid_centavos} − ${r.paid_since_centavos} ≠ ${r.balance_centavos})`);
+    `(${r.total_centavos} âˆ’ ${r.amount_paid_centavos} âˆ’ ${r.paid_since_centavos} â‰  ${r.balance_centavos})`);
   check("fn_sale_balance agrees with the view",
     (await owner.rpc("fn_sale_balance", { p_sale_id: saleId })).data === r.balance_centavos);
 }
 
-// ── Paying the rest settles the utang ──────────────────────────────────────
+// â”€â”€ Paying the rest settles the utang â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nSettlement at zero:");
 {
   const { error } = await A.client.rpc("fn_record_utang_payment", {
@@ -268,12 +272,12 @@ console.log("\nSettlement at zero:");
   check("no further payment accepted once settled", !!error && /exceeds/i.test(error.message), error?.message);
 }
 
-// ── Cleanup (service role, FK-safe order) ──────────────────────────────────
+// â”€â”€ Cleanup (service role, FK-safe order) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nCleanup:");
 {
   const shops = [A.shop.id, B.shop.id];
   await admin.from("notifications").delete().in("shop_id", shops);
-  // Movements first — including the master-side row (shop_id IS NULL), which
+  // Movements first â€” including the master-side row (shop_id IS NULL), which
   // still points at the delivery/receiving and would block those deletes.
   await admin.from("warranties").delete().eq("engine_id", eng.id);
   await admin.from("stock_movements").delete().eq("engine_id", eng.id);
@@ -284,6 +288,7 @@ console.log("\nCleanup:");
   await admin.from("receivings").delete().like("note", `%${RUN}%`); // cascades receiving_lines
   await admin.from("stock_levels").delete().in("shop_id", shops);
   const engDel = await admin.from("engines").delete().eq("id", eng.id);
+  await admin.from("engine_models").delete().eq("id", model.id);
   await admin.from("customers").delete().like("name", `%${RUN}%`);
   await admin.auth.admin.deleteUser(A.userId);
   await admin.auth.admin.deleteUser(B.userId);

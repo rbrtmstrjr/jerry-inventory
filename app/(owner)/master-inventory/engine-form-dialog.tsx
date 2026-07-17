@@ -33,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { receiveStock, setEngineImage, updateEngine } from "./actions";
+import { setEngineImage, updateEngine } from "./actions";
 
 const pesoField = z
   .string()
@@ -45,8 +45,6 @@ const pctField = z
 
 const formSchema = z
   .object({
-    serial_number: z.string().trim().min(1, "Serial is required"),
-    engine_model_id: z.string().min(1, "Pick a model"),
     condition: z.enum(["brand_new", "second_hand"]),
     cost: pesoField,
     margin_floor: pctField,
@@ -71,6 +69,10 @@ function impliedPct(priceCentavos: number, costCentavos: number): string {
   return (((priceCentavos / costCentavos) - 1) * 100).toFixed(0);
 }
 
+/**
+ * EDIT-only since 0049 — engines are born on a supplier receiving; there is
+ * no create mode here (and no direct INSERT grant to back one).
+ */
 export function EngineFormDialog({
   open,
   onOpenChange,
@@ -80,7 +82,7 @@ export function EngineFormDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   models: EngineModel[];
-  engine: EngineRow | null; // null = add new (goes through receiving fn)
+  engine: EngineRow | null;
 }) {
   const [imageAction, setImageAction] = React.useState<ImageAction>({
     type: "keep",
@@ -96,8 +98,6 @@ export function EngineFormDialog({
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      serial_number: "",
-      engine_model_id: "",
       condition: "brand_new",
       cost: "0",
       margin_floor: "",
@@ -108,27 +108,20 @@ export function EngineFormDialog({
   });
 
   React.useEffect(() => {
-    if (open) {
+    if (open && engine) {
       setImageAction({ type: "keep" });
-      if (engine) {
-        const implied = impliedPct(engine.price_centavos, engine.cost_centavos);
-        reset({
-          serial_number: engine.serial_number,
-          engine_model_id: engine.engine_model_id,
-          condition: engine.condition,
-          cost: (engine.cost_centavos / 100).toFixed(2),
-          margin_floor: engine.margin_floor_pct?.toString() ?? implied,
-          margin_mid: engine.margin_mid_pct?.toString() ?? implied,
-          margin_asking: engine.margin_asking_pct?.toString() ?? implied,
-          warranty_months: engine.warranty_months?.toString() ?? "",
-        });
-      } else {
-        reset();
-      }
+      const implied = impliedPct(engine.price_centavos, engine.cost_centavos);
+      reset({
+        condition: engine.condition,
+        cost: (engine.cost_centavos / 100).toFixed(2),
+        margin_floor: engine.margin_floor_pct?.toString() ?? implied,
+        margin_mid: engine.margin_mid_pct?.toString() ?? implied,
+        margin_asking: engine.margin_asking_pct?.toString() ?? implied,
+        warranty_months: engine.warranty_months?.toString() ?? "",
+      });
     }
   }, [open, engine, reset]);
 
-  const modelValue = watch("engine_model_id");
   const conditionValue = watch("condition");
 
   // Live computed tier prices as the owner types (owner-only preview).
@@ -188,63 +181,27 @@ export function EngineFormDialog({
       margin_asking_pct: Number(values.margin_asking),
     };
 
-    if (engine) {
-      const res = await updateEngine({
-        id: engine.id,
-        condition: values.condition,
-        cost_centavos,
-        warranty_months: warranty,
-        ...margins,
-      });
-      if (res.ok) {
-        await applyImage(engine.id);
-        toast.success("Engine updated");
-        onOpenChange(false);
-      } else toast.error(res.error);
-    } else {
-      const res = await receiveStock({
-        supplier_id: null,
-        note: "Manual engine entry",
-        parts: [],
-        engines: [
-          {
-            serial_number: values.serial_number,
-            engine_model_id: values.engine_model_id,
-            condition: values.condition,
-            cost_centavos,
-            // trigger derives the real headline price from asking margin
-            price_centavos: priceAsking ?? 0,
-            warranty_months: warranty,
-            ...margins,
-          },
-        ],
-      });
-      if (res.ok) {
-        if (imageAction.type === "set") {
-          const supabase = createClient();
-          const { data: created } = await supabase
-            .from("engines")
-            .select("id")
-            .eq("serial_number", values.serial_number.trim())
-            .single();
-          if (created) await applyImage(created.id);
-        }
-        toast.success(`Engine ${values.serial_number} added to master`);
-        onOpenChange(false);
-      } else toast.error(res.error);
-    }
+    if (!engine) return; // edit-only since 0049 — never opened without one
+    const res = await updateEngine({
+      id: engine.id,
+      condition: values.condition,
+      cost_centavos,
+      warranty_months: warranty,
+      ...margins,
+    });
+    if (res.ok) {
+      await applyImage(engine.id);
+      toast.success("Engine updated");
+      onOpenChange(false);
+    } else toast.error(res.error);
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{engine ? "Edit Engine" : "Add Engine"}</DialogTitle>
-          <DialogDescription>
-            {engine
-              ? `Serial ${engine.serial_number}`
-              : "Each engine is tracked by its serial number."}
-          </DialogDescription>
+          <DialogTitle>Edit Engine</DialogTitle>
+          <DialogDescription>Serial {engine?.serial_number}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4">
           <div className="grid gap-2">
@@ -256,50 +213,20 @@ export function EngineFormDialog({
             />
           </div>
 
-          {!engine && (
-            <div className="grid gap-2">
-              <Label htmlFor="engine-serial">Serial number</Label>
-              <Input
-                id="engine-serial"
-                {...register("serial_number")}
-                placeholder="Scan or type the serial"
-                autoComplete="off"
-              />
-              {errors.serial_number && (
-                <p className="text-sm text-destructive">
-                  {errors.serial_number.message}
-                </p>
-              )}
-            </div>
-          )}
-
           <div className="grid grid-cols-2 gap-4">
             <div className="grid min-w-0 gap-2">
               <Label>Model</Label>
-              <Select
-                value={modelValue}
-                onValueChange={(v) =>
-                  setValue("engine_model_id", v, { shouldValidate: true })
+              <Input
+                value={
+                  models.find((m) => m.id === engine?.engine_model_id)
+                    ? `${models.find((m) => m.id === engine?.engine_model_id)!.brand} ${
+                        models.find((m) => m.id === engine?.engine_model_id)!.model
+                      }`
+                    : "—"
                 }
-                disabled={!!engine}
-              >
-                <SelectTrigger className="w-full max-w-full [&>span]:truncate">
-                  <SelectValue placeholder="Pick a model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {models.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.brand} {m.model}
-                      {m.horsepower != null ? ` — ${m.horsepower}HP` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.engine_model_id && (
-                <p className="text-sm text-destructive">
-                  {errors.engine_model_id.message}
-                </p>
-              )}
+                disabled
+                aria-label="Engine model (fixed at receiving)"
+              />
             </div>
             <div className="grid min-w-0 gap-2">
               <Label>Condition</Label>

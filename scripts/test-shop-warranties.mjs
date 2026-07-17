@@ -1,5 +1,5 @@
 /**
- * Shop warranty visibility verification — strict shop scoping (a shop cannot
+ * Shop warranty visibility verification â€” strict shop scoping (a shop cannot
  * see or print another shop's warranty, tested at the API/RLS level, not the
  * UI), no cost leakage, no mutate path, and near-expiry alerts with dedupe.
  *
@@ -24,7 +24,7 @@ const RUN = Date.now().toString(36).toUpperCase();
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "✓" : "✗"} ${name} ${ok ? "" : detail}`);
+  console.log(`  ${ok ? "âœ“" : "âœ—"} ${name} ${ok ? "" : detail}`);
   ok ? pass++ : fail++;
 };
 
@@ -54,7 +54,7 @@ async function makeShop(label) {
   return { shop, userId: u.user.id, client: await signIn(email, password) };
 }
 
-const owner = await signIn("owner@jerrysmarine.test", "Owner!Dev2026");
+const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
 
 async function confirmAll(shopClient, deliveryId) {
   const { data: lines } = await shopClient
@@ -66,10 +66,17 @@ async function confirmAll(shopClient, deliveryId) {
   if (error) throw new Error(`confirm: ${error.message}`);
 }
 
+// Self-provisioned model — created ONCE via service role (0049; the DB can
+// start empty) and reused by every sellEngine() call.
+const { data: wtyModel } = await admin
+  .from("engine_models")
+  .insert({ brand: "ZZ-TEST", model: `15MH-${RUN}`, horsepower: 15, default_warranty_months: 12 })
+  .select("id")
+  .single();
+
 /** Sell an engine from `shop` so its approval auto-creates a warranty. */
 async function sellEngine(S, serial, months) {
-  const { data: model } = await owner
-    .from("engine_models").select("id").eq("model", "15MH").single();
+  const model = wtyModel;
   await owner.rpc("fn_receive_stock", {
     p_supplier_id: null, p_note: `WTY-TEST setup ${RUN}`,
     p_parts: [],
@@ -110,7 +117,7 @@ const wB = await sellEngine(B, SERIAL_B, 1);
 check("Shop A warranty created", !!wA.warrantyId);
 check("Shop B warranty created", !!wB.warrantyId);
 
-// Park B's warranty 10 days from expiry — deterministic, rather than relying
+// Park B's warranty 10 days from expiry â€” deterministic, rather than relying
 // on "1 month" happening to land inside the 30-day window (it's 31 days).
 const { data: phToday } = await admin.rpc("ph_today");
 const soon = new Date(`${phToday}T00:00:00Z`);
@@ -120,7 +127,7 @@ await admin
   .update({ expires_on: soon.toISOString().slice(0, 10) })
   .eq("id", wB.warrantyId);
 
-// ── Scoping ───────────────────────────────────────────────────────────────
+// â”€â”€ Scoping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nA shop sees ONLY what it sold:");
 {
   const { data } = await A.client.from("shop_warranties").select("*");
@@ -154,7 +161,7 @@ console.log("\nA shop sees ONLY what it sold:");
     ids.includes(wA.warrantyId) && ids.includes(wB.warrantyId));
 }
 
-// ── No cost leakage ───────────────────────────────────────────────────────
+// â”€â”€ No cost leakage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nNo cost/margin anywhere on the shop surface:");
 {
   const { data } = await A.client.from("shop_warranties").select("*").limit(1).single();
@@ -164,7 +171,7 @@ console.log("\nNo cost/margin anywhere on the shop surface:");
   check("no price columns", !keys.some((k) => k.includes("price")));
 }
 
-// ── Read-only ─────────────────────────────────────────────────────────────
+// â”€â”€ Read-only â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nShop has NO way to edit / void / extend / claim:");
 {
   const { error } = await A.client
@@ -194,7 +201,7 @@ console.log("\nShop has NO way to edit / void / extend / claim:");
   check("cannot write through the safe view", !!error);
 }
 
-// ── Near-expiry: status + alerts ──────────────────────────────────────────
+// â”€â”€ Near-expiry: status + alerts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nNear-expiry (threshold from settings, dedupe on repeat runs):");
 {
   const { data } = await admin.rpc("fn_warranty_alert_days");
@@ -237,9 +244,9 @@ console.log("\nNear-expiry (threshold from settings, dedupe on repeat runs):");
     (shopN ?? []).length === 1, `(got ${(shopN ?? []).length})`);
 }
 // The pg_cron schedule itself lives in the `cron` schema, which PostgREST
-// doesn't expose — it's asserted directly in SQL (0032) rather than here.
+// doesn't expose â€” it's asserted directly in SQL (0032) rather than here.
 
-// ── Cleanup ───────────────────────────────────────────────────────────────
+// â”€â”€ Cleanup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nCleanup:");
 {
   const shops = [A.shop.id, B.shop.id];
@@ -255,6 +262,7 @@ console.log("\nCleanup:");
   await admin.from("deliveries").delete().in("shop_id", shops);
   await admin.from("receivings").delete().like("note", `%${RUN}%`);
   await admin.from("engines").delete().in("id", engines);
+  await admin.from("engine_models").delete().eq("id", wtyModel.id);
   await admin.from("customers").delete().like("name", `%${RUN}%`);
   await admin.auth.admin.deleteUser(A.userId);
   await admin.auth.admin.deleteUser(B.userId);

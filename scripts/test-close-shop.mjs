@@ -1,5 +1,5 @@
 /**
- * Close-shop guard verification — mirrors the closeShop action's checks.
+ * Close-shop guard verification â€” mirrors the closeShop action's checks.
  * Run: node scripts/test-close-shop.mjs
  */
 import { createClient } from "@supabase/supabase-js";
@@ -15,7 +15,7 @@ const env = Object.fromEntries(
 const RUN = Date.now().toString(36).toUpperCase();
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "✓" : "✗"} ${name} ${ok ? "" : detail}`);
+  console.log(`  ${ok ? "âœ“" : "âœ—"} ${name} ${ok ? "" : detail}`);
   ok ? pass++ : fail++;
 };
 
@@ -24,8 +24,8 @@ const owner = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABAS
 });
 {
   const { error } = await owner.auth.signInWithPassword({
-    email: "owner@jerrysmarine.test",
-    password: "Owner!Dev2026",
+    email: "robertmaestro09@gmail.com",
+    password: "rajonrondo09",
   });
   if (error) throw new Error(error.message);
 }

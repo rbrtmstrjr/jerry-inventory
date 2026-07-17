@@ -104,66 +104,10 @@ export async function generateInternalBarcode(partId: string): Promise<ActionRes
   return { ok: true, barcode: data as string };
 }
 
-// ---------------------------------------------------------------------------
-// Bulk add: insert catalog rows, then land initial quantities in master stock
-// through the atomic receiving function (so the ledger stays truthful).
-// ---------------------------------------------------------------------------
-const bulkRowSchema = partSchema.omit({ id: true }).extend({
-  initial_qty: z.number().int().min(0).default(0),
-});
-const bulkSchema = z.array(bulkRowSchema).min(1, "Add at least one row");
-
-export async function bulkAddParts(input: unknown): Promise<ActionResult & { count?: number }> {
-  const parsed = bulkSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  }
-  const supabase = await createClient();
-
-  const rows = parsed.data.map(({ initial_qty: _q, ...r }) => ({
-    ...r,
-    sku: r.sku || null,
-    barcode: r.barcode || null,
-    notes: r.notes || null,
-  }));
-
-  const { data: inserted, error } = await supabase
-    .from("parts")
-    .insert(rows)
-    .select("id");
-  if (error) {
-    if (error.code === "23505") {
-      return { ok: false, error: "A barcode in your rows is already in use." };
-    }
-    return { ok: false, error: error.message };
-  }
-
-  const withQty = inserted
-    .map((p, i) => ({
-      part_id: p.id,
-      qty: parsed.data[i].initial_qty,
-      unit_cost_centavos: parsed.data[i].cost_centavos,
-    }))
-    .filter((l) => l.qty > 0);
-
-  if (withQty.length > 0) {
-    const { error: rcvError } = await supabase.rpc("fn_receive_stock", {
-      p_supplier_id: null,
-      p_note: "Initial stock entry (bulk add)",
-      p_parts: withQty,
-      p_engines: [],
-    });
-    if (rcvError) {
-      return {
-        ok: false,
-        error: `Parts saved, but initial stock failed: ${rcvError.message}`,
-      };
-    }
-  }
-
-  revalidatePath("/master-inventory");
-  return { ok: true, count: inserted.length };
-}
+// Bulk Add was retired by 0048: creating products with no supplier and no
+// stock (its initial-qty receiving was hardcoded p_supplier_id NULL — no debt,
+// no last-paid history) contradicted "receiving is the single entry point".
+// Bulk entry lives on as the bulk-lines grid inside /master-inventory/receiving.
 
 // ---------------------------------------------------------------------------
 // Engines
@@ -326,78 +270,108 @@ export async function softDeleteSupplier(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Receiving (atomic through fn_receive_stock)
-// ---------------------------------------------------------------------------
-const receivingSchema = z
-  .object({
-    supplier_id: z.uuid().nullable(),
-    note: z.string().trim().max(2000).optional().nullable(),
-    parts: z
-      .array(
-        z.object({
-          part_id: z.uuid(),
-          qty: z.number().int().positive(),
-          unit_cost_centavos: z.number().int().min(0),
-        })
-      )
-      .default([]),
-    engines: z
-      .array(
-        z.object({
-          serial_number: z.string().trim().min(1, "Serial is required"),
-          engine_model_id: z.uuid(),
-          condition: z.enum(["brand_new", "second_hand"]).default("brand_new"),
-          cost_centavos: z.number().int().min(0),
-          price_centavos: z.number().int().min(0),
-          warranty_months: z.number().int().min(0).nullable(),
-          // optional 3-tier margins; trigger computes tier prices when present
-          margin_floor_pct: z.number().min(0).nullable().default(null),
-          margin_mid_pct: z.number().min(0).nullable().default(null),
-          margin_asking_pct: z.number().min(0).nullable().default(null),
-        })
-      )
-      .default([]),
-    payment_status: z.enum(["unpaid", "partial", "paid"]).default("paid"),
-    /** Only meaningful when payment_status = 'partial'; the RPC derives the rest. */
-    amount_paid_centavos: z.number().int().min(0).nullable().default(null),
-    /** null = let the RPC compute it from the supplier's payment terms. */
-    due_date: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .nullable()
-      .default(null),
-    override: z.boolean().default(false),
-    override_reason: z.string().trim().max(500).optional().nullable(),
-  })
-  .refine((v) => v.parts.length + v.engines.length > 0, {
-    message: "Add at least one line",
-  });
+// Receiving moved to app/(owner)/suppliers/actions.ts — receiving is a
+// supplier transaction (it picks a supplier, creates debt, checks the limit).
 
-export async function receiveStock(input: unknown): Promise<ActionResult> {
-  const parsed = receivingSchema.safeParse(input);
+// ---------------------------------------------------------------------------
+// Reference data (engine models, categories): CREATED inline at receiving
+// only; EDITED/DEACTIVATED here. They're type definitions, not stock — fixing
+// a typo'd model name must not require a receiving.
+// ---------------------------------------------------------------------------
+const modelEditSchema = z.object({
+  id: z.uuid(),
+  brand: z.string().trim().min(1, "Brand is required"),
+  model: z.string().trim().min(1, "Model is required"),
+  horsepower: z.number().min(0).nullable(),
+  stroke: z.enum(["2-stroke", "4-stroke"]).nullable(),
+  default_warranty_months: z.number().int().min(0),
+});
+
+export async function updateEngineModel(input: unknown): Promise<ActionResult> {
+  const parsed = modelEditSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
+  const { id, ...fields } = parsed.data;
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("fn_receive_stock", {
-    p_supplier_id: parsed.data.supplier_id,
-    p_note: parsed.data.note || null,
-    p_parts: parsed.data.parts,
-    p_engines: parsed.data.engines,
-    p_payment_status: parsed.data.payment_status,
-    p_amount_paid: parsed.data.amount_paid_centavos,
-    p_due_date: parsed.data.due_date,
-    p_override: parsed.data.override,
-    p_override_reason: parsed.data.override_reason || null,
-  });
+  const { error } = await supabase.from("engine_models").update(fields).eq("id", id);
   if (error) {
     if (error.code === "23505") {
-      return { ok: false, error: "One of those engine serials already exists." };
+      return { ok: false, error: "That brand + model already exists." };
     }
     return { ok: false, error: error.message };
   }
   revalidatePath("/master-inventory");
   revalidatePath("/suppliers");
-  return { ok: true, id: data as string };
+  return { ok: true };
+}
+
+/** Retire a discontinued model — hides it from pickers; existing engines keep it. */
+export async function softDeleteEngineModel(id: string): Promise<ActionResult> {
+  if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid id" };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("engine_models")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/master-inventory");
+  revalidatePath("/suppliers");
+  return { ok: true };
+}
+
+export async function updateCategory(id: string, name: string): Promise<ActionResult> {
+  const parsed = z
+    .object({ id: z.uuid(), name: z.string().trim().min(1, "Name is required") })
+    .safeParse({ id, name });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("product_categories")
+    .update({ name: parsed.data.name })
+    .eq("id", parsed.data.id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/master-inventory");
+  return { ok: true };
+}
+
+/** Retire a category — hides it from pickers; existing products keep it. */
+export async function softDeleteCategory(id: string): Promise<ActionResult> {
+  if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid id" };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("product_categories")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/master-inventory");
+  return { ok: true };
+}
+
+/**
+ * Change which supplier a product is reordered from (purchase list grouping,
+ * "preferred isn't cheapest" badges). Surfaced on the product's
+ * Suppliers & Prices panel.
+ */
+export async function setPreferredSupplier(
+  partId: string,
+  supplierId: string | null
+): Promise<ActionResult> {
+  const parsed = z
+    .object({ partId: z.uuid(), supplierId: z.uuid().nullable() })
+    .safeParse({ partId, supplierId });
+  if (!parsed.success) return { ok: false, error: "Invalid input" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("parts")
+    .update({ preferred_supplier_id: parsed.data.supplierId })
+    .eq("id", parsed.data.partId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/master-inventory");
+  revalidatePath("/suppliers");
+  revalidatePath("/stock-alerts");
+  return { ok: true };
 }

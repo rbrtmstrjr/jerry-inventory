@@ -1,5 +1,5 @@
 /**
- * Supplier payables verification — debt from receiving, due dates from terms,
+ * Supplier payables verification Ã¢â‚¬â€ debt from receiving, due dates from terms,
  * credit limit that WARNS + requires an audited override (never blocks),
  * targeted + FIFO payments with over-payment guards, settlement, aging,
  * deduped owner-only alerts, and strict employee lockout.
@@ -22,11 +22,11 @@ const env = Object.fromEntries(
 const SB_URL = env.NEXT_PUBLIC_SUPABASE_URL;
 const ANON = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const RUN = Date.now().toString(36).toUpperCase();
-const P = (c) => `₱${(c / 100).toLocaleString()}`;
+const P = (c) => `Ã¢â€šÂ±${(c / 100).toLocaleString()}`;
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "✓" : "✗"} ${name} ${ok ? "" : detail}`);
+  console.log(`  ${ok ? "Ã¢Å“â€œ" : "Ã¢Å“â€”"} ${name} ${ok ? "" : detail}`);
   ok ? pass++ : fail++;
 };
 
@@ -41,7 +41,7 @@ async function signIn(email, password) {
   return c;
 }
 
-const owner = await signIn("owner@jerrysmarine.test", "Owner!Dev2026");
+const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
 
 // temp shop + employee purely to prove employees are locked out
 const { data: shop } = await admin
@@ -55,15 +55,15 @@ await admin.from("profiles").insert({
 });
 const emp = await signIn(empEmail, `Pay!${RUN}`);
 
-console.log("Setup: supplier with ₱100,000 limit, net-30 terms");
+console.log("Setup: supplier with Ã¢â€šÂ±100,000 limit, net-30 terms");
 const { data: sup } = await owner.from("suppliers").insert({
   name: `PAY-TEST Supplier ${RUN}`,
   contact: "0917-777-8888",
-  credit_limit: 10000000,      // ₱100,000
+  credit_limit: 10000000,      // Ã¢â€šÂ±100,000
   payment_terms_days: 30,
 }).select().single();
 const { data: cat } = await owner.from("product_categories").select("id").limit(1).single();
-const { data: part } = await owner.from("parts").insert({
+const { data: part } = await admin.from("parts").insert({
   name: `PAY-TEST Widget ${RUN}`, category_id: cat.id,
   cost_centavos: 1000, price_centavos: 2000,
 }).select().single();
@@ -86,17 +86,17 @@ const balOf = async (rid) =>
 const outOf = async () =>
   (await owner.rpc("fn_supplier_outstanding", { p_supplier_id: sup.id })).data;
 
-// ── Debt is created at receiving ──────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Debt is created at receiving Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nReceiving on credit creates the debt:");
-// ₱40,000 unpaid
+// Ã¢â€šÂ±40,000 unpaid
 const { data: r1, error: e1 } = await receive({ tag: "r1", qty: 40, cost: 100000, status: "unpaid" });
 check("unpaid receiving accepted", !e1, e1?.message);
 {
   const { data: row } = await owner
     .from("receiving_balances").select("*").eq("receiving_id", r1).single();
-  check("total = ₱40,000", row?.total_amount === 4000000, `(got ${row?.total_amount})`);
+  check("total = Ã¢â€šÂ±40,000", row?.total_amount === 4000000, `(got ${row?.total_amount})`);
   check("nothing paid yet", row?.amount_paid === 0);
-  check("balance = ₱40,000", row?.balance === 4000000);
+  check("balance = Ã¢â€šÂ±40,000", row?.balance === 4000000);
   check("status = unpaid", row?.payment_status === "unpaid");
   check("due date auto-set from net-30 terms", !!row?.due_date);
   const { data: today } = await admin.rpc("ph_today");
@@ -106,26 +106,26 @@ check("unpaid receiving accepted", !e1, e1?.message);
     row?.due_date === expected.toISOString().slice(0, 10),
     `(got ${row?.due_date}, expected ${expected.toISOString().slice(0, 10)})`);
 }
-// ₱20,000 with ₱5,000 paid up front + explicit due date
+// Ã¢â€šÂ±20,000 with Ã¢â€šÂ±5,000 paid up front + explicit due date
 const { data: r2 } = await receive({
   tag: "r2", qty: 20, cost: 100000, status: "partial", paid: 500000, due: "2099-01-01",
 });
 {
   const { data: row } = await owner
     .from("receiving_balances").select("*").eq("receiving_id", r2).single();
-  check("partial receiving: balance = ₱15,000", row?.balance === 1500000, `(got ${row?.balance})`);
+  check("partial receiving: balance = Ã¢â€šÂ±15,000", row?.balance === 1500000, `(got ${row?.balance})`);
   check("status = partial", row?.payment_status === "partial");
   check("explicit due date overrides the terms", row?.due_date === "2099-01-01");
 }
-check("supplier outstanding = ₱55,000", (await outOf()) === 5500000, `(got ${await outOf()})`);
+check("supplier outstanding = Ã¢â€šÂ±55,000", (await outOf()) === 5500000, `(got ${await outOf()})`);
 
-// ── Credit limit: warns, never silently blocks ────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Credit limit: warns, never silently blocks Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nCredit limit warns + needs an audited override (never blocks):");
 {
   const { data } = await owner.rpc("fn_supplier_limit_check", {
     p_supplier_id: sup.id, p_additional: 5000000,
   });
-  check("live check reports projected ₱105,000 > ₱100,000 limit",
+  check("live check reports projected Ã¢â€šÂ±105,000 > Ã¢â€šÂ±100,000 limit",
     data?.projected === 10500000 && data?.would_exceed === true, JSON.stringify(data));
   check("utilization % computed", Number(data?.utilization_pct) === 105);
 }
@@ -160,21 +160,21 @@ let rOver;
     .from("receivings").select("limit_override_by, limit_override_at").eq("id", rOver).single();
   check("who + when recorded", !!audit?.limit_override_by && !!audit?.limit_override_at);
 }
-check("outstanding now ₱105,000 (over the limit)", (await outOf()) === 10500000, `(got ${await outOf()})`);
+check("outstanding now Ã¢â€šÂ±105,000 (over the limit)", (await outOf()) === 10500000, `(got ${await outOf()})`);
 
-// ── Payables rollup ───────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Payables rollup Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nPayables rollup:");
 {
   const { data } = await owner
     .from("supplier_payables").select("*").eq("supplier_id", sup.id).single();
-  check("outstanding = ₱105,000", data?.outstanding === 10500000);
+  check("outstanding = Ã¢â€šÂ±105,000", data?.outstanding === 10500000);
   check("3 open receivings", data?.open_count === 3, `(got ${data?.open_count})`);
   check("utilization = 105%", Number(data?.utilization_pct) === 105);
   check("credit limit surfaced", data?.credit_limit === 10000000);
 }
 
-// ── Payments: targeted, guards, FIFO ──────────────────────────────────────
-console.log("\nPayments — targeted, guarded, FIFO:");
+// Ã¢â€â‚¬Ã¢â€â‚¬ Payments: targeted, guards, FIFO Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+console.log("\nPayments Ã¢â‚¬â€ targeted, guarded, FIFO:");
 {
   const { error } = await owner.rpc("fn_record_supplier_payment", {
     p_supplier_id: sup.id, p_amount: 4000001, p_receiving_id: r1,
@@ -203,29 +203,29 @@ console.log("\nPayments — targeted, guarded, FIFO:");
   check("r1 marked settled", !!row?.settled_at && row?.payment_status === "paid");
 }
 {
-  // unallocated → FIFO across the remaining two (r2 = ₱15k, rOver = ₱50k)
+  // unallocated Ã¢â€ â€™ FIFO across the remaining two (r2 = Ã¢â€šÂ±15k, rOver = Ã¢â€šÂ±50k)
   const { data, error } = await owner.rpc("fn_record_supplier_payment", {
-    p_supplier_id: sup.id, p_amount: 2000000, p_method: "cash",  // ₱20,000
+    p_supplier_id: sup.id, p_amount: 2000000, p_method: "cash",  // Ã¢â€šÂ±20,000
   });
   check("unallocated payment accepted", !error, error?.message);
   check("split FIFO across 2 receivings", data?.allocations?.length === 2,
     JSON.stringify(data?.allocations));
-  check("oldest (r2, ₱15k) fully covered first",
+  check("oldest (r2, Ã¢â€šÂ±15k) fully covered first",
     data?.allocations?.[0]?.receiving_id === r2 && data?.allocations?.[0]?.amount === 1500000,
     JSON.stringify(data?.allocations));
-  check("remainder ₱5,000 goes to the next oldest",
+  check("remainder Ã¢â€šÂ±5,000 goes to the next oldest",
     data?.allocations?.[1]?.receiving_id === rOver && data?.allocations?.[1]?.amount === 500000);
   check("r2 settled by the FIFO run", (await balOf(r2)) === 0);
-  check("rOver partially paid → ₱45,000 left", (await balOf(rOver)) === 4500000);
+  check("rOver partially paid Ã¢â€ â€™ Ã¢â€šÂ±45,000 left", (await balOf(rOver)) === 4500000);
   const { data: rows } = await owner
     .from("supplier_payments").select("payment_group_id").eq("supplier_id", sup.id)
     .eq("amount", 1500000);
   check("split rows share one payment_group_id", !!rows?.[0]?.payment_group_id);
 }
-check("outstanding now ₱45,000", (await outOf()) === 4500000, `(got ${await outOf()})`);
+check("outstanding now Ã¢â€šÂ±45,000", (await outOf()) === 4500000, `(got ${await outOf()})`);
 
-// ── Reconciliation ────────────────────────────────────────────────────────
-console.log("\nReconciliation (total − paid − Σ payments = balance):");
+// Ã¢â€â‚¬Ã¢â€â‚¬ Reconciliation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+console.log("\nReconciliation (total Ã¢Ë†â€™ paid Ã¢Ë†â€™ ÃŽÂ£ payments = balance):");
 {
   const { data: rows } = await owner
     .from("receiving_balances").select("*").eq("supplier_id", sup.id);
@@ -237,7 +237,7 @@ console.log("\nReconciliation (total − paid − Σ payments = balance):");
   check("view total matches fn_supplier_outstanding", sum === (await outOf()));
 }
 
-// ── Alerts: 80% / limit reached / overdue, deduped, owner-only ────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Alerts: 80% / limit reached / overdue, deduped, owner-only Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nAlerts (deduped, owner-only):");
 {
   const { data: n } = await owner
@@ -245,7 +245,7 @@ console.log("\nAlerts (deduped, owner-only):");
   check("limit-reached alert fired when it went over", (n ?? []).length === 1);
 }
 {
-  // ₱45,000 of ₱100,000 = 45% → under the 80% warn → the open alert clears
+  // Ã¢â€šÂ±45,000 of Ã¢â€šÂ±100,000 = 45% Ã¢â€ â€™ under the 80% warn Ã¢â€ â€™ the open alert clears
   const { data: n } = await owner
     .from("notifications").select("read_at")
     .in("type", ["supplier_limit_reached", "supplier_limit_warning"]).eq("ref_id", sup.id);
@@ -253,8 +253,8 @@ console.log("\nAlerts (deduped, owner-only):");
     (n ?? []).every((x) => !!x.read_at), JSON.stringify(n));
 }
 {
-  // push to 85% → warning (not reached)
-  await receive({ tag: "warn", qty: 40, cost: 100000, status: "unpaid" }); // +40k → 85k = 85%
+  // push to 85% Ã¢â€ â€™ warning (not reached)
+  await receive({ tag: "warn", qty: 40, cost: 100000, status: "unpaid" }); // +40k Ã¢â€ â€™ 85k = 85%
   const { data: n } = await owner
     .from("notifications").select("id, read_at")
     .eq("type", "supplier_limit_warning").eq("ref_id", sup.id).is("read_at", null);
@@ -290,7 +290,7 @@ console.log("\nAlerts (deduped, owner-only):");
   check("supplier overdue_amount rolls up", sp?.overdue_amount === 4500000, `(got ${sp?.overdue_amount})`);
 }
 
-// ── Employees are locked out entirely ─────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Employees are locked out entirely Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nEmployees have ZERO access to payables:");
 {
   const { data } = await emp.from("supplier_payables").select("*");
@@ -320,7 +320,7 @@ console.log("\nEmployees have ZERO access to payables:");
 }
 // 0047: the balance definer functions must not leak cost to a shop even when
 // the shop supplies a valid id. A fresh UNPAID receiving guarantees a non-zero
-// balance to leak — the suite's earlier receivings are settled by now, which
+// balance to leak Ã¢â‚¬â€ the suite's earlier receivings are settled by now, which
 // would make the shop-gets-0 check pass for the wrong reason.
 {
   const { data: fresh } = await owner.rpc("fn_receive_stock", {
@@ -329,22 +329,22 @@ console.log("\nEmployees have ZERO access to payables:");
     p_engines: [], p_payment_status: "unpaid",
   });
   const ownerBal = await balOf(fresh);
-  check("owner reads the real ₱777 balance (baseline for the leak test)",
+  check("owner reads the real Ã¢â€šÂ±777 balance (baseline for the leak test)",
     ownerBal === 77700, `got ${ownerBal}`);
 
   // These are language-sql read helpers that return an empty result to a
-  // non-owner (rather than raising), so assert 0/null — not an error.
+  // non-owner (rather than raising), so assert 0/null Ã¢â‚¬â€ not an error.
   const shopBal = await emp.rpc("fn_receiving_balance", { p_receiving_id: fresh });
   check("employee gets NO receiving balance via fn_receiving_balance (0047)",
     !shopBal.error && (shopBal.data == null || shopBal.data === 0),
-    `got ${shopBal.data} (leak — apply 0047)`);
+    `got ${shopBal.data} (leak Ã¢â‚¬â€ apply 0047)`);
   const shopOut = await emp.rpc("fn_supplier_outstanding", { p_supplier_id: sup.id });
   check("employee gets 0 from fn_supplier_outstanding (0047)",
     !shopOut.error && (shopOut.data == null || shopOut.data === 0),
-    `got ${shopOut.data} (leak — apply 0047)`);
+    `got ${shopOut.data} (leak Ã¢â‚¬â€ apply 0047)`);
 }
 
-// ── Payables are NOT expenses ─────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Payables are NOT expenses Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nSupplier payments are COGS, not operating expenses:");
 {
   const { data } = await owner
@@ -355,7 +355,7 @@ console.log("\nSupplier payments are COGS, not operating expenses:");
   check("the payments live in supplier_payments instead", (count ?? 0) >= 3, `(got ${count})`);
 }
 
-// ── Cleanup ───────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Cleanup Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nCleanup:");
 {
   await admin.from("notifications").delete().eq("ref_id", sup.id);

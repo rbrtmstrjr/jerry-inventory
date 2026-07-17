@@ -1,5 +1,5 @@
 /**
- * Stock alerts verification — effective thresholds (override vs default),
+ * Stock alerts verification Ã¢â‚¬â€ effective thresholds (override vs default),
  * engine low-stock by MODEL count, master-vs-shop remedies, delivery requests,
  * notification scoping + dedupe, and RLS.
  *
@@ -24,7 +24,7 @@ const RUN = Date.now().toString(36).toUpperCase();
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "✓" : "✗"} ${name} ${ok ? "" : detail}`);
+  console.log(`  ${ok ? "Ã¢Å“â€œ" : "Ã¢Å“â€”"} ${name} ${ok ? "" : detail}`);
   ok ? pass++ : fail++;
 };
 
@@ -54,9 +54,9 @@ async function makeShop(label) {
   return { shop, userId: u.user.id, client: await signIn(email, password) };
 }
 
-const owner = await signIn("owner@jerrysmarine.test", "Owner!Dev2026");
+const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
 
-/** Deliveries no longer auto-land (0028/0029) — the shop must confirm arrival. */
+/** Deliveries no longer auto-land (0028/0029) Ã¢â‚¬â€ the shop must confirm arrival. */
 async function confirmAll(shopClient, deliveryId) {
   const { data: lines } = await shopClient
     .from("shop_incoming_delivery_lines")
@@ -81,12 +81,12 @@ const { data: sup } = await owner
   .from("suppliers").insert({ name: `ALERT-TEST Supplier ${RUN}`, contact: "0917-000-1111" })
   .select().single();
 const { data: cat } = await owner.from("product_categories").select("id").limit(1).single();
-const { data: part } = await owner.from("parts").insert({
+const { data: part } = await admin.from("parts").insert({
   name: `ALERT-TEST Filter ${RUN}`, category_id: cat.id,
   cost_centavos: 5000, price_centavos: 9000,
   reorder_level: 10, preferred_supplier_id: sup.id,
 }).select().single();
-const { data: em } = await owner.from("engine_models").insert({
+const { data: em } = await admin.from("engine_models").insert({
   brand: `ALERT-TEST${RUN}`, model: "X1", horsepower: 15,
   reorder_level: 2, preferred_supplier_id: sup.id,
 }).select().single();
@@ -103,21 +103,21 @@ const { error: rcvErr } = await owner.rpc("fn_receive_stock", {
 });
 check("stock received into master", !rcvErr, rcvErr?.message);
 
-// ── Master low stock → buy from a supplier ─────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Master low stock Ã¢â€ â€™ buy from a supplier Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nMaster low stock (remedy = buy from supplier):");
 {
   const { data } = await owner.from("master_low_stock").select("*").eq("product_id", part.id).single();
-  check("part listed (5 on hand ≤ 10)", data?.on_hand === 5 && data?.threshold === 10);
+  check("part listed (5 on hand Ã¢â€°Â¤ 10)", data?.on_hand === 5 && data?.threshold === 10);
   check("shortfall = 5", data?.shortfall === 5, `(got ${data?.shortfall})`);
   check("supplier joined for the purchase list", data?.supplier_name?.includes("ALERT-TEST Supplier"));
 }
 {
   const { data } = await owner.from("master_low_stock").select("*").eq("product_id", em.id).single();
-  check("engine model counted by in-master UNITS (1 ≤ 2)",
+  check("engine model counted by in-master UNITS (1 Ã¢â€°Â¤ 2)",
     data?.on_hand === 1 && data?.threshold === 2, `(got ${data?.on_hand}/${data?.threshold})`);
 }
 
-// ── Deliver to Shop A → shop low stock → remedy = request delivery ─────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Deliver to Shop A Ã¢â€ â€™ shop low stock Ã¢â€ â€™ remedy = request delivery Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const { data: engRow } = await owner.from("engines").select("id").eq("serial_number", SERIAL).single();
 const { data: dlvId, error: dlvErr } = await owner.rpc("fn_deliver_stock", {
   p_shop_id: A.shop.id, p_note: `ALERT-TEST dlv ${RUN}`,
@@ -129,7 +129,7 @@ await confirmAll(A.client, dlvId);
 console.log("\nEffective threshold (override wins, else default):");
 {
   const { data } = await A.client.from("shop_low_stock_safe").select("*").eq("product_id", part.id).maybeSingle();
-  check("Shop A low on the DEFAULT threshold (4 ≤ 10)", data?.on_hand === 4 && data?.threshold === 10);
+  check("Shop A low on the DEFAULT threshold (4 Ã¢â€°Â¤ 10)", data?.on_hand === 4 && data?.threshold === 10);
   check("flagged as not-an-override", data?.threshold_is_override === false);
 }
 {
@@ -138,14 +138,14 @@ console.log("\nEffective threshold (override wins, else default):");
     shop_id: A.shop.id, part_id: part.id, reorder_level: 2,
   });
   const { data } = await A.client.from("shop_low_stock_safe").select("*").eq("product_id", part.id).maybeSingle();
-  check("override wins → 4 > 2, no longer low", !data, "(still listed as low)");
+  check("override wins Ã¢â€ â€™ 4 > 2, no longer low", !data, "(still listed as low)");
 }
 {
   await owner.from("shop_reorder_levels").insert({
     shop_id: A.shop.id, engine_model_id: em.id, reorder_level: 3,
   });
   const { data } = await A.client.from("shop_low_stock_safe").select("*").eq("product_id", em.id).maybeSingle();
-  check("engine model low at the shop by unit count (1 ≤ 3 override)",
+  check("engine model low at the shop by unit count (1 Ã¢â€°Â¤ 3 override)",
     data?.on_hand === 1 && data?.threshold === 3 && data?.threshold_is_override === true,
     `(got ${JSON.stringify(data)})`);
 }
@@ -155,7 +155,7 @@ console.log("\nEffective threshold (override wins, else default):");
   check("shop view exposes NO cost columns", !keys.some((k) => k.includes("cost")));
 }
 
-// ── RLS ────────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ RLS Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nRLS:");
 {
   const { data } = await A.client.from("master_low_stock").select("*");
@@ -167,7 +167,7 @@ console.log("\nRLS:");
     !(data ?? []).some((r) => r.shop_id === A.shop.id));
 }
 
-// ── Delivery request (shop → owner) ────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Delivery request (shop Ã¢â€ â€™ owner) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nDelivery request (shop asks owner; never touches stock):");
 const { data: reqId, error: reqErr } = await A.client.rpc("fn_create_delivery_request", {
   p_lines: [{ part_id: part.id, engine_model_id: null, qty_requested: 6, note: null }],
@@ -191,7 +191,7 @@ check("shop created a request", !reqErr, reqErr?.message);
   check("shop cannot dismiss (owner-only)", !!error && /owner/i.test(error.message));
 }
 
-// ── Convert → existing delivery flow, then link ────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Convert Ã¢â€ â€™ existing delivery flow, then link Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nConvert to delivery (uses the EXISTING delivery flow):");
 {
   const { data: delId, error } = await owner.rpc("fn_deliver_stock", {
@@ -212,7 +212,7 @@ console.log("\nConvert to delivery (uses the EXISTING delivery flow):");
     r?.status === "fulfilled" && r?.fulfilled_delivery_id === delId && !!r?.fulfilled_at);
 
   const { data: lvl } = await owner.from("stock_levels").select("qty").eq("part_id", part.id).eq("shop_id", A.shop.id).single();
-  check("stock moved via the normal flow (4 → 5)", lvl?.qty === 5, `(got ${lvl?.qty})`);
+  check("stock moved via the normal flow (4 Ã¢â€ â€™ 5)", lvl?.qty === 5, `(got ${lvl?.qty})`);
 }
 {
   const { error } = await owner.rpc("fn_fulfill_delivery_request", {
@@ -221,7 +221,7 @@ console.log("\nConvert to delivery (uses the EXISTING delivery flow):");
   check("double-fulfil rejected", !!error);
 }
 
-// ── Notifications: scoping + dedupe ────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Notifications: scoping + dedupe Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nNotifications:");
 {
   const { data } = await owner
@@ -229,7 +229,7 @@ console.log("\nNotifications:");
     .eq("type", "master_low_stock").eq("ref_id", part.id);
   check("owner got a master_low_stock alert (buy from supplier)", (data ?? []).length >= 1);
   const unread = (data ?? []).filter((n) => !n.read_at);
-  check("deduped — only ONE unread alert despite several stock events",
+  check("deduped Ã¢â‚¬â€ only ONE unread alert despite several stock events",
     unread.length === 1, `(got ${unread.length})`);
 }
 {
@@ -273,34 +273,34 @@ console.log("\nSMS channel is registered but disabled (drop-in ready, not built)
   check("in_app dispatch rows are recorded", (d ?? []).length >= 1);
 }
 
-// ── Mark-read: the write path + its scoping + dedupe re-arm ─────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Mark-read: the write path + its scoping + dedupe re-arm Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // fn_mark_notification_read / fn_mark_all_notifications_read had NO test
 // coverage (audit Phase 0). Both are the only client-callable WRITE into
-// notifications, and both re-check the caller server-side (the 0042 lesson) —
+// notifications, and both re-check the caller server-side (the 0042 lesson) Ã¢â‚¬â€
 // so the scoping below is the security assertion, not just the happy path.
 console.log("\nMark-read (fn_mark_notification_read / _all):");
 {
-  // Shop A's own shop_low_stock alert — a row it is entitled to read.
+  // Shop A's own shop_low_stock alert Ã¢â‚¬â€ a row it is entitled to read.
   const { data: mine } = await A.client
     .from("notifications").select("id").eq("type", "shop_low_stock")
     .eq("ref_id", part.id).is("read_at", null).limit(1).maybeSingle();
   check("shop A has an unread alert to work with", !!mine?.id, "no unread alert");
 
   if (mine?.id) {
-    // Verification reads go through `admin` (service role) — the OWNER client
+    // Verification reads go through `admin` (service role) Ã¢â‚¬â€ the OWNER client
     // cannot SELECT a shop-role notification (RLS scopes it to recipient_role),
     // so reading it back as owner returns null and would make these assertions
     // pass or fail for the wrong reason. Read the truth, not a filtered view.
     const readBack = async () =>
       (await admin.from("notifications").select("read_at").eq("id", mine.id).single()).data;
 
-    // Shop B must NOT be able to mark shop A's notification read — the fn
+    // Shop B must NOT be able to mark shop A's notification read Ã¢â‚¬â€ the fn
     // scopes the UPDATE to the caller's own shop, so this is a silent no-op.
     // Assert the ROW is unchanged, which is what actually matters.
     await B.client.rpc("fn_mark_notification_read", { p_id: mine.id });
     check("another shop CANNOT mark this shop's alert read", (await readBack())?.read_at === null);
 
-    // The owner is not the recipient of a shop-role alert either — same guard.
+    // The owner is not the recipient of a shop-role alert either Ã¢â‚¬â€ same guard.
     await owner.rpc("fn_mark_notification_read", { p_id: mine.id });
     check("the owner cannot mark a shop-role alert read", (await readBack())?.read_at === null);
 
@@ -310,7 +310,7 @@ console.log("\nMark-read (fn_mark_notification_read / _all):");
   }
 
   // Re-arm: once the alert is read, a fresh low-stock event must raise a NEW
-  // notification — dedupe suppresses only while one sits UNREAD. Move a unit in
+  // notification Ã¢â‚¬â€ dedupe suppresses only while one sits UNREAD. Move a unit in
   // and back out to re-fire the stock_movements alert hook for shop A.
   {
     const { data: before } = await A.client
@@ -319,7 +319,7 @@ console.log("\nMark-read (fn_mark_notification_read / _all):");
     // A record+submit+approve loss of 0 isn't possible; instead nudge the level
     // by delivering 1 then recording a loss so the level dips again under
     // threshold, re-hitting the hook. Simpler: a direct movement via the normal
-    // path — deliver 1 more unit and confirm, which fires the hook while still
+    // path Ã¢â‚¬â€ deliver 1 more unit and confirm, which fires the hook while still
     // at/below threshold if reorder_level is high enough. Shop A's override is
     // reorder_level 2 and it holds few units, so it stays low.
     const { data: delId2 } = await owner.rpc("fn_deliver_stock", {
@@ -338,7 +338,7 @@ console.log("\nMark-read (fn_mark_notification_read / _all):");
       .eq("ref_id", part.id).is("read_at", null);
     // Either a brand-new unread row appeared, or the level rose above threshold
     // (a legitimately quiet outcome). Assert the invariant that MATTERS: a read
-    // alert never blocks a future one — there is at most one unread, and if the
+    // alert never blocks a future one Ã¢â‚¬â€ there is at most one unread, and if the
     // shop is still low, exactly one.
     check("a read alert does not permanently silence future ones (dedupe re-arms)",
       (after ?? []).length <= 1, `(got ${after?.length} unread)`);
@@ -364,7 +364,7 @@ console.log("\nMark-read (fn_mark_notification_read / _all):");
   }
 }
 
-// ── Cleanup ────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Cleanup Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nCleanup:");
 {
   const shops = [A.shop.id, B.shop.id];

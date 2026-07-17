@@ -1,5 +1,5 @@
 /**
- * Engine tiered-pricing verification — 3-margin computed prices, hard floor
+ * Engine tiered-pricing verification â€” 3-margin computed prices, hard floor
  * (server-enforced from hidden cost), negotiated agreed price, discount,
  * partial payment, receipt, and the unchanged approval pipeline.
  *
@@ -25,7 +25,7 @@ const RUN = Date.now().toString(36).toUpperCase();
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "✓" : "✗"} ${name} ${ok ? "" : detail}`);
+  console.log(`  ${ok ? "âœ“" : "âœ—"} ${name} ${ok ? "" : detail}`);
   ok ? pass++ : fail++;
 };
 
@@ -40,9 +40,9 @@ async function signIn(email, password) {
   return c;
 }
 
-const owner = await signIn("owner@jerrysmarine.test", "Owner!Dev2026");
+const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
 
-/** Deliveries no longer auto-land (0028/0029) — the shop must confirm arrival. */
+/** Deliveries no longer auto-land (0028/0029) â€” the shop must confirm arrival. */
 async function confirmAll(shopClient, deliveryId) {
   const { data: lines } = await shopClient
     .from("shop_incoming_delivery_lines")
@@ -59,8 +59,8 @@ async function confirmAll(shopClient, deliveryId) {
   if (error) throw new Error(`confirm delivery: ${error.message}`);
 }
 
-// ── Setup: isolated temp shop + employee ───────────────────────────────────
-console.log("Setup: temp shop + employee, engine cost ₱20,000 @ 50/75/100%");
+// â”€â”€ Setup: isolated temp shop + employee â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+console.log("Setup: temp shop + employee, engine cost â‚±20,000 @ 50/75/100%");
 const { data: shop } = await admin
   .from("shops")
   .insert({ name: `PRICE-TEST Shop ${RUN}` })
@@ -82,13 +82,15 @@ await admin.from("profiles").insert({
 });
 const emp = await signIn(empEmail, empPass);
 
-const { data: model } = await owner
+// Self-provisioned model — the DB can start empty (the seeded catalog is gone
+// since the fresh-start wipe) and 0049 leaves creation to the service role.
+const { data: model } = await admin
   .from("engine_models")
+  .insert({ brand: "ZZ-TEST", model: `15MH-${RUN}`, horsepower: 15, default_warranty_months: 12 })
   .select("id")
-  .eq("model", "15MH")
   .single();
 
-// Owner receives an engine WITH 3 margins → prices auto-compute
+// Owner receives an engine WITH 3 margins â†’ prices auto-compute
 const SERIAL = `PRICE-TEST-${RUN}`;
 const { error: rcvErr } = await owner.rpc("fn_receive_stock", {
   p_supplier_id: null,
@@ -119,9 +121,9 @@ const { data: eng } = await owner
   .single();
 
 console.log("\nComputed tier prices (from cost + margins):");
-check("floor  = ₱30,000", eng.price_floor_centavos === 3000000, `(got ${eng.price_floor_centavos})`);
-check("mid    = ₱35,000", eng.price_mid_centavos === 3500000, `(got ${eng.price_mid_centavos})`);
-check("asking = ₱40,000", eng.price_asking_centavos === 4000000, `(got ${eng.price_asking_centavos})`);
+check("floor  = â‚±30,000", eng.price_floor_centavos === 3000000, `(got ${eng.price_floor_centavos})`);
+check("mid    = â‚±35,000", eng.price_mid_centavos === 3500000, `(got ${eng.price_mid_centavos})`);
+check("asking = â‚±40,000", eng.price_asking_centavos === 4000000, `(got ${eng.price_asking_centavos})`);
 check("headline price follows asking", eng.price_centavos === 4000000, `(got ${eng.price_centavos})`);
 
 // Deliver to the temp shop, then the shop confirms it arrived
@@ -134,7 +136,7 @@ const { data: dlvId, error: dlvErr } = await owner.rpc("fn_deliver_stock", {
 check("engine delivered to temp shop", !dlvErr, dlvErr?.message);
 await confirmAll(emp, dlvId);
 
-// ── Employees see prices, never cost/margins ───────────────────────────────
+// â”€â”€ Employees see prices, never cost/margins â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nEmployee visibility (shop_engines, no cost/margins):");
 {
   const { data: se } = await emp
@@ -152,25 +154,25 @@ console.log("\nEmployee visibility (shop_engines, no cost/margins):");
     !keys.some((k) => k.startsWith("margin_")));
 }
 {
-  // base table is owner-only — employee gets no rows
+  // base table is owner-only â€” employee gets no rows
   const { data } = await emp.from("engines").select("id, cost_centavos").eq("id", eng.id);
   check("employee cannot read the engines base table (cost hidden)", (data ?? []).length === 0);
 }
 
-// ── Hard floor is enforced server-side ─────────────────────────────────────
+// â”€â”€ Hard floor is enforced server-side â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nHard floor (server-enforced from hidden cost):");
 {
   const { error } = await emp.rpc("fn_record_sale", {
     p_customer_id: null,
     p_customer: { name: `PRICE-TEST Buyer ${RUN}` },
     p_part_lines: [],
-    p_engine_lines: [{ engine_id: eng.id, agreed_price_centavos: 2900000 }], // below ₱30k floor
+    p_engine_lines: [{ engine_id: eng.id, agreed_price_centavos: 2900000 }], // below â‚±30k floor
   });
   check("sale below floor is REJECTED", !!error && /floor/i.test(error.message), error?.message);
 }
 
-// ── Negotiated sale with discount + partial payment ────────────────────────
-console.log("\nNegotiated sale (agreed ₱37,000, partial ₱10,000 down):");
+// â”€â”€ Negotiated sale with discount + partial payment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+console.log("\nNegotiated sale (agreed â‚±37,000, partial â‚±10,000 down):");
 const { data: saleId, error: saleErr } = await emp.rpc("fn_record_sale", {
   p_customer_id: null,
   p_customer: { name: `PRICE-TEST Buyer ${RUN}`, phone: "0917-000-0000" },
@@ -186,9 +188,9 @@ check("sale recorded", !saleErr, saleErr?.message);
     .select("agreed_price_centavos, list_reference_centavos, discount_centavos, line_total_centavos")
     .eq("sale_id", saleId)
     .single();
-  check("agreed price = ₱37,000", line?.agreed_price_centavos === 3700000);
-  check("list reference = asking ₱40,000", line?.list_reference_centavos === 4000000);
-  check("discount = ₱3,000 (asking − agreed)", line?.discount_centavos === 300000, `(got ${line?.discount_centavos})`);
+  check("agreed price = â‚±37,000", line?.agreed_price_centavos === 3700000);
+  check("list reference = asking â‚±40,000", line?.list_reference_centavos === 4000000);
+  check("discount = â‚±3,000 (asking âˆ’ agreed)", line?.discount_centavos === 300000, `(got ${line?.discount_centavos})`);
   check("line total = agreed price", line?.line_total_centavos === 3700000);
 }
 let sale;
@@ -201,8 +203,8 @@ let sale;
   sale = data;
   check("status = recorded (invisible to owner until submitted)", sale?.status === "recorded");
   check("payment type = partial", sale?.payment_type === "partial");
-  check("amount paid = ₱10,000", sale?.amount_paid_centavos === 1000000);
-  check("balance due = ₱27,000 (total − down)", sale?.balance_due_centavos === 2700000, `(got ${sale?.balance_due_centavos})`);
+  check("amount paid = â‚±10,000", sale?.amount_paid_centavos === 1000000);
+  check("balance due = â‚±27,000 (total âˆ’ down)", sale?.balance_due_centavos === 2700000, `(got ${sale?.balance_due_centavos})`);
   check("receipt number generated", !!sale?.receipt_no && sale.receipt_no.startsWith("OR-"), sale?.receipt_no);
 }
 
@@ -210,8 +212,8 @@ let sale;
 console.log("\nReceipt == recorded == approved amount (no divergence):");
 check("recorded total equals the agreed price", sale?.total_centavos === 3700000);
 
-// ── Approval pipeline unchanged ────────────────────────────────────────────
-console.log("\nApproval pipeline (submit → approve → sold + warranty):");
+// â”€â”€ Approval pipeline unchanged â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+console.log("\nApproval pipeline (submit â†’ approve â†’ sold + warranty):");
 {
   const { error } = await emp.rpc("fn_submit_shop_batch");
   check("employee submitted the batch", !error, error?.message);
@@ -235,7 +237,7 @@ console.log("\nApproval pipeline (submit → approve → sold + warranty):");
   check("warranty auto-created", !!w);
 }
 
-// ── Cleanup (service role, FK-safe order) ──────────────────────────────────
+// â”€â”€ Cleanup (service role, FK-safe order) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nCleanup:");
 {
   await admin.from("warranties").delete().eq("engine_id", eng.id);
@@ -248,6 +250,7 @@ console.log("\nCleanup:");
   await admin.from("stock_levels").delete().eq("shop_id", shop.id);
   await admin.from("engines").delete().eq("id", eng.id);
   await admin.from("customers").delete().like("name", `%${RUN}%`);
+  await admin.from("engine_models").delete().eq("id", model.id);
   await admin.auth.admin.deleteUser(authUser.user.id);               // cascades profile
   const { error } = await admin.from("shops").delete().eq("id", shop.id);
   check("temp fixtures removed", !error, error?.message);

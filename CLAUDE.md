@@ -75,15 +75,21 @@ Submission statuses: `recorded → pending → questioned → approved / rejecte
 
 ## Page Inventory (billable pages)
 
-**45 distinct routes** (+4 redirect stubs). `[id]`/`[entryId]`/`[saleId]` are dynamic detail routes. "Print" pages are standalone print-optimized documents.
+**43 distinct routes** (+6 redirect stubs). `[id]`/`[entryId]`/`[saleId]` are dynamic detail routes. "Print" pages are standalone print-optimized documents.
 
 **The sidebar reads like the business works** (IA reorg, 2026-07): OVERVIEW →
 INVENTORY in stock-flow order (Suppliers → Master Inventory → Deliveries →
 Stock Alerts → Monthly Count → Movements) → SALES & SERVICE → ADMINISTRATION.
-Three routes moved and left stubs (same pattern as `/delivery-requests`):
+Five routes moved/retired and left stubs (same pattern as `/delivery-requests`):
 `/master-inventory/suppliers` → `/suppliers?tab=directory` ·
 `/suppliers/payables` → `/suppliers?tab=payables` ·
-`/shops/reports` → `/reports?tab=shops` (forwards its query string).
+`/shops/reports` → `/reports?tab=shops` (forwards its query string) ·
+`/master-inventory/bulk-add` → `/suppliers?tab=receiving` (Bulk Add retired by
+0048 — bulk entry lives inside Receiving) ·
+`/master-inventory/receiving` → `/suppliers?tab=receiving` (receiving is a
+supplier transaction; this one is a **next.config redirect** and returns a
+REAL 307, unlike the page-level stubs which Next 16 serves as 200 +
+meta-refresh — `?view=<id>` passes through).
 
 ### Authentication & routing (4)
 | Route | Page | Purpose |
@@ -102,15 +108,27 @@ Three routes moved and left stubs (same pattern as `/delivery-requests`):
 ### Owner — Suppliers (1)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/suppliers` | Suppliers | Three tabs (`?tab=`): **Directory** (supplier records, credit limits, terms, outstanding inline — moved unchanged from Master Inventory) · **Payables** (what Admin owes: aging buckets, per-receiving balances, Record Payment targeted/FIFO, private receipts — moved unchanged from /suppliers/payables) · **Price Comparison** (per product × supplier: last-PAID from receivings with zero data entry + owner-entered quotes; every price carries source + date — never a bare number; stale quotes flagged, effective price falls back to last-paid; "Preferred is ₱X more" badge; Make-preferred + Record-quote inline) |
+| `/suppliers` | Suppliers | Four tabs (`?tab=`) — **order it · receive it · owe it · compare it**: **Directory** (supplier records, credit limits, terms, outstanding inline) · **Receiving** (moved unchanged from /master-inventory/receiving — **the single entry point for stock**: supplier required with live outstanding/utilisation, lines existing-or-inline-new (bulk grid, serial per engine, last-paid context), payment paid/partial/unpaid with due-date presets where the picked date is stored, atomic `fn_receive_stock`, post-save print-labels; `?view=<id>` deep-links a receiving's detail) · **Payables** (what Admin owes: aging buckets, per-receiving balances, Record Payment targeted/FIFO, private receipts) · **Price Comparison** (per product × supplier: last-PAID + owner-entered quotes; every price carries source + date — never a bare number; stale flagged; "Preferred is ₱X more" badge) |
 
-### Owner — Master Inventory (4)
+### Owner — Master Inventory (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/master-inventory` | Products | Central catalog of parts & engines (cards/table, photos, margins) |
-| `/master-inventory/receiving` | Receiving | Log incoming stock from suppliers into master inventory |
-| `/master-inventory/bulk-add` | Bulk Add | Add many products at once |
-| `/master-inventory/labels` | Print Labels | Generate/print Code128 barcode labels |
+| `/master-inventory` | Products | **View + edit only** — the catalog you look at; products land here because a supplier delivered them. Browse (cards/table, photos, filters), edit existing (selling price, engine margins, reorder, category, photo, notes), per-product **Suppliers & Prices** (provenance-labelled, cheapest marked, preferred changeable inline), and reference-data maintenance (rename/retire engine models & categories — type definitions, not stock). **No Add Part / Add Engine** — empty states link to Suppliers → Receiving |
+| `/master-inventory/labels` | Print Labels | Generate/print Code128 barcode labels (`?ids=` preselects, e.g. straight from a receiving's new products) |
+
+**Receiving is the single stock entry point** — a product enters the system
+because a supplier delivered it. There is no create-then-stock two-step and no
+supplier-less initial stock: inline product creation + stocking + debt happen
+in ONE `fn_receive_stock` transaction (half-saved = impossible).
+
+**NAMED INVARIANT (0049, enforced in the database):** `parts` / `engines` /
+`engine_models` have **no direct INSERT grant** for app roles — creation is
+only possible inside `fn_receive_stock` (SECURITY DEFINER; the revoke doesn't
+apply to it). UPDATE stays granted (catalog editing, soft-delete). A removed
+button is convention; a revoked grant is enforcement — a re-added "Add Part"
+dialog breaks at the database, not silently in production
+(`test-catalog-lock.mjs` proves it, including that the OWNER's own PostgREST
+session is refused). Test fixtures seed catalog rows via the service role.
 
 ### Owner — Deliveries (2)
 | Route | Page | Purpose |
@@ -198,7 +216,7 @@ converting one only ever pre-filled that page's form.
 
 **Feature summary for billing:** ~15 functional modules — Auth (+ password
 recovery), Dashboard, Reports (+ consolidated P&L / Net Income), Master
-Inventory (+Receiving/Bulk/Labels/Suppliers), Deliveries & Returns, Monthly
+Inventory (+Receiving as the single stock entry point/Labels/Suppliers), Deliveries & Returns, Monthly
 Count, Movements (journal · stock card · engine chain of custody), Approval
 Queue, Warranties, Shops & Employees, Payroll, Expenses, Receivables/Utang,
 Stock Alerts (+ Delivery Requests, a tab on Deliveries), Suppliers (directory ·
@@ -484,7 +502,7 @@ never a stored flag. Receivable balances are
 mutable running total; `sales.balance_due_centavos` stays the at-sale snapshot
 the printed receipt shows.
 
-### Migrations (`supabase/migrations/`, 0001–0046)
+### Migrations (`supabase/migrations/`, 0001–0049)
 `0001` schema · `0002` RLS + safe views · `0003` seed · `0004` receiving fns ·
 `0005` delivery fns · `0006` record (sale/loss) fns · `0007` line descriptions ·
 `0008` approval engine + realtime · `0009` count fns · `0010`/`0011` product &
@@ -564,7 +582,17 @@ a classic place for a service key) · `0045` movement ledger (composite indexes,
 last-PAID per supplier × product derived from receivings, engines grouped by
 MODEL; `supplier_price_comparison` — effective price = fresh quote → last-paid
 → stale quote, always labelled, is_cheapest + preferred delta via windows;
-both views `is_owner()`-guarded).
+both views `is_owner()`-guarded) · `0047` definer guards on the three balance
+functions that shipped after 0042 unguarded (`fn_supplier_outstanding`,
+`fn_receiving_balance`, `fn_sale_balance` — guard is `is_owner() OR auth.uid()
+IS NULL` so the JWT-less pg_cron sweeps keep working) · `0048` receiving as the
+single entry point (`fn_receive_stock` accepts `new_part` on a part line and
+`new_model` on an engine line — inline creation + stocking + debt in one
+transaction; JM barcode minting; live (brand, model) reuse; friendly
+unique-violation errors; payment/limit/due-date behavior byte-identical to
+0034. Bulk Add retired → redirect stub) · `0049` catalog INSERT lockdown
+(revokes INSERT on `parts`/`engines`/`engine_models` from app roles — creation
+only inside `fn_receive_stock`; UPDATE kept; harness seeds via service role).
 
 ### Key backend functions (RPC, `SECURITY DEFINER`)
 `fn_receive_stock`, `fn_deliver_stock`, `fn_return_stock`, `fn_record_sale`,
@@ -618,7 +646,9 @@ app/
                            route group: recovery must work when you can't sign in
   (owner)/                 Owner-only route group (layout gates role)
     dashboard/ reports/ settings/
-    master-inventory/      + receiving/ bulk-add/ labels/ suppliers/
+    master-inventory/      + labels/ (view+edit only; bulk-add/ = stub, receiving
+                           moved to /suppliers?tab=receiving via next.config 307)
+    suppliers/             4 tabs: directory · receiving · payables · comparison
     suppliers/payables/    What we owe suppliers (owner-only)
     deliveries/            + [id]/note (print); tabs: delivery · return ·
                            transit-panel · requests-panel (+ request-actions)
@@ -713,7 +743,10 @@ fixtures with `deleted_at`, and some are FK-pinned by real ledger rows.
 continuous admin→shop→admin story: supplier debt → receive → deliver → confirm
 → discrepancy → sell → submit → approve → warranty → COGS → utang → void →
 settle → low stock → request → pay supplier → profit reconciles) · `test-rls`
-(the security backbone) · plus one per feature: receiving, deliveries,
+(the security backbone) · plus one per feature: receiving, receiving-inline
+(0048 single-entry: inline creation, atomicity, picked due date, limit
+override, RLS), catalog-lock (0049: direct catalog INSERT fails even for the
+owner; receiving still creates; UPDATE untouched), deliveries,
 delivery-confirm, counts, shop-recording, approvals, batch-submission,
 warranties, shop-warranties, receivables, engine-pricing, stock-alerts,
 reviewed-history, supplier-payables, shop-profitability, expenses, payroll,

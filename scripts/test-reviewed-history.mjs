@@ -1,5 +1,5 @@
 /**
- * Reviewed History verification — the unified reviewed_items list: all three
+ * Reviewed History verification Ã¢â‚¬â€ the unified reviewed_items list: all three
  * item types present with correct type/status, filters combine (shop + type +
  * status + date + search), server-side pagination, owner-only RLS, and
  * read-only (no path mutates).
@@ -25,7 +25,7 @@ const RUN = Date.now().toString(36).toUpperCase();
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "✓" : "✗"} ${name} ${ok ? "" : detail}`);
+  console.log(`  ${ok ? "Ã¢Å“â€œ" : "Ã¢Å“â€”"} ${name} ${ok ? "" : detail}`);
   ok ? pass++ : fail++;
 };
 
@@ -55,7 +55,7 @@ async function makeShop(label) {
   return { shop, userId: u.user.id, client: await signIn(email, password) };
 }
 
-const owner = await signIn("owner@jerrysmarine.test", "Owner!Dev2026");
+const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
 
 async function confirmAll(shopClient, deliveryId) {
   const { data: lines } = await shopClient
@@ -72,11 +72,16 @@ const A = await makeShop("ShopA");
 const B = await makeShop("ShopB");
 
 const { data: cat } = await owner.from("product_categories").select("id").limit(1).single();
-const { data: part } = await owner.from("parts").insert({
+const { data: part } = await admin.from("parts").insert({
   name: `HIST-TEST Filter ${RUN}`, category_id: cat.id,
   cost_centavos: 5000, price_centavos: 9000,
 }).select().single();
-const { data: model } = await owner.from("engine_models").select("id").eq("model", "15MH").single();
+// Self-provisioned model — the DB can start empty; service role seeds (0049).
+const { data: model } = await admin
+  .from("engine_models")
+  .insert({ brand: "ZZ-TEST", model: `15MH-${RUN}`, horsepower: 15, default_warranty_months: 12 })
+  .select("id")
+  .single();
 
 const SERIAL = `HIST-TEST-${RUN}`;
 await owner.rpc("fn_receive_stock", {
@@ -101,7 +106,7 @@ const { data: dlvB } = await owner.rpc("fn_deliver_stock", {
 });
 await confirmAll(B.client, dlvB);
 
-// Shop A: an engine sale (partial → creates an utang) + a loss
+// Shop A: an engine sale (partial Ã¢â€ â€™ creates an utang) + a loss
 const { data: saleId } = await A.client.rpc("fn_record_sale", {
   p_customer_id: null,
   p_customer: { name: `HIST-TEST Ka Berting ${RUN}`, phone: "0917-222-3333" },
@@ -140,7 +145,7 @@ check("utang payment recorded", !payErr, payErr?.message);
 const mine = (rows) =>
   (rows ?? []).filter((r) => r.shop_id === A.shop.id || r.shop_id === B.shop.id);
 
-// ── All three types present, correctly typed ──────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ All three types present, correctly typed Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nAll three item types appear with the right type + status:");
 {
   const { data } = await owner.from("reviewed_items").select("*").in("shop_id", [A.shop.id, B.shop.id]);
@@ -159,13 +164,13 @@ console.log("\nAll three item types appear with the right type + status:");
     !rows.some((r) => r.status === "pending" || r.status === "recorded"));
 
   check("sale summary carries the engine serial", (sale?.summary ?? "").includes(SERIAL));
-  check("sale amount = agreed price ₱37,000", sale?.amount_centavos === 3700000, `(got ${sale?.amount_centavos})`);
+  check("sale amount = agreed price Ã¢â€šÂ±37,000", sale?.amount_centavos === 3700000, `(got ${sale?.amount_centavos})`);
   check("loss summary carries the reason", (loss?.summary ?? "").includes("nasira"));
-  check("payment amount = ₱7,000", pay?.amount_centavos === 700000);
+  check("payment amount = Ã¢â€šÂ±7,000", pay?.amount_centavos === 700000);
   check("customer surfaced on the sale row", (sale?.customer_name ?? "").includes("Ka Berting"));
 }
 
-// ── Filters ───────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Filters Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nFilters (shop / type / status / date / search) combine:");
 {
   const { data } = await owner.from("reviewed_items").select("*").eq("shop_id", A.shop.id);
@@ -217,7 +222,7 @@ console.log("\nFilters (shop / type / status / date / search) combine:");
   check("date range excludes outside the window", (outRange ?? []).length === 0);
 }
 
-// ── Server-side pagination ────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Server-side pagination Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nServer-side pagination (never fetch unbounded):");
 {
   const { data: p1, count } = await owner
@@ -244,14 +249,14 @@ console.log("\nServer-side pagination (never fetch unbounded):");
     times.every((t, i) => i === 0 || times[i - 1] >= t));
 }
 
-// ── Owner-only ────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Owner-only Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nOwner-only:");
 {
   const { data } = await A.client.from("reviewed_items").select("id");
   check("a shop sees NOTHING in reviewed history", (data ?? []).length === 0);
 }
 
-// ── Read-only ─────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Read-only Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nRead-only (history can never mutate):");
 {
   const { error } = await owner.from("reviewed_items").insert({ id: saleId });
@@ -266,7 +271,7 @@ console.log("\nRead-only (history can never mutate):");
   check("source sale untouched by browsing history", s?.status === "approved");
 }
 
-// ── Cleanup ───────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Cleanup Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nCleanup:");
 {
   const shops = [A.shop.id, B.shop.id];
@@ -282,6 +287,7 @@ console.log("\nCleanup:");
   await admin.from("receivings").delete().like("note", `%${RUN}%`);
   await admin.from("stock_levels").delete().eq("part_id", part.id);
   await admin.from("engines").delete().eq("id", eng.id);
+  await admin.from("engine_models").delete().eq("id", model.id);
   await admin.from("parts").delete().eq("id", part.id);
   await admin.from("customers").delete().like("name", `%${RUN}%`);
   await admin.auth.admin.deleteUser(A.userId);

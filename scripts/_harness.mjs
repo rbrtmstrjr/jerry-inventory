@@ -2,17 +2,17 @@
  * Shared test harness.
  *
  * WHY THIS EXISTS
- * The seeded shop logins (branch1@jerrysmarine.test …) were replaced with real
+ * The seeded shop logins (branch1@jerrysmarine.test â€¦) were replaced with real
  * ones when the app went live, which killed every employee-side script at
- * sign-in. Worse, the old scripts hardcoded the seed shop UUIDs — which are now
- * the REAL Branch 1 / Branch 2 — so they wrote test stock into live shops.
+ * sign-in. Worse, the old scripts hardcoded the seed shop UUIDs â€” which are now
+ * the REAL Branch 1 / Branch 2 â€” so they wrote test stock into live shops.
  *
  * Every script therefore PROVISIONS ITS OWN shop + employee via the service
  * role and hard-cleans afterwards. Nothing touches a real shop, and no shop
  * password needs to be known.
  *
  * Everything is scoped to RUN (a per-process id) so concurrent/repeat runs
- * can't delete each other's fixtures — a bare prefix delete is ONE statement
+ * can't delete each other's fixtures â€” a bare prefix delete is ONE statement
  * matching every run's rows, and one FK-blocked straggler poisons them all.
  *
  * Usage:
@@ -31,20 +31,20 @@ const env = Object.fromEntries(
 export const SB_URL = env.NEXT_PUBLIC_SUPABASE_URL;
 export const ANON = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-/** Unique per process — every fixture name/note carries it. */
+/** Unique per process â€” every fixture name/note carries it. */
 export const RUN = Date.now().toString(36).toUpperCase();
 
-export const P = (c) => `₱${(c / 100).toLocaleString()}`;
+export const P = (c) => `â‚±${(c / 100).toLocaleString()}`;
 
 export const admin = createClient(SB_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// ── assertions ───────────────────────────────────────────────────────────────
+// â”€â”€ assertions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let pass = 0, fail = 0;
 
 export function check(name, ok, detail = "") {
-  console.log(`  ${ok ? "✓" : "✗"} ${name}${ok || !detail ? "" : ` — ${detail}`}`);
+  console.log(`  ${ok ? "âœ“" : "âœ—"} ${name}${ok || !detail ? "" : ` â€” ${detail}`}`);
   ok ? pass++ : fail++;
   return !!ok;
 }
@@ -59,7 +59,7 @@ export function summary() {
   process.exit(fail ? 1 : 0);
 }
 
-// ── clients ──────────────────────────────────────────────────────────────────
+// â”€â”€ clients â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function anonClient() {
   return createClient(SB_URL, ANON, { auth: { persistSession: false } });
 }
@@ -72,9 +72,9 @@ export async function signIn(email, password) {
 }
 
 /** The owner login is the one account the user has NOT repurposed. */
-export const owner = await signIn("owner@jerrysmarine.test", "Owner!Dev2026");
+export const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
 
-// ── fixtures (tracked so cleanup can find them) ──────────────────────────────
+// â”€â”€ fixtures (tracked so cleanup can find them) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const shops = [];
 const parts = [];
 const engines = [];
@@ -129,9 +129,11 @@ export async function firstCategoryId() {
   return data.id;
 }
 
-/** A part in the master catalog. cost/price in centavos. */
+/** A part in the master catalog. cost/price in centavos.
+ *  Seeded via the SERVICE ROLE: 0049 revoked catalog INSERT from app roles
+ *  (creation is fn_receive_stock's job) — fixtures aren't receivings. */
 export async function seedPart({ label = "Widget", cost = 1000, price = 2500, reorder_level = 0 } = {}) {
-  const { data, error } = await owner.from("parts").insert({
+  const { data, error } = await admin.from("parts").insert({
     name: `ZZ-TEST ${label} ${RUN}`,
     category_id: await firstCategoryId(),
     cost_centavos: cost, price_centavos: price, reorder_level,
@@ -142,7 +144,7 @@ export async function seedPart({ label = "Widget", cost = 1000, price = 2500, re
 }
 
 export async function seedEngineModel({ brand = "ZZ-TEST", model = "M", hp = 15 } = {}) {
-  const { data, error } = await owner.from("engine_models").insert({
+  const { data, error } = await admin.from("engine_models").insert({
     brand: `${brand}`, model: `${model}-${RUN}`, horsepower: hp,
     default_warranty_months: 12,
   }).select().single();
@@ -171,7 +173,7 @@ export async function seedCustomer({ label = "Buyer" } = {}) {
 
 /**
  * A throwaway expense category. Every expense a script books against it is
- * swept by cleanup — which is how COMPANY-scoped expenses (shop_id IS NULL,
+ * swept by cleanup â€” which is how COMPANY-scoped expenses (shop_id IS NULL,
  * so invisible to a shop_id sweep) get cleaned up at all.
  */
 export async function seedExpenseCategory({ label = "Category", sort_order = 900 } = {}) {
@@ -195,6 +197,18 @@ export function trackEngine(id) {
   return id;
 }
 
+/** Track a part created inline by fn_receive_stock (0048) — no seed helper ran. */
+export function trackPart(id) {
+  if (id) parts.push(id);
+  return id;
+}
+
+/** Same, for an engine model created inline by fn_receive_stock (0048). */
+export function trackEngineModel(id) {
+  if (id) models.push(id);
+  return id;
+}
+
 /** Same, for a customer created inline by fn_record_sale (p_customer). */
 export function trackCustomer(id) {
   if (id) customers.push(id);
@@ -203,7 +217,7 @@ export function trackCustomer(id) {
 
 /**
  * Receive parts/engines into master. Engine ids are auto-tracked.
- * Payment args are optional; omitted means the RPC's default ('paid' → no debt).
+ * Payment args are optional; omitted means the RPC's default ('paid' â†’ no debt).
  */
 export async function receive({
   supplier_id = null, parts: pl = [], engines: el = [], note,
@@ -248,11 +262,11 @@ export async function deliverAndConfirm(shop, { parts: pl = [], engine_ids = [] 
   return delId;
 }
 
-// ── cleanup ──────────────────────────────────────────────────────────────────
+// â”€â”€ cleanup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 /**
  * Hard-remove everything this RUN created, FK-safe (children first).
  *
- * Scoped to tracked ids only — never a bare `like 'X-TEST%'`, which would match
+ * Scoped to tracked ids only â€” never a bare `like 'X-TEST%'`, which would match
  * other runs' rows and fail as a whole if any one row is FK-blocked.
  *
  * stock_movements are deleted by BOTH shop_id AND part/engine id: the
@@ -288,7 +302,7 @@ export async function cleanup() {
 
   await inShops("sales");
 
-  // counts BEFORE losses — count_snapshot_lines.shortage_loss_id points at a loss
+  // counts BEFORE losses â€” count_snapshot_lines.shortage_loss_id points at a loss
   const { data: snapRows } = shopIds.length
     ? await admin.from("count_snapshots").select("id").in("shop_id", shopIds)
     : { data: [] };
@@ -371,7 +385,7 @@ export async function cleanup() {
   if (customers.length) await del("customers").in("id", customers);
   // fn_record_sale creates a customer INLINE from p_customer, so a script that
   // sells to a walk-in never gets an id to track. Every harness-made name
-  // carries RUN, and RUN is unique per process — so this cannot reach another
+  // carries RUN, and RUN is unique per process â€” so this cannot reach another
   // run's rows, let alone a real customer.
   await del("customers").like("name", `%${RUN}%`);
   // after the expenses that reference them
@@ -410,6 +424,6 @@ export async function cleanup() {
   check(
     "cleanup: temp fixtures removed",
     leaks.length === 0,
-    `left behind: ${leaks.join(", ")} — run scripts/sweep-test-fixtures.mjs`
+    `left behind: ${leaks.join(", ")} â€” run scripts/sweep-test-fixtures.mjs`
   );
 }

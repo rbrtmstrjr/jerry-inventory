@@ -162,3 +162,135 @@ export async function setPreferredSupplier(input: unknown): Promise<ActionResult
   revalidatePath("/master-inventory");
   return { ok: true };
 }
+
+// ---------------------------------------------------------------------------
+// Receiving (atomic through fn_receive_stock) — moved here from
+// master-inventory: receiving is a supplier transaction. It picks a supplier,
+// creates supplier debt, checks their credit limit, and feeds payables.
+// ---------------------------------------------------------------------------
+/** A product born on the receiving itself (0048) — catalog cost comes from the line. */
+const newPartSchema = z.object({
+  name: z.string().trim().min(1, "New product needs a name"),
+  category_id: z.uuid().nullable().default(null),
+  sku: z.string().trim().max(64).optional().nullable(),
+  barcode: z.string().trim().max(64).optional().nullable(),
+  generate_barcode: z.boolean().default(false),
+  unit: z.string().trim().min(1).default("pc"),
+  price_centavos: z.number().int().min(0),
+  reorder_level: z.number().int().min(0).default(0),
+});
+
+const newModelSchema = z.object({
+  brand: z.string().trim().min(1, "New model needs a brand"),
+  model: z.string().trim().min(1, "New model needs a model name"),
+  horsepower: z.number().min(0).nullable().default(null),
+  stroke: z.enum(["2-stroke", "4-stroke"]).nullable().default(null),
+  default_warranty_months: z.number().int().min(0).default(12),
+});
+
+const receivingSchema = z
+  .object({
+    // Stock always comes from someone — receiving is the single entry point.
+    supplier_id: z.uuid({ error: "Pick the supplier" }),
+    note: z.string().trim().max(2000).optional().nullable(),
+    parts: z
+      .array(
+        z
+          .object({
+            part_id: z.uuid().optional(),
+            new_part: newPartSchema.optional(),
+            qty: z.number().int().positive(),
+            unit_cost_centavos: z.number().int().min(0),
+          })
+          .refine((l) => !!l.part_id !== !!l.new_part, {
+            message: "A part line is either an existing item or a new product",
+          })
+      )
+      .default([]),
+    engines: z
+      .array(
+        z
+          .object({
+            serial_number: z.string().trim().min(1, "Serial is required"),
+            engine_model_id: z.uuid().optional(),
+            new_model: newModelSchema.optional(),
+            condition: z.enum(["brand_new", "second_hand"]).default("brand_new"),
+            cost_centavos: z.number().int().min(0),
+            price_centavos: z.number().int().min(0),
+            warranty_months: z.number().int().min(0).nullable(),
+            // optional 3-tier margins; trigger computes tier prices when present
+            margin_floor_pct: z.number().min(0).nullable().default(null),
+            margin_mid_pct: z.number().min(0).nullable().default(null),
+            margin_asking_pct: z.number().min(0).nullable().default(null),
+          })
+          .refine((l) => !!l.engine_model_id !== !!l.new_model, {
+            message: "An engine line is either an existing model or a new one",
+          })
+      )
+      .default([]),
+    payment_status: z.enum(["unpaid", "partial", "paid"]).default("paid"),
+    /** Only meaningful when payment_status = 'partial'; the RPC derives the rest. */
+    amount_paid_centavos: z.number().int().min(0).nullable().default(null),
+    /** null = let the RPC compute it from the supplier's payment terms. */
+    due_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .default(null),
+    override: z.boolean().default(false),
+    override_reason: z.string().trim().max(500).optional().nullable(),
+  })
+  .refine((v) => v.parts.length + v.engines.length > 0, {
+    message: "Add at least one line",
+  });
+
+export async function receiveStock(
+  input: unknown
+): Promise<{ ok: true; id: string; newPartIds: string[] } | { ok: false; error: string }> {
+  const parsed = receivingSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("fn_receive_stock", {
+    p_supplier_id: parsed.data.supplier_id,
+    p_note: parsed.data.note || null,
+    p_parts: parsed.data.parts,
+    p_engines: parsed.data.engines,
+    p_payment_status: parsed.data.payment_status,
+    p_amount_paid: parsed.data.amount_paid_centavos,
+    p_due_date: parsed.data.due_date,
+    p_override: parsed.data.override,
+    p_override_reason: parsed.data.override_reason || null,
+  });
+  if (error) {
+    if (error.code === "23505") {
+      return { ok: false, error: "One of those engine serials already exists." };
+    }
+    return { ok: false, error: error.message };
+  }
+  const receivingId = data as string;
+
+  // Which parts were BORN on this receiving? now() is fixed inside the RPC's
+  // transaction, so an inline-created part has created_at = the receiving's
+  // own created_at; pre-existing parts are strictly older. Drives the
+  // post-save "print labels for new products" action.
+  let newPartIds: string[] = [];
+  if (parsed.data.parts.some((l) => l.new_part)) {
+    const { data: rcv } = await supabase
+      .from("receivings").select("created_at").eq("id", receivingId).single();
+    const { data: lines } = await supabase
+      .from("receiving_lines").select("part_id").eq("receiving_id", receivingId)
+      .not("part_id", "is", null);
+    const ids = (lines ?? []).map((l) => l.part_id as string);
+    if (rcv && ids.length) {
+      const { data: born } = await supabase
+        .from("parts").select("id").in("id", ids).gte("created_at", rcv.created_at);
+      newPartIds = (born ?? []).map((p) => p.id);
+    }
+  }
+
+  revalidatePath("/master-inventory");
+  revalidatePath("/suppliers");
+  return { ok: true, id: receivingId, newPartIds };
+}

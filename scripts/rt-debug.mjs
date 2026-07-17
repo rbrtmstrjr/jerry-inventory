@@ -12,8 +12,8 @@ const owner = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABAS
   auth: { persistSession: false },
 });
 const { data: auth, error } = await owner.auth.signInWithPassword({
-  email: "owner@jerrysmarine.test",
-  password: "Owner!Dev2026",
+  email: "robertmaestro09@gmail.com",
+  password: "rajonrondo09",
 });
 if (error) throw error;
 console.log("signed in, setting realtime auth explicitly");
@@ -31,15 +31,14 @@ const ch = owner
 // employee inserts a loss after 3s (fixture created by owner first)
 setTimeout(async () => {
   const RUN = Date.now().toString(36).toUpperCase();
-  const { data: part } = await owner
-    .from("parts")
-    .insert({ name: `RT-DEBUG ${RUN}`, cost_centavos: 100, price_centavos: 200 })
-    .select()
-    .single();
+  // 0049: no direct catalog INSERT — the part is born on the receiving itself
   await owner.rpc("fn_receive_stock", {
     p_supplier_id: null, p_note: `RT-DEBUG ${RUN}`,
-    p_parts: [{ part_id: part.id, qty: 1, unit_cost_centavos: 100 }], p_engines: [],
+    p_parts: [{ qty: 1, unit_cost_centavos: 100, new_part: { name: `RT-DEBUG ${RUN}`, price_centavos: 200 } }],
+    p_engines: [],
   });
+  const { data: part } = await owner
+    .from("parts").select("id").eq("name", `RT-DEBUG ${RUN}`).single();
   await owner.rpc("fn_deliver_stock", {
     p_shop_id: "a0000000-0000-4000-8000-000000000001", p_note: `RT-DEBUG ${RUN}`,
     p_parts: [{ part_id: part.id, qty: 1 }], p_engine_ids: [],

@@ -2,11 +2,16 @@ import type { Metadata } from "next";
 
 import { createClient } from "@/lib/supabase/server";
 import { ph_today } from "@/lib/ph-date";
-import type { ReceivingBalanceRow, SupplierPayableRow } from "@/lib/db-types";
+import type { ReceivingBalanceRow, ReceivingRow, SupplierPayableRow } from "@/lib/db-types";
 import { SupplierTabs } from "./supplier-tabs";
 import { SuppliersTable } from "./suppliers-table";
 import { PayablesView, type PaymentHistoryRow } from "./payables-view";
 import { ComparisonView } from "./comparison-view";
+import {
+  ReceivingView,
+  type PriceHistoryRow,
+  type SupplierOption,
+} from "./receiving-view";
 import type { ComparisonRow } from "./types";
 
 export const metadata: Metadata = { title: "Suppliers" };
@@ -23,11 +28,17 @@ export const metadata: Metadata = { title: "Suppliers" };
 export default async function SuppliersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; view?: string }>;
 }) {
-  const { tab: rawTab } = await searchParams;
+  const { tab: rawTab, view } = await searchParams;
   const tab =
-    rawTab === "payables" ? "payables" : rawTab === "comparison" ? "comparison" : "directory";
+    rawTab === "payables"
+      ? "payables"
+      : rawTab === "comparison"
+        ? "comparison"
+        : rawTab === "receiving"
+          ? "receiving"
+          : "directory";
   const supabase = await createClient();
 
   const heading = (
@@ -39,6 +50,78 @@ export default async function SuppliersPage({
       </p>
     </div>
   );
+
+  // Receiving — moved here UNCHANGED from /master-inventory/receiving (which
+  // 307-redirects): receiving is a supplier transaction. Same view, same
+  // fn_receive_stock flow, same ?view=<id> detail deep-link.
+  if (tab === "receiving") {
+    const [receivingsRes, suppliersRes, partsRes, modelsRes, categoriesRes, historyRes] =
+      await Promise.all([
+        supabase
+          .from("receivings")
+          .select(
+            "id, received_at, note, suppliers(name), receiving_lines(part_id, engine_id, qty)"
+          )
+          .is("deleted_at", null)
+          .order("received_at", { ascending: false })
+          .limit(100),
+        supabase
+          .from("suppliers")
+          .select("id, name, credit_limit, payment_terms_days, terms_note")
+          .is("deleted_at", null)
+          .order("name"),
+        supabase
+          .from("parts")
+          .select("id, name, sku, barcode, unit, cost_centavos")
+          .is("deleted_at", null)
+          .order("name"),
+        supabase
+          .from("engine_models")
+          .select("id, brand, model, horsepower, stroke, default_warranty_months")
+          .is("deleted_at", null)
+          .order("brand"),
+        supabase
+          .from("product_categories")
+          .select("id, name")
+          .is("deleted_at", null)
+          .order("name"),
+        // Last price PAID per supplier × product — shown as context on each
+        // line so a moved price is visible before it's accepted.
+        supabase
+          .from("supplier_product_prices_history")
+          .select(
+            "supplier_id, supplier_name, part_id, engine_model_id, unit_cost_centavos, received_at"
+          ),
+      ]);
+
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const receivings: ReceivingRow[] = (receivingsRes.data ?? []).map((r: any) => ({
+      id: r.id,
+      received_at: r.received_at,
+      note: r.note,
+      supplier_name: r.suppliers?.name ?? null,
+      part_lines: (r.receiving_lines ?? []).filter((l: any) => l.part_id).length,
+      engine_lines: (r.receiving_lines ?? []).filter((l: any) => l.engine_id).length,
+      total_qty: (r.receiving_lines ?? []).reduce((s: number, l: any) => s + l.qty, 0),
+    }));
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
+    return (
+      <div className="flex flex-col gap-4">
+        {heading}
+        <SupplierTabs active="receiving" />
+        <ReceivingView
+          receivings={receivings}
+          suppliers={(suppliersRes.data ?? []) as SupplierOption[]}
+          parts={partsRes.data ?? []}
+          models={modelsRes.data ?? []}
+          categories={categoriesRes.data ?? []}
+          history={(historyRes.data ?? []) as PriceHistoryRow[]}
+          initialViewId={view ?? null}
+        />
+      </div>
+    );
+  }
 
   if (tab === "payables") {
     const [payRes, balRes, histRes] = await Promise.all([

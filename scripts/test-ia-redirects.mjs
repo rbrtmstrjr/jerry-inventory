@@ -62,10 +62,34 @@ section("Old routes redirect — bookmarks and notification links survive");
     ["/suppliers/payables", "/suppliers?tab=payables"],
     ["/shops/reports", "/reports?tab=shops"],
     ["/delivery-requests", "/deliveries?tab=requests"],
+    // Bulk Add retired by 0048; points straight at receiving's final home.
+    ["/master-inventory/bulk-add", "/suppliers?tab=receiving"],
+    // Receiving moved to Suppliers — it's a supplier transaction.
+    ["/master-inventory/receiving", "/suppliers?tab=receiving"],
   ];
   for (const [from, to] of cases) {
     const r = await redirectTarget(from);
     check(`${from} → ${to}`, r.target.includes(to), `status ${r.status}, target "${r.target}"`);
+  }
+
+  // The receiving stub is a next.config redirect, so unlike the page-level
+  // stubs it returns a REAL 307 — assert the status, not the render.
+  {
+    const res = await fetch(`${BASE}/master-inventory/receiving`, {
+      headers: { cookie },
+      redirect: "manual",
+    });
+    check("/master-inventory/receiving returns a real 307", res.status === 307, `status ${res.status}`);
+  }
+
+  // The receiving-detail deep-link survives the move: ?view=<id> passes through.
+  {
+    const r = await redirectTarget("/master-inventory/receiving?view=abc-123");
+    check(
+      "receiving ?view= param passes through the redirect",
+      r.target.includes("tab=receiving") && r.target.includes("view=abc-123"),
+      r.target
+    );
   }
 
   // The stub carries the query along — a saved per-shop link still lands on
@@ -86,6 +110,8 @@ section("The new homes render");
   check("payables tab renders", pay.status === 200 && pay.html.includes("Payables"));
   const cmp = await getHtml("/suppliers?tab=comparison");
   check("comparison tab renders", cmp.status === 200 && cmp.html.includes("Price Comparison"));
+  const rcv = await getHtml("/suppliers?tab=receiving");
+  check("receiving tab renders", rcv.status === 200 && rcv.html.includes("New Receiving"));
   const shops = await getHtml("/reports?tab=shops");
   check("per-shop tab renders under /reports", shops.status === 200 && shops.html.includes("Per-Shop Profitability"));
   const pnl = await getHtml("/reports?tab=pnl");

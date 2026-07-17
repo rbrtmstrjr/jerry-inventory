@@ -16,6 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 /** Needs `npm run dev` on :3000 — skipped unless --with-http is passed. */
 const NEEDS_HTTP = new Set([
+  "test-smoke-routes.mjs",
   "test-reports.mjs",
   "test-settings-documents.mjs",
   "test-ia-redirects.mjs",

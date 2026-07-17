@@ -1,16 +1,12 @@
-import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
-import { BulkAddForm } from "./bulk-add-form";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Bulk Add" };
-
-export default async function BulkAddPage() {
-  const supabase = await createClient();
-  const { data: categories } = await supabase
-    .from("product_categories")
-    .select("id, name")
-    .is("deleted_at", null)
-    .order("name");
-
-  return <BulkAddForm categories={categories ?? []} />;
+/**
+ * Bulk Add retired (0048) — creating products with no supplier and no stock
+ * contradicted "receiving is the single entry point". Bulk entry lives on as
+ * the bulk-lines grid inside Receiving, which itself moved to Suppliers.
+ * Points straight at the final home (no redirect chain). Kept so old
+ * bookmarks don't 404, same pattern as the other redirect stubs.
+ */
+export default function BulkAddMovedStub() {
+  redirect("/suppliers?tab=receiving");
 }

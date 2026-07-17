@@ -5,11 +5,13 @@ import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   Barcode,
+  FolderCog,
   MoreHorizontal,
+  PackagePlus,
   Pencil,
-  Plus,
   Printer,
   Puzzle,
+  Store,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -40,22 +42,32 @@ import { Search } from "lucide-react";
 import { generateInternalBarcode, softDeletePart } from "./actions";
 import { PartFormDialog } from "./part-form-dialog";
 import { FitmentDialog } from "./fitment-dialog";
+import { CategoryManagerDialog } from "./reference-data-dialogs";
+import {
+  SupplierPricesDialog,
+  provenanceLabel,
+  type ComparisonRow,
+} from "./supplier-prices-dialog";
 
 export function PartsTable({
   parts,
   categories,
   models,
   fitmentsByPart,
+  pricesByPart,
 }: {
   parts: PartRow[];
   categories: Category[];
   models: EngineModel[];
   fitmentsByPart: Record<string, string[]>;
+  pricesByPart: Record<string, ComparisonRow[]>;
 }) {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<PartRow | null>(null);
   const [fitmentFor, setFitmentFor] = React.useState<PartRow | null>(null);
   const [deleting, setDeleting] = React.useState<PartRow | null>(null);
+  const [pricesFor, setPricesFor] = React.useState<PartRow | null>(null);
+  const [catMgrOpen, setCatMgrOpen] = React.useState(false);
   const [view, setView] = usePersistedView("jm-view-owner-parts");
   const [cardSearch, setCardSearch] = React.useState("");
 
@@ -104,6 +116,11 @@ export function PartsTable({
             {(fitmentsByPart[part.id]?.length ?? 0) > 0 &&
               ` (${fitmentsByPart[part.id].length})`}
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setPricesFor(part)}>
+            <Store className="size-4" /> Suppliers &amp; prices
+            {(pricesByPart[part.id]?.length ?? 0) > 0 &&
+              ` (${pricesByPart[part.id].length})`}
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => setDeleting(part)}>
             <Trash2 className="size-4" /> Remove product
@@ -113,15 +130,19 @@ export function PartsTable({
     );
   }
 
-  const addButton = (
-    <Button
-      onClick={() => {
-        setEditing(null);
-        setDialogOpen(true);
-      }}
-    >
-      <Plus className="size-4" /> Add Part
-    </Button>
+  // No Add button — products are born on a supplier receiving (0049 revokes
+  // direct INSERT at the database). This page is view + edit.
+  const toolbarButtons = (
+    <>
+      <Button variant="outline" onClick={() => setCatMgrOpen(true)}>
+        <FolderCog className="size-4" /> Categories
+      </Button>
+      <Button asChild>
+        <Link href="/suppliers?tab=receiving">
+          <PackagePlus className="size-4" /> Receive stock
+        </Link>
+      </Button>
+    </>
   );
 
   const q = cardSearch.trim().toLowerCase();
@@ -206,6 +227,51 @@ export function PartsTable({
       },
     },
     {
+      id: "supplier",
+      header: "Supplier",
+      cell: ({ row }) => {
+        const rows = pricesByPart[row.original.id] ?? [];
+        if (rows.length === 0) return <span className="text-muted-foreground">—</span>;
+        const preferred = rows.find((r) => r.is_preferred);
+        const cheapest = rows.find((r) => r.is_cheapest);
+        const shown = preferred ?? cheapest;
+        if (!shown) return <span className="text-muted-foreground">—</span>;
+        const delta =
+          preferred && !preferred.is_cheapest &&
+          preferred.effective_centavos != null && cheapest?.effective_centavos != null
+            ? preferred.effective_centavos - cheapest.effective_centavos
+            : 0;
+        return (
+          <button
+            type="button"
+            className="text-left"
+            onClick={() => setPricesFor(row.original)}
+            aria-label={`Suppliers & prices for ${row.original.name}`}
+          >
+            <div className="text-sm">
+              {shown.supplier_name}
+              {!preferred && (
+                <span className="text-xs text-muted-foreground"> (cheapest)</span>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {shown.effective_centavos != null && (
+                <span className="tabular-nums">
+                  {formatCentavos(shown.effective_centavos)}
+                </span>
+              )}{" "}
+              · {provenanceLabel(shown)}
+            </div>
+            {delta > 0 && (
+              <Badge variant="destructive" className="mt-0.5">
+                Preferred is {formatCentavos(delta)} more
+              </Badge>
+            )}
+          </button>
+        );
+      },
+    },
+    {
       id: "actions",
       header: "",
       cell: ({ row }) => <RowActions part={row.original} />,
@@ -219,11 +285,11 @@ export function PartsTable({
           columns={columns}
           data={parts}
           searchPlaceholder="Search name, SKU, barcode…"
-          emptyMessage="No products yet — add them in bulk with Bulk Add, or add one item here."
+          emptyMessage="No products yet — stock enters through a supplier receiving (Suppliers → Receiving)."
           toolbar={
             <>
               <ViewToggle value={view} onChange={setView} />
-              {addButton}
+              {toolbarButtons}
             </>
           }
         />
@@ -242,7 +308,7 @@ export function PartsTable({
             </div>
             <div className="ml-auto flex items-center gap-2">
               <ViewToggle value={view} onChange={setView} />
-              {addButton}
+              {toolbarButtons}
             </div>
           </div>
 
@@ -253,7 +319,17 @@ export function PartsTable({
                   <Search />
                 </EmptyMedia>
                 <EmptyDescription>
-                  {q ? `Nothing matches “${cardSearch}”.` : "No parts yet."}
+                  {q ? (
+                    `Nothing matches “${cardSearch}”.`
+                  ) : (
+                    <>
+                      No products yet — stock enters through a{" "}
+                      <Link className="underline" href="/suppliers?tab=receiving">
+                        supplier receiving
+                      </Link>
+                      .
+                    </>
+                  )}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -335,6 +411,18 @@ export function PartsTable({
         models={models}
         currentFitments={fitmentFor ? (fitmentsByPart[fitmentFor.id] ?? []) : []}
         onClose={() => setFitmentFor(null)}
+      />
+      <SupplierPricesDialog
+        open={pricesFor !== null}
+        productName={pricesFor?.name ?? ""}
+        partId={pricesFor?.id ?? null}
+        rows={pricesFor ? (pricesByPart[pricesFor.id] ?? []) : []}
+        onClose={() => setPricesFor(null)}
+      />
+      <CategoryManagerDialog
+        open={catMgrOpen}
+        categories={categories}
+        onClose={() => setCatMgrOpen(false)}
       />
       <ConfirmDialog
         open={deleting !== null}

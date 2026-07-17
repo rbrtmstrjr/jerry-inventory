@@ -4,9 +4,9 @@
  * Covers:
  *  - expense scope CHECK constraint enforced by the DB (not just the form)
  *  - existing expenses keep their real shop attribution (NO phantom re-scoping)
- *  - scope filtering + reconciliation: company + Σ shop = grand total
- *  - COGS frozen at approval — editing a part's cost does NOT rewrite history
- *  - Revenue − COGS = Gross Profit; − shop expenses − payroll = Net Contribution
+ *  - scope filtering + reconciliation: company + ÃŽÂ£ shop = grand total
+ *  - COGS frozen at approval Ã¢â‚¬â€ editing a part's cost does NOT rewrite history
+ *  - Revenue Ã¢Ë†â€™ COGS = Gross Profit; Ã¢Ë†â€™ shop expenses Ã¢Ë†â€™ payroll = Net Contribution
  *  - company overhead reported but NEVER allocated into a shop
  *  - approved sales only (recorded/pending never count as revenue)
  *  - supplier payments are COGS and never appear in expenses
@@ -29,11 +29,11 @@ const env = Object.fromEntries(
 const SB_URL = env.NEXT_PUBLIC_SUPABASE_URL;
 const ANON = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const RUN = Date.now().toString(36).toUpperCase();
-const P = (c) => `₱${(c / 100).toLocaleString()}`;
+const P = (c) => `Ã¢â€šÂ±${(c / 100).toLocaleString()}`;
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "✓" : "✗"} ${name} ${ok ? "" : detail}`);
+  console.log(`  ${ok ? "Ã¢Å“â€œ" : "Ã¢Å“â€”"} ${name} ${ok ? "" : detail}`);
   ok ? pass++ : fail++;
 };
 
@@ -48,9 +48,9 @@ async function signIn(email, password) {
   return c;
 }
 
-const owner = await signIn("owner@jerrysmarine.test", "Owner!Dev2026");
+const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
 
-// ── Baseline: what the live expense data looks like BEFORE we touch anything ──
+// Ã¢â€â‚¬Ã¢â€â‚¬ Baseline: what the live expense data looks like BEFORE we touch anything Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("Baseline (live expense attribution must survive this run):");
 const { data: baseline } = await owner
   .from("expenses")
@@ -69,7 +69,7 @@ check(
   )
 );
 
-// ── Setup ────────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Setup Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
 
 const { data: shop } = await admin
@@ -84,14 +84,14 @@ await admin.from("profiles").insert({
 const emp = await signIn(empEmail, `Prof!${RUN}`);
 
 const { data: cat } = await owner.from("product_categories").select("id").limit(1).single();
-const COST = 1000;   // ₱10 per unit
-const PRICE = 2500;  // ₱25 per unit
-const { data: part } = await owner.from("parts").insert({
+const COST = 1000;   // Ã¢â€šÂ±10 per unit
+const PRICE = 2500;  // Ã¢â€šÂ±25 per unit
+const { data: part } = await admin.from("parts").insert({
   name: `PROFIT-TEST Widget ${RUN}`, category_id: cat.id,
   cost_centavos: COST, price_centavos: PRICE,
 }).select().single();
 
-// ── 1. The DB enforces the scope/shop pairing itself ─────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ 1. The DB enforces the scope/shop pairing itself Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nScope constraint (enforced in Postgres, not just the form):");
 {
   const { error } = await owner.from("expenses").insert({
@@ -110,8 +110,8 @@ console.log("\nScope constraint (enforced in Postgres, not just the form):");
   check("scope='company' WITH a shop_id is REJECTED", !!error, error?.message ?? "accepted!");
 }
 
-// ── 2. Stock in, delivered, confirmed ────────────────────────────────────────
-console.log("\nSeed stock: receive 10 → deliver 10 → shop confirms 10");
+// Ã¢â€â‚¬Ã¢â€â‚¬ 2. Stock in, delivered, confirmed Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+console.log("\nSeed stock: receive 10 Ã¢â€ â€™ deliver 10 Ã¢â€ â€™ shop confirms 10");
 await owner.rpc("fn_receive_stock", {
   p_supplier_id: null, p_note: `PROFIT-TEST rcv ${RUN}`,
   p_parts: [{ part_id: part.id, qty: 10, unit_cost_centavos: COST }],
@@ -132,7 +132,7 @@ const { data: delId } = await owner.rpc("fn_deliver_stock", {
   check("10 units landed at the shop", !error, error?.message);
 }
 
-// ── 3. A sale that is only RECORDED must not count as revenue ────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ 3. A sale that is only RECORDED must not count as revenue Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nRevenue counts approved sales ONLY:");
 const { data: saleId, error: saleErr } = await emp.rpc("fn_record_sale", {
   p_customer_id: null, p_customer: null,
@@ -150,10 +150,10 @@ const revenueFor = async (statuses) => {
     .is("deleted_at", null);
   return (data ?? []).reduce((s, r) => s + r.total_centavos, 0);
 };
-check("recorded sale contributes ₱0 approved revenue", (await revenueFor(["approved"])) === 0);
+check("recorded sale contributes Ã¢â€šÂ±0 approved revenue", (await revenueFor(["approved"])) === 0);
 
-// ── 4. Submit + approve ──────────────────────────────────────────────────────
-console.log("\nSubmit batch → owner approves:");
+// Ã¢â€â‚¬Ã¢â€â‚¬ 4. Submit + approve Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+console.log("\nSubmit batch Ã¢â€ â€™ owner approves:");
 {
   const { error } = await emp.rpc("fn_submit_shop_batch");
   check("batch submitted", !error, error?.message);
@@ -165,8 +165,8 @@ console.log("\nSubmit batch → owner approves:");
 const REVENUE = await revenueFor(["approved"]);
 check(`approved revenue = ${P(4 * PRICE)}`, REVENUE === 4 * PRICE, String(REVENUE));
 
-// ── 5. COGS is FROZEN at approval ────────────────────────────────────────────
-console.log("\nCOGS snapshot (the whole point — history must not drift):");
+// Ã¢â€â‚¬Ã¢â€â‚¬ 5. COGS is FROZEN at approval Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+console.log("\nCOGS snapshot (the whole point Ã¢â‚¬â€ history must not drift):");
 const cogsFor = async () => {
   const { data } = await owner
     .from("sales")
@@ -194,7 +194,7 @@ const cogsFor = async () => {
   );
 }
 const COGS = await cogsFor();
-check(`COGS = ${P(4 * COST)} (4 × ${P(COST)})`, COGS === 4 * COST, String(COGS));
+check(`COGS = ${P(4 * COST)} (4 Ãƒâ€” ${P(COST)})`, COGS === 4 * COST, String(COGS));
 
 // The part's cost is mutable. Before 0037 this would silently rewrite the past.
 await owner.from("parts").update({ cost_centavos: 9999 }).eq("id", part.id);
@@ -205,12 +205,12 @@ check(
 );
 await owner.from("parts").update({ cost_centavos: COST }).eq("id", part.id);
 
-// ── 6. Expenses: shop-scoped vs company-wide ─────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ 6. Expenses: shop-scoped vs company-wide Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nExpenses (shop-scoped vs company overhead):");
 const { data: expCat } = await owner
   .from("expense_categories").select("id").limit(1).single();
-const SHOP_EXPENSE = 2000;    // ₱20 electricity at this branch
-const COMPANY_EXPENSE = 5000; // ₱50 company-wide, belongs to no branch
+const SHOP_EXPENSE = 2000;    // Ã¢â€šÂ±20 electricity at this branch
+const COMPANY_EXPENSE = 5000; // Ã¢â€šÂ±50 company-wide, belongs to no branch
 await owner.from("expenses").insert([
   {
     category_id: expCat.id, amount: SHOP_EXPENSE, expense_date: today,
@@ -251,10 +251,17 @@ await owner.from("expenses").insert([
   );
 }
 
-// ── 7. Payroll for this shop ─────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ 7. Payroll for this shop Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nPayroll for this branch:");
-const PAYROLL = 3000; // ₱30
-const { data: pos } = await owner.from("positions").select("id").limit(1).single();
+const PAYROLL = 3000; // Ã¢â€šÂ±30
+// Self-provisioned position — the DB can start empty (seeded positions are
+// gone since the fresh-start wipe). Positions kept their INSERT grant (only
+// the catalog tables were locked by 0049), so the owner client works.
+const { data: pos } = await owner
+  .from("positions")
+  .insert({ title: `PROFIT-TEST Helper ${RUN}` })
+  .select("id")
+  .single();
 const { data: staff } = await owner.from("staff").insert({
   shop_id: shop.id, full_name: `PROFIT-TEST Helper ${RUN}`,
   position_id: pos.id, pay_type: "daily", pay_rate: 1500,
@@ -279,22 +286,22 @@ await owner.from("payroll_entries").insert({
   check(`shop payroll in range = ${P(PAYROLL)}`, total === PAYROLL, String(total));
 }
 
-// ── 8. The profit chain (mirrors /shops/reports) ─────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ 8. The profit chain (mirrors /shops/reports) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nProfitability chain for this shop:");
 const grossProfit = REVENUE - COGS;
 const netContribution = grossProfit - SHOP_EXPENSE - PAYROLL;
 check(
-  `Revenue ${P(REVENUE)} − COGS ${P(COGS)} = Gross ${P(grossProfit)}`,
+  `Revenue ${P(REVENUE)} Ã¢Ë†â€™ COGS ${P(COGS)} = Gross ${P(grossProfit)}`,
   grossProfit === 6000
 );
 check("gross margin = 60%", Math.round((grossProfit / REVENUE) * 1000) / 10 === 60);
 check(
-  `Gross ${P(grossProfit)} − shop exp ${P(SHOP_EXPENSE)} − payroll ${P(PAYROLL)} = Net ${P(netContribution)}`,
+  `Gross ${P(grossProfit)} Ã¢Ë†â€™ shop exp ${P(SHOP_EXPENSE)} Ã¢Ë†â€™ payroll ${P(PAYROLL)} = Net ${P(netContribution)}`,
   netContribution === 1000
 );
 check("net margin = 10%", Math.round((netContribution / REVENUE) * 1000) / 10 === 10);
 
-// ── 9. Company overhead is reported, never allocated ─────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ 9. Company overhead is reported, never allocated Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nCompany overhead stays unallocated:");
 {
   const { data } = await owner
@@ -307,18 +314,18 @@ console.log("\nCompany overhead stays unallocated:");
   );
 }
 {
-  // Σ shop net − company overhead = business net (overhead subtracted ONCE)
+  // ÃŽÂ£ shop net Ã¢Ë†â€™ company overhead = business net (overhead subtracted ONCE)
   const businessNet = netContribution - COMPANY_EXPENSE;
   check(
-    `Σ shop net ${P(netContribution)} − overhead ${P(COMPANY_EXPENSE)} = business net ${P(businessNet)}`,
+    `ÃŽÂ£ shop net ${P(netContribution)} Ã¢Ë†â€™ overhead ${P(COMPANY_EXPENSE)} = business net ${P(businessNet)}`,
     businessNet === -4000
   );
 }
 
-// ── 10. A CLOSED shop's money still counts ──────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ 10. A CLOSED shop's money still counts Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // A branch that shut mid-period still sold and still cost money in that period.
 // Filtering shops to `deleted_at is null` would silently drop it and understate
-// business net — the live Roxas Branch alone is ~35% of this business's revenue.
+// business net Ã¢â‚¬â€ the live Roxas Branch alone is ~35% of this business's revenue.
 console.log("\nClosed shops are not silently dropped:");
 {
   await admin.from("shops").update({ deleted_at: new Date().toISOString() }).eq("id", shop.id);
@@ -351,7 +358,7 @@ console.log("\nClosed shops are not silently dropped:");
   await admin.from("shops").update({ deleted_at: null }).eq("id", shop.id);
 }
 
-// ── 11. Boundaries hold ──────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ 11. Boundaries hold Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nBoundaries:");
 {
   const { data } = await owner
@@ -378,8 +385,8 @@ console.log("\nBoundaries:");
   check("employee CANNOT record an expense", !!error, "insert accepted!");
 }
 {
-  // The employee CAN read their own sale_lines (Submissions needs it) — so the
-  // cost must not be a column there. Regression guard for the 0037→0038 leak.
+  // The employee CAN read their own sale_lines (Submissions needs it) Ã¢â‚¬â€ so the
+  // cost must not be a column there. Regression guard for the 0037Ã¢â€ â€™0038 leak.
   const { error } = await emp.from("sale_lines").select("unit_cost_centavos").limit(1);
   check(
     "sale_lines exposes no cost column at all",
@@ -402,15 +409,16 @@ console.log("\nBoundaries:");
   check("owner CAN read sale_line_costs", (data ?? []).length === 1);
 }
 
-// ── Cleanup ──────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Cleanup Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nCleanup:");
 {
   await owner.from("expenses").delete().like("description", `%${RUN}%`);
   await owner.from("payroll_entries").delete().eq("shop_id", shop.id);
   await owner.from("pay_periods").delete().eq("id", period.id);
   await owner.from("staff").delete().eq("id", staff.id);
+  await owner.from("positions").delete().eq("id", pos.id);
   await owner.from("warranties").delete().eq("sale_id", saleId);
-  // movements first, by BOTH part and shop — the master-side row has shop_id NULL
+  // movements first, by BOTH part and shop Ã¢â‚¬â€ the master-side row has shop_id NULL
   await admin.from("stock_movements").delete().eq("part_id", part.id);
   await admin.from("sale_line_costs").delete().eq("sale_id", saleId);
   await admin.from("sale_lines").delete().eq("sale_id", saleId);

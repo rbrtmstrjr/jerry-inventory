@@ -71,5 +71,5 @@ re-run the dataviz palette validator if you change them.
 
 - `.env.local` contains a `SUPABASE_SERVICE_ROLE_KEY` (server-only; used for
   employee account management). Never expose it client-side.
-- Dev test accounts exist (`owner@jerrysmarine.test`, `branch1@…`, `branch2@…`).
-  Replace with real accounts and passwords before go-live.
+- The admin login is `robertmaestro09@gmail.com`; shop accounts are managed
+  from Shops & Employees. Test suites sign in as the admin via `scripts/_harness.mjs`.

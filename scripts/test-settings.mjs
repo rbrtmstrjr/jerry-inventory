@@ -1,30 +1,30 @@
 /**
- * Settings overhaul — sections, credentials, business identity, health.
+ * Settings overhaul â€” sections, credentials, business identity, health.
  *
  * What this suite is really defending:
  *
- *  • `settings` stays OWNER-ONLY, while the business identity printed on paper
- *    becomes readable by shops through `public_settings` — and NOTHING else
+ *  â€¢ `settings` stays OWNER-ONLY, while the business identity printed on paper
+ *    becomes readable by shops through `public_settings` â€” and NOTHING else
  *    does. That split is the whole of 0043: before it, a shop printing a
  *    receipt read null and handed the customer a nameless, address-less,
  *    footer-less receipt, while the owner's reprint of the same sale looked
  *    complete.
  *
- *  • The re-auth gate is tested at the MECHANISM, not through the UI. The UI
+ *  â€¢ The re-auth gate is tested at the MECHANISM, not through the UI. The UI
  *    can be bypassed; what has to be true is that the wrong password does not
  *    authenticate.
  *
- *  • Password recovery works end to end. This is the lockout safety net: if it
+ *  â€¢ Password recovery works end to end. This is the lockout safety net: if it
  *    is broken, Jerry is locked out of his own business with nobody to call. It
- *    is proven against a THROWAWAY account, never the real owner's — a crash
+ *    is proven against a THROWAWAY account, never the real owner's â€” a crash
  *    halfway through a test that rewrites the owner's password would cause the
  *    exact disaster the feature exists to prevent.
  *
- *  • The thresholds actually drive behaviour. A setting that changes nothing is
+ *  â€¢ The thresholds actually drive behaviour. A setting that changes nothing is
  *    decoration, and this codebase already had two of them.
  *
  * Contribution rate edits + their effective-dating are owned by
- * test-payroll-contributions.mjs (§9 proves history is untouched) and are
+ * test-payroll-contributions.mjs (Â§9 proves history is untouched) and are
  * deliberately not repeated here.
  */
 import {
@@ -42,12 +42,12 @@ import {
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const OWNER_EMAIL = "owner@jerrysmarine.test";
-const OWNER_PASSWORD = "Owner!Dev2026";
+const OWNER_EMAIL = "robertmaestro09@gmail.com";
+const OWNER_PASSWORD = "rajonrondo09";
 
 // ---------------------------------------------------------------------------
 // This suite flips LIVE settings to prove they drive behaviour. Capture the real
-// row and put it back however we exit — an interrupted run must not leave the
+// row and put it back however we exit â€” an interrupted run must not leave the
 // business with a test business name on its receipts.
 // ---------------------------------------------------------------------------
 const IDENTITY_COLS = [
@@ -68,12 +68,12 @@ const { data: originalSettings, error: readErr } = await owner
 
 if (readErr) {
   console.error(
-    `Could not read settings — has migration 0043 been applied? ${readErr.message}`
+    `Could not read settings â€” has migration 0043 been applied? ${readErr.message}`
   );
   process.exit(1);
 }
 
-// Refuse a poisoned baseline — see the same guard in test-settings-documents.mjs.
+// Refuse a poisoned baseline â€” see the same guard in test-settings-documents.mjs.
 // Capturing leftover "ZZ-TEST" as `original` would restore the junk and call it
 // a pass, making the pollution permanent and self-certifying.
 if (
@@ -96,7 +96,7 @@ async function restoreSettings() {
 }
 
 // The guarantee is the try/finally below, NOT these handlers. An exit handler
-// cannot await, so an async restore never lands — a sibling suite crashed
+// cannot await, so an async restore never lands â€” a sibling suite crashed
 // mid-run and left "ZZ-TEST Marine" as the live business name exactly this way.
 // These are a best-effort for Ctrl-C only.
 for (const sig of ["SIGINT", "SIGTERM"]) {
@@ -110,7 +110,7 @@ try {
 const shop = await provisionShop("Settings");
 const emp = shop.client;
 
-// ── 0. settings is owner-only ────────────────────────────────────────────────
+// â”€â”€ 0. settings is owner-only â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 section("Settings is owner-only");
 {
   const { data } = await owner.from("settings").select("business_name").eq("id", 1).single();
@@ -134,7 +134,7 @@ section("Settings is owner-only");
   check("signed-out reads nothing", (anonRead ?? []).length === 0);
 }
 
-// ── 1. public_settings — the safe view ───────────────────────────────────────
+// â”€â”€ 1. public_settings â€” the safe view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 section("public_settings exposes identity, and only identity");
 {
   const { data: ps, error } = await emp.from("public_settings").select("*").maybeSingle();
@@ -143,7 +143,7 @@ section("public_settings exposes identity, and only identity");
   if (ps) {
     const keys = Object.keys(ps);
     // Structural, not by value: the dial must not EXIST on the row. Same test
-    // shape as "shop_stock has no cost column" — that rule is the backbone here.
+    // shape as "shop_stock has no cost column" â€” that rule is the backbone here.
     for (const leaked of [
       "warranty_expiry_alert_days",
       "supplier_limit_warn_pct",
@@ -164,7 +164,7 @@ section("public_settings exposes identity, and only identity");
   check("signed-out reads nothing from public_settings", (anonPs ?? []).length === 0);
 }
 
-// ── 2. Business identity reaches the documents — for the SHOP too ────────────
+// â”€â”€ 2. Business identity reaches the documents â€” for the SHOP too â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 section("Business identity reaches printed documents");
 {
   const mark = {
@@ -181,8 +181,8 @@ section("Business identity reaches printed documents");
   const { data: asOwner } = await owner.from("public_settings").select("*").maybeSingle();
   check("owner sees the new identity", asOwner?.business_name === mark.business_name);
 
-  // The point of the whole migration: the SHOP — which prints nearly every
-  // receipt — now reads the same identity the owner does.
+  // The point of the whole migration: the SHOP â€” which prints nearly every
+  // receipt â€” now reads the same identity the owner does.
   const { data: asShop } = await emp.from("public_settings").select("*").maybeSingle();
   check("SHOP sees the same business name", asShop?.business_name === mark.business_name);
   check("SHOP sees the address", asShop?.address === mark.address);
@@ -203,12 +203,12 @@ async function restoreSettingsInline() {
   await admin.from("settings").update(originalSettings).eq("id", 1);
 }
 
-// ── 3. The re-auth gate, at the mechanism ────────────────────────────────────
+// â”€â”€ 3. The re-auth gate, at the mechanism â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 section("Re-auth gate");
 {
   // This is exactly what the Account section calls before allowing a password
   // or email change. If a wrong password authenticated here, the gate would be
-  // theatre — so assert the mechanism, not the form.
+  // theatre â€” so assert the mechanism, not the form.
   const wrong = await anonClient().auth.signInWithPassword({
     email: OWNER_EMAIL,
     password: `definitely-not-${RUN}`,
@@ -227,7 +227,7 @@ section("Re-auth gate");
   check("a failed attempt does not sign the owner out", !!still?.business_name);
 }
 
-// ── 4. Password recovery, end to end ─────────────────────────────────────────
+// â”€â”€ 4. Password recovery, end to end â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 section("Password recovery (the lockout safety net)");
 {
   // Run against the THROWAWAY employee, never the owner: a crash between
@@ -277,7 +277,7 @@ section("Password recovery (the lockout safety net)");
   check("a recovery token cannot be reused", !!reuseErr, reuseErr?.message);
 }
 
-// ── 5. Thresholds actually drive behaviour ───────────────────────────────────
+// â”€â”€ 5. Thresholds actually drive behaviour â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 section("Thresholds change behaviour, not just the row");
 {
   await owner.from("settings").update({ warranty_expiry_alert_days: 45 }).eq("id", 1);
@@ -296,7 +296,7 @@ section("Thresholds change behaviour, not just the row");
   // This is the exact select /master-inventory/receiving runs to fill its
   // picker; it asked for `credit_limit_centavos`, which has never existed, so
   // PostgREST failed the whole query and `?? []` rendered the failure as "no
-  // suppliers". Assert the ERROR, not the row count — an empty list and a
+  // suppliers". Assert the ERROR, not the row count â€” an empty list and a
   // broken query look identical downstream, which is precisely how this
   // survived since v1.
   const { error: pickerErr } = await owner
@@ -332,7 +332,7 @@ section("Thresholds change behaviour, not just the row");
   await restoreSettingsInline();
 }
 
-// ── 6. System health — owner-only, and no secrets ────────────────────────────
+// â”€â”€ 6. System health â€” owner-only, and no secrets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 section("System health panel");
 {
   const { data: jobs, error } = await owner.rpc("fn_cron_job_health");
@@ -362,7 +362,7 @@ section("System health panel");
   check("signed-out cannot read job health", !!anonErr);
 }
 
-// ── 7. Scope boundary: shop credentials stay on /shops ───────────────────────
+// â”€â”€ 7. Scope boundary: shop credentials stay on /shops â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 section("Scope boundary");
 {
   // Shop logins are per-shop and belong next to map pins and close-shop. If a

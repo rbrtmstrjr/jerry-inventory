@@ -1,5 +1,5 @@
 /**
- * Delivery confirmation verification — in-transit stock, shop confirmation,
+ * Delivery confirmation verification Ã¢â‚¬â€ in-transit stock, shop confirmation,
  * discrepancy handling, owner-only resolution, and the RECONCILIATION
  * INVARIANT (master + in-transit + shops = total owned) after every step.
  *
@@ -24,7 +24,7 @@ const RUN = Date.now().toString(36).toUpperCase();
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "✓" : "✗"} ${name} ${ok ? "" : detail}`);
+  console.log(`  ${ok ? "Ã¢Å“â€œ" : "Ã¢Å“â€”"} ${name} ${ok ? "" : detail}`);
   ok ? pass++ : fail++;
 };
 
@@ -54,18 +54,18 @@ async function makeShop(label) {
   return { shop, userId: u.user.id, client: await signIn(email, password) };
 }
 
-const owner = await signIn("owner@jerrysmarine.test", "Owner!Dev2026");
+const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
 
 console.log("Setup: temp shops + 10 units of a part in master");
 const A = await makeShop("ShopA");
 const B = await makeShop("ShopB");
 
 const { data: cat } = await owner.from("product_categories").select("id").limit(1).single();
-const { data: part } = await owner.from("parts").insert({
+const { data: part } = await admin.from("parts").insert({
   name: `TRANSIT-TEST Widget ${RUN}`, category_id: cat.id,
   cost_centavos: 1000, price_centavos: 2000,
 }).select().single();
-const { data: em } = await owner.from("engine_models").insert({
+const { data: em } = await admin.from("engine_models").insert({
   brand: `TRANSIT-TEST${RUN}`, model: "T1", horsepower: 9.9,
 }).select().single();
 
@@ -98,8 +98,8 @@ async function buckets() {
     b.master === 10 && b.transit === 0 && b.shops === 0, JSON.stringify(b));
 }
 
-// ── Send: leaves master, enters transit, does NOT land ─────────────────────
-console.log("\nSend 10 → stock leaves master into transit (does NOT land):");
+// Ã¢â€â‚¬Ã¢â€â‚¬ Send: leaves master, enters transit, does NOT land Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+console.log("\nSend 10 Ã¢â€ â€™ stock leaves master into transit (does NOT land):");
 const { data: delId, error: dErr } = await owner.rpc("fn_deliver_stock", {
   p_shop_id: A.shop.id, p_note: `TRANSIT-TEST dlv ${RUN}`,
   p_parts: [{ part_id: part.id, qty: 10 }], p_engine_ids: [],
@@ -107,7 +107,7 @@ const { data: delId, error: dErr } = await owner.rpc("fn_deliver_stock", {
 check("delivery sent", !dErr, dErr?.message);
 {
   const b = await buckets();
-  check("master 10 → 0", b.master === 0, JSON.stringify(b));
+  check("master 10 Ã¢â€ â€™ 0", b.master === 0, JSON.stringify(b));
   check("in-transit = 10", b.transit === 10, JSON.stringify(b));
   check("shop stock still 0 (no auto-land)", b.shops === 0, JSON.stringify(b));
   check("RECONCILES: total still 10", b.total === 10, JSON.stringify(b));
@@ -120,8 +120,8 @@ check("delivery sent", !dErr, dErr?.message);
   check("shop was notified stock is coming", (n ?? []).length === 1);
 }
 
-// ── Shop confirms 8 of 10 ──────────────────────────────────────────────────
-console.log("\nShop confirms 8 of 10 → 8 land, 2 stay in transit:");
+// Ã¢â€â‚¬Ã¢â€â‚¬ Shop confirms 8 of 10 Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+console.log("\nShop confirms 8 of 10 Ã¢â€ â€™ 8 land, 2 stay in transit:");
 const { data: line } = await A.client
   .from("shop_incoming_delivery_lines").select("*").eq("delivery_id", delId).single();
 {
@@ -154,7 +154,7 @@ const { data: line } = await A.client
   check("owner notified of the discrepancy", (n ?? []).length === 1);
 }
 
-// ── The shop has NO power beyond counting ──────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ The shop has NO power beyond counting Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nShop cannot reject / return / write off / re-confirm:");
 {
   const { error } = await A.client.rpc("fn_confirm_delivery", {
@@ -182,7 +182,7 @@ console.log("\nShop cannot reject / return / write off / re-confirm:");
   check("shop CANNOT return stock at all", !!error && /owner/i.test(error.message), error?.message);
 }
 
-// ── Cross-shop + over-receive guards ───────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Cross-shop + over-receive guards Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nGuards:");
 const { data: del2 } = await owner.rpc("fn_deliver_stock", {
   p_shop_id: A.shop.id, p_note: `TRANSIT-TEST dlv2 ${RUN}`,
@@ -203,8 +203,8 @@ const { data: line2 } = await A.client
   check("cannot receive MORE than was sent", !!error && /more than was sent/i.test(error.message), error?.message);
 }
 
-// ── Engines confirm per serial ─────────────────────────────────────────────
-console.log("\nEngine in transit → confirmed per serial:");
+// Ã¢â€â‚¬Ã¢â€â‚¬ Engines confirm per serial Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+console.log("\nEngine in transit Ã¢â€ â€™ confirmed per serial:");
 {
   const { data: e } = await owner.from("engines").select("status").eq("id", eng.id).single();
   check("engine status = in_transit while sent", e?.status === "in_transit");
@@ -222,10 +222,10 @@ console.log("\nEngine in transit → confirmed per serial:");
     .from("shop_engines").select("serial_number").eq("engine_id", eng.id).single();
   check("engine lands with its serial intact", se?.serial_number === SERIAL);
   const { data: d } = await owner.from("deliveries").select("status").eq("id", del2).single();
-  check("full confirmation → status confirmed", d?.status === "confirmed");
+  check("full confirmation Ã¢â€ â€™ status confirmed", d?.status === "confirmed");
 }
 
-// ── Owner resolves the shortfall ───────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Owner resolves the shortfall Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nOwner resolves the 2 outstanding (1 returned, 1 written off):");
 {
   const { error } = await owner.rpc("fn_resolve_delivery_discrepancy", {
@@ -234,7 +234,7 @@ console.log("\nOwner resolves the 2 outstanding (1 returned, 1 written off):");
   });
   check("returned_to_master accepted", !error, error?.message);
   const b = await buckets();
-  check("master 0 → 1, transit 2 → 1", b.master === 1 && b.transit === 1, JSON.stringify(b));
+  check("master 0 Ã¢â€ â€™ 1, transit 2 Ã¢â€ â€™ 1", b.master === 1 && b.transit === 1, JSON.stringify(b));
   check("RECONCILES: total still 10", b.total === 10, JSON.stringify(b));
 }
 {
@@ -245,7 +245,7 @@ console.log("\nOwner resolves the 2 outstanding (1 returned, 1 written off):");
   check("written_off accepted", !error, error?.message);
   const b = await buckets();
   check("transit cleared to 0", b.transit === 0, JSON.stringify(b));
-  check("total drops 10 → 9 — exactly the written-off unit", b.total === 9, JSON.stringify(b));
+  check("total drops 10 Ã¢â€ â€™ 9 Ã¢â‚¬â€ exactly the written-off unit", b.total === 9, JSON.stringify(b));
 }
 {
   const { data: d } = await owner.from("deliveries").select("status, resolved_by").eq("id", delId).single();
@@ -256,7 +256,7 @@ console.log("\nOwner resolves the 2 outstanding (1 returned, 1 written off):");
   check("nothing left to resolve", !!error && /outstanding/i.test(error.message), error?.message);
 }
 
-// ── Reporting split ────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Reporting split Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nReports can tell transit losses apart from shop losses/returns:");
 {
   const { data } = await owner
@@ -267,10 +267,10 @@ console.log("\nReports can tell transit losses apart from shop losses/returns:")
   check("transit_return recorded (not 'return')", types.includes("transit_return"));
   check("no shop 'loss' rows were created", !types.includes("loss"));
   const wo = (data ?? []).find((m) => m.movement_type === "transit_writeoff");
-  check("write-off is signed −1", wo?.qty_change === -1, `(got ${wo?.qty_change})`);
+  check("write-off is signed Ã¢Ë†â€™1", wo?.qty_change === -1, `(got ${wo?.qty_change})`);
 }
 
-// ── Cleanup ────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Cleanup Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nCleanup:");
 {
   const shops = [A.shop.id, B.shop.id];
