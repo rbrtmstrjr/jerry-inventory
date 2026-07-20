@@ -20,7 +20,7 @@ export default async function OwnerReceivablesPage() {
       .order("created_at", { ascending: false }),
     supabase
       .from("shops")
-      .select("id, name")
+      .select("id, name, color_key")
       .is("deleted_at", null)
       .order("name"),
   ]);

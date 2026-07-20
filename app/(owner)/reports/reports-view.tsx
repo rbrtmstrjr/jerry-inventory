@@ -27,7 +27,10 @@ import {
 
 import { formatCentavos } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
+import { isShopColorKey, shopColorVars } from "@/lib/shop-colors";
+import type { ShopOption } from "@/lib/db-types";
 import { Badge } from "@/components/ui/badge";
+import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -60,7 +63,7 @@ export interface ReportData {
   from: string;
   to: string;
   shopFilter: string;
-  shops: { id: string; name: string }[];
+  shops: ShopOption[];
   totals: {
     revenue: number;
     salesCount: number;
@@ -149,6 +152,19 @@ export function ReportsView({ data }: { data: ReportData }) {
   const router = useRouter();
   const [from, setFrom] = React.useState(data.from);
   const [to, setTo] = React.useState(data.to);
+
+  // Shop identity color; colorless shops keep their chart-N slot as before
+  const colorKeyByName = new Map(data.shops.map((s) => [s.name, s.color_key]));
+  const seriesColor = (name: string) => {
+    const key = colorKeyByName.get(name);
+    return isShopColorKey(key)
+      ? shopColorVars(key).strong
+      : SHOP_COLORS[data.shopNames.indexOf(name) % SHOP_COLORS.length];
+  };
+  const badgeShop = (name: string) => ({
+    name,
+    color_key: colorKeyByName.get(name) ?? null,
+  });
 
   function apply(next: { from?: string; to?: string; shop?: string }) {
     const p = new URLSearchParams({
@@ -333,14 +349,14 @@ export function ReportsView({ data }: { data: ReportData }) {
                     <span style={{ color: "var(--foreground)", fontSize: 12 }}>{v}</span>
                   )}
                 />
-                {data.shopNames.map((name, i) => (
+                {data.shopNames.map((name) => (
                   <Area
                     key={name}
                     type="monotone"
                     dataKey={name}
                     stackId="rev"
-                    stroke={SHOP_COLORS[i % SHOP_COLORS.length]}
-                    fill={SHOP_COLORS[i % SHOP_COLORS.length]}
+                    stroke={seriesColor(name)}
+                    fill={seriesColor(name)}
                     fillOpacity={0.25}
                     strokeWidth={2}
                   />
@@ -375,10 +391,7 @@ export function ReportsView({ data }: { data: ReportData }) {
                 <Tooltip content={<PesoTooltip />} cursor={{ fill: "var(--muted)" }} />
                 <Bar dataKey="revenue" name="Revenue" radius={[4, 4, 0, 0]} maxBarSize={48}>
                   {data.byShop.map((row) => (
-                    <Cell
-                      key={row.shop}
-                      fill={SHOP_COLORS[data.shopNames.indexOf(row.shop) % SHOP_COLORS.length]}
-                    />
+                    <Cell key={row.shop} fill={seriesColor(row.shop)} />
                   ))}
                 </Bar>
               </BarChart>
@@ -501,7 +514,9 @@ export function ReportsView({ data }: { data: ReportData }) {
                   {data.enginesSold.map((e, i) => (
                     <TableRow key={i}>
                       <TableCell className="text-sm">{e.description}</TableCell>
-                      <TableCell className="text-sm">{e.shop}</TableCell>
+                      <TableCell className="text-sm">
+                        <ShopBadge shop={badgeShop(e.shop)} variant="text" />
+                      </TableCell>
                       <TableCell className="text-sm">{dateTick(e.date)}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCentavos(e.price_centavos)}
@@ -539,7 +554,9 @@ export function ReportsView({ data }: { data: ReportData }) {
                   {data.lowStock.map((r, i) => (
                     <TableRow key={i}>
                       <TableCell className="text-sm">{r.part}</TableCell>
-                      <TableCell className="text-sm">{r.shop}</TableCell>
+                      <TableCell className="text-sm">
+                        <ShopBadge shop={badgeShop(r.shop)} variant="text" />
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">
                         <span className="font-semibold text-destructive">{r.qty}</span> / {r.reorder_level}
                       </TableCell>

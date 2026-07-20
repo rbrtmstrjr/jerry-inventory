@@ -19,7 +19,9 @@ import { Building2, Download, ReceiptText, Store, Truck } from "lucide-react";
 
 import { formatCentavos } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
+import { isShopColorKey, shopColorVars } from "@/lib/shop-colors";
 import { Button } from "@/components/ui/button";
+import { ShopBadge } from "@/components/shop-badge";
 import {
   Card,
   CardContent,
@@ -60,10 +62,11 @@ export interface ExpenseReportData {
   };
   byCategory: { category: string; total: number }[];
   byMonth: { month: string; total: number }[];
-  byShop: { shop: string; total: number }[];
+  byShop: { shop: string; color_key: string | null; total: number }[];
   shopNames: string[];
   costOfBusiness: {
     shop: string;
+    color_key: string | null;
     revenue: number;
     opex: number;
     payroll: number;
@@ -102,6 +105,12 @@ function PesoTooltip({ active, payload, label }: any) {
 
 export function ExpenseReports({ data }: { data: ExpenseReportData }) {
   const router = useRouter();
+
+  // Identity color when set; otherwise the shop keeps its chart-N slot
+  const seriesColor = (row: { shop: string; color_key: string | null }) =>
+    isShopColorKey(row.color_key)
+      ? shopColorVars(row.color_key).strong
+      : SHOP_COLORS[data.shopNames.indexOf(row.shop) % SHOP_COLORS.length];
 
   function apply(next: { from?: string; to?: string; shop?: string }) {
     const p = new URLSearchParams({
@@ -268,10 +277,7 @@ export function ExpenseReports({ data }: { data: ExpenseReportData }) {
                   <Tooltip content={<PesoTooltip />} cursor={{ fill: "var(--muted)" }} />
                   <Bar dataKey="total" name="Expenses" radius={[4, 4, 0, 0]} maxBarSize={48}>
                     {data.byShop.map((row) => (
-                      <Cell
-                        key={row.shop}
-                        fill={SHOP_COLORS[data.shopNames.indexOf(row.shop) % SHOP_COLORS.length]}
-                      />
+                      <Cell key={row.shop} fill={seriesColor(row)} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -352,7 +358,9 @@ export function ExpenseReports({ data }: { data: ExpenseReportData }) {
             <TableBody>
               {data.costOfBusiness.map((r) => (
                 <TableRow key={r.shop}>
-                  <TableCell className="font-medium">{r.shop}</TableCell>
+                  <TableCell className="font-medium">
+                    <ShopBadge shop={{ name: r.shop, color_key: r.color_key }} />
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatCentavos(r.revenue)}
                   </TableCell>

@@ -20,7 +20,7 @@ export default async function MasterInventoryPage() {
     supabase
       .from("engines")
       .select(
-        "id, serial_number, engine_model_id, condition, cost_centavos, price_centavos, margin_floor_pct, margin_mid_pct, margin_asking_pct, price_floor_centavos, price_mid_centavos, price_asking_centavos, warranty_months, status, image_path, engine_models(brand, model, horsepower), shops(name)"
+        "id, serial_number, engine_model_id, condition, cost_centavos, price_centavos, warranty_months, status, image_path, engine_models(brand, model, horsepower), shops(name, color_key)"
       )
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
@@ -79,15 +79,10 @@ export default async function MasterInventoryPage() {
     condition: e.condition,
     cost_centavos: e.cost_centavos,
     price_centavos: e.price_centavos,
-    margin_floor_pct: e.margin_floor_pct,
-    margin_mid_pct: e.margin_mid_pct,
-    margin_asking_pct: e.margin_asking_pct,
-    price_floor_centavos: e.price_floor_centavos,
-    price_mid_centavos: e.price_mid_centavos,
-    price_asking_centavos: e.price_asking_centavos,
     warranty_months: e.warranty_months,
     status: e.status,
     shop_name: e.shops?.name ?? null,
+    shop_color_key: e.shops?.color_key ?? null,
     image_path: e.image_path,
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */

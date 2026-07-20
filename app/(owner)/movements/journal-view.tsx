@@ -14,6 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { DatePicker } from "@/components/date-picker";
+import { ShopBadge } from "@/components/shop-badge";
 import type { JournalRow } from "./types";
 
 const TYPES = [
@@ -67,12 +68,16 @@ export function JournalView({
     from: string; to: string; location: string; type: string;
     product: string; actor: string; q: string;
   };
-  shops: { id: string; name: string }[];
+  shops: { id: string; name: string; color_key: string | null }[];
   parts: { id: string; name: string }[];
   actors: { id: string; full_name: string | null }[];
 }) {
   const router = useRouter();
   const [q, setQ] = React.useState(filters.q);
+  const colorByShop = React.useMemo(
+    () => new Map(shops.map((s) => [s.id, s.color_key])),
+    [shops]
+  );
 
   /** Any filter change resets to page 1 — page 3 of a new filter is nonsense. */
   function apply(next: Partial<typeof filters> & { page?: number }) {
@@ -207,7 +212,18 @@ export function JournalView({
                         {phDateTime(r.created_at)}
                       </td>
                       <td className="py-2.5">
-                        {r.location_label}
+                        {/* master/transit stay neutral — only shop locations get color */}
+                        {r.location_kind === "shop" && r.shop_id ? (
+                          <ShopBadge
+                            variant="text"
+                            shop={{
+                              name: r.location_label,
+                              color_key: colorByShop.get(r.shop_id) ?? null,
+                            }}
+                          />
+                        ) : (
+                          r.location_label
+                        )}
                         {r.location_kind === "transit" && (
                           <span className="ml-1 text-xs text-muted-foreground">
                             (never reached a shop)

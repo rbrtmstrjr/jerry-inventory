@@ -40,17 +40,27 @@ const pesoField = z
   .string()
   .refine((v) => parsePesosToCentavos(v) !== null, "Enter a valid ₱ amount");
 
-const formSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
-  category_id: z.string().min(1, "Pick a category"),
-  sku: z.string().optional(),
-  barcode: z.string().optional(),
-  unit: z.string().trim().min(1, "Unit is required"),
-  cost: pesoField,
-  price: pesoField,
-  reorder_level: z.string().regex(/^\d*$/, "Must be a whole number"),
-  notes: z.string().optional(),
-});
+const formSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name is required"),
+    category_id: z.string().min(1, "Pick a category"),
+    sku: z.string().optional(),
+    barcode: z.string().optional(),
+    unit: z.string().trim().min(1, "Unit is required"),
+    cost: pesoField,
+    price: pesoField,
+    reorder_level: z.string().regex(/^\d*$/, "Must be a whole number"),
+    notes: z.string().optional(),
+  })
+  // Selling price must clear cost — the new single-price floor (0053).
+  .refine(
+    (v) => {
+      const c = parsePesosToCentavos(v.cost);
+      const p = parsePesosToCentavos(v.price);
+      return c === null || p === null || p > c;
+    },
+    { message: "Selling price must be above cost", path: ["price"] }
+  );
 
 type FormValues = z.infer<typeof formSchema>;
 

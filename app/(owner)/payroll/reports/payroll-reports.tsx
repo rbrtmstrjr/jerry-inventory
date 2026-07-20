@@ -7,6 +7,7 @@ import { Banknote, Download, TriangleAlert, Users, Wallet } from "lucide-react";
 import { formatCentavos } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import { Badge } from "@/components/ui/badge";
+import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -48,6 +49,7 @@ export interface PayrollReportData {
   };
   byShop: {
     shop: string;
+    color_key: string | null;
     total: number;
     headcount: number;
     paid: number;
@@ -84,6 +86,7 @@ export interface PayrollReportData {
     staff: string;
     position: string;
     shop: string;
+    shop_color_key: string | null;
     pay_type: string;
     days_worked: number;
     net_pay: number;
@@ -236,7 +239,8 @@ export function PayrollReports({ data }: { data: PayrollReportData }) {
             onClick={() =>
               downloadCsv(
                 `payroll_${data.from}_${data.to}.csv`,
-                data.rows.map((r) => ({
+                // color key is a UI concern — keep it out of the CSV
+                data.rows.map(({ shop_color_key: _sck, ...r }) => ({
                   ...r,
                   net_pay: (r.net_pay / 100).toFixed(2),
                 }))
@@ -445,7 +449,9 @@ export function PayrollReports({ data }: { data: PayrollReportData }) {
                 <TableBody>
                   {data.byShop.map((r) => (
                     <TableRow key={r.shop}>
-                      <TableCell className="font-medium">{r.shop}</TableCell>
+                      <TableCell className="font-medium">
+                        <ShopBadge shop={{ name: r.shop, color_key: r.color_key }} />
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{r.headcount}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCentavos(r.paid)}
@@ -529,7 +535,12 @@ export function PayrollReports({ data }: { data: PayrollReportData }) {
                       <div className="text-sm font-medium">{r.staff}</div>
                       <div className="text-xs text-muted-foreground">{r.position}</div>
                     </TableCell>
-                    <TableCell className="text-sm">{r.shop}</TableCell>
+                    <TableCell className="text-sm">
+                      <ShopBadge
+                        shop={{ name: r.shop, color_key: r.shop_color_key }}
+                        variant="text"
+                      />
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {r.pay_type === "daily" ? r.days_worked : "—"}
                     </TableCell>

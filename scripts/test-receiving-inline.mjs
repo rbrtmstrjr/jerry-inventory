@@ -142,10 +142,11 @@ section("Atomicity");
 // ── 4. duplicate barcode / duplicate serial → clean error + rollback ─────────
 section("Uniqueness errors");
 {
-  const existing = await seedPart({ label: "BarcodeOwner" });
-  const { data: withBarcode } = await owner
-    .from("parts").update({ barcode: `ZZBC-${RUN}` }).eq("id", existing.id).select().single();
-  check("fixture barcode set", withBarcode?.barcode === `ZZBC-${RUN}`);
+  // A barcode held by a RETIRED part can't be reused (reuse excludes
+  // deleted/merged), so its insert still hits the friendly unique error and
+  // rolls back. (A LIVE part's barcode reuses instead — covered in §9.)
+  const existing = await seedPart({ label: "BarcodeOwner", barcode: `ZZBC-${RUN}` });
+  await owner.from("parts").update({ deleted_at: new Date().toISOString() }).eq("id", existing.id);
 
   const name = `ZZ-TEST Dup Barcode ${RUN}`;
   const { error } = await owner.rpc("fn_receive_stock", {
@@ -157,7 +158,7 @@ section("Uniqueness errors");
     }],
     p_engines: [],
   });
-  check("duplicate barcode raises the friendly error", /already in use/.test(error?.message ?? ""));
+  check("a retired part's barcode still raises the friendly error", /already in use/.test(error?.message ?? ""));
   const { data: ghost } = await owner.from("parts").select("id").eq("name", name);
   check("duplicate-barcode receiving fully rolled back", (ghost ?? []).length === 0);
 
@@ -286,6 +287,69 @@ section("RLS");
   check("employee sees ZERO price-comparison rows", (cmp ?? []).length === 0);
   const { data: base } = await shop.client.from("parts").select("cost_centavos").limit(5);
   check("employee cannot read parts (base table)", (base ?? []).length === 0);
+}
+
+// ── 9. reuse an existing part by barcode/SKU instead of duplicating (0052) ───
+section("Part reuse (dedup at receiving)");
+{
+  const countParts = async (sku) =>
+    (await owner.from("parts").select("id").eq("sku", sku).is("deleted_at", null)).data?.length ?? 0;
+
+  // create a part on the first receiving (with a distinctive SKU)
+  const sku = `REUSE-${RUN}`;
+  const { error: e1 } = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id,
+    p_note: `ZZ-TEST reuse-1 ${RUN}`,
+    p_parts: [{ qty: 4, unit_cost_centavos: 1000, new_part: { name: `ZZ-TEST Reuse ${RUN}`, sku, price_centavos: 2000 } }],
+    p_engines: [],
+  });
+  const { data: made } = await owner.from("parts").select("id").eq("sku", sku).single();
+  trackPart(made?.id);
+  check("first receiving creates the part", !e1 && !!made?.id, e1?.message);
+  check("exactly one part with this SKU", (await countParts(sku)) === 1);
+
+  // second receiving with the SAME SKU (different supplier) must REUSE it
+  const { error: e2 } = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id,
+    p_note: `ZZ-TEST reuse-2 ${RUN}`,
+    p_parts: [{ qty: 3, unit_cost_centavos: 1100, new_part: { name: `ZZ-TEST Reuse DUP ${RUN}`, sku, price_centavos: 2500 } }],
+    p_engines: [],
+  });
+  check("second receiving with same SKU succeeds", !e2, e2?.message);
+  check("NO second part row was created (reused by SKU)", (await countParts(sku)) === 1);
+  const { data: lvl } = await owner
+    .from("stock_levels").select("qty").eq("part_id", made.id).is("shop_id", null).single();
+  check("stock landed on the existing part (4 + 3 = 7)", lvl?.qty === 7);
+
+  // reuse by BARCODE
+  const bc = `BC-${RUN}`;
+  await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id, p_note: `ZZ-TEST reuse-bc-1 ${RUN}`,
+    p_parts: [{ qty: 1, unit_cost_centavos: 500, new_part: { name: `ZZ-TEST BC ${RUN}`, barcode: bc, price_centavos: 900 } }],
+    p_engines: [],
+  });
+  const { data: bcPart } = await owner.from("parts").select("id").eq("barcode", bc).single();
+  trackPart(bcPart?.id);
+  await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id, p_note: `ZZ-TEST reuse-bc-2 ${RUN}`,
+    p_parts: [{ qty: 2, unit_cost_centavos: 550, new_part: { name: `ZZ-TEST BC DUP ${RUN}`, barcode: bc, price_centavos: 950 } }],
+    p_engines: [],
+  });
+  const { data: bcCount } = await owner.from("parts").select("id").eq("barcode", bc).is("deleted_at", null);
+  check("reuse by barcode — no duplicate part", (bcCount ?? []).length === 1);
+
+  // NO sku and NO barcode → always create (never dedup on name alone)
+  const name = `ZZ-TEST NoId ${RUN}`;
+  for (const n of [1, 2]) {
+    await owner.rpc("fn_receive_stock", {
+      p_supplier_id: supplier.id, p_note: `ZZ-TEST noid-${n} ${RUN}`,
+      p_parts: [{ qty: 1, unit_cost_centavos: 100, new_part: { name, price_centavos: 200 } }],
+      p_engines: [],
+    });
+  }
+  const { data: noId } = await owner.from("parts").select("id").eq("name", name).is("deleted_at", null);
+  (noId ?? []).forEach((p) => trackPart(p.id));
+  check("same name, no SKU/barcode → two separate parts (never dedup on name)", (noId ?? []).length === 2);
 }
 
 await cleanup();

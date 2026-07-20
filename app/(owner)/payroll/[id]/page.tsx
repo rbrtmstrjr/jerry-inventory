@@ -26,7 +26,7 @@ export default async function PayPeriodPage({
       .select(
         `id, days_worked, gross_pay, net_pay, status, date_paid,
          staff(full_name, pay_type, pay_rate, contributions_enabled, positions(title)),
-         shops(id, name),
+         shops(id, name, color_key),
          payroll_entry_contributions(
            agency, salary_basis_centavos, credited_salary_centavos,
            ee_amount_centavos, er_amount_centavos
@@ -52,6 +52,7 @@ export default async function PayPeriodPage({
       pay_rate: e.staff?.pay_rate ?? 0,
       shop_id: e.shops?.id ?? "",
       shop_name: e.shops?.name ?? "?",
+      shop_color_key: e.shops?.color_key ?? null,
       days_worked: Number(e.days_worked),
       gross_pay: e.gross_pay,
       // net_pay is computed by the DB as gross − employee shares. Never recomputed here.

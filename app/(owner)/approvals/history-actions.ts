@@ -100,7 +100,29 @@ export interface PaymentDetail {
   balance_after_centavos: number;
 }
 
-export type ReviewedDetail = SaleDetail | LossDetail | PaymentDetail;
+export interface ExpenseDetail {
+  type: "expense";
+  id: string;
+  shop_name: string;
+  status: string;
+  created_at: string;
+  expense_date: string;
+  approved_at: string | null;
+  recorded_by: string;
+  approved_by: string | null;
+  review_note: string | null;
+  batch_submitted_at: string | null;
+  amount_centavos: number;
+  category_name: string;
+  category_proposed: boolean;
+  description: string;
+  paid_to: string | null;
+  payment_method: string | null;
+  reference_no: string | null;
+  receipt_image_path: string | null;
+}
+
+export type ReviewedDetail = SaleDetail | LossDetail | PaymentDetail | ExpenseDetail;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const label = (m: any) =>
@@ -123,7 +145,7 @@ export async function getReviewedDetail(
 ): Promise<{ ok: true; detail: ReviewedDetail } | { ok: false; error: string }> {
   const parsed = z
     .object({
-      itemType: z.enum(["sale", "loss", "utang_payment"]),
+      itemType: z.enum(["sale", "loss", "utang_payment", "expense"]),
       id: z.uuid(),
     })
     .safeParse({ itemType, id });
@@ -145,7 +167,7 @@ export async function getReviewedDetail(
          submission_batches(submitted_at),
          sale_lines(description, qty, unit_price_centavos, line_total_centavos, engine_id, part_id,
                     agreed_price_centavos, list_reference_centavos, discount_centavos, created_at,
-                    engines(serial_number, price_floor_centavos, cost_centavos,
+                    engines(serial_number, cost_centavos,
                             engine_models(brand, model, horsepower)),
                     parts(name, cost_centavos))`
       )
@@ -186,7 +208,7 @@ export async function getReviewedDetail(
         agreed_price_centavos: l.agreed_price_centavos ?? null,
         list_reference_centavos: l.list_reference_centavos ?? null,
         discount_centavos: l.discount_centavos ?? null,
-        floor_centavos: l.engines?.price_floor_centavos ?? null,
+        floor_centavos: l.engines?.cost_centavos ?? null, // floor = cost since 0053
         cost_centavos: l.engines?.cost_centavos ?? l.parts?.cost_centavos ?? null,
       }));
 
@@ -268,6 +290,51 @@ export async function getReviewedDetail(
         value_centavos: l.value_centavos,
         serial_number: l.engines?.serial_number ?? null,
         movements: mapMovements(mv ?? [], shopName),
+      },
+    };
+  }
+
+  // ───────────────────────────── EXPENSE ─────────────────────────────
+  if (parsed.data.itemType === "expense") {
+    const { data, error } = await supabase
+      .from("expenses")
+      .select(
+        `id, amount, expense_date, status, description, paid_to, payment_method,
+         reference_no, receipt_image_path, review_note, created_at, approved_at,
+         shops(name),
+         expense_categories(name, status),
+         recorded:profiles!expenses_recorded_by_fkey(full_name),
+         approver:profiles!expenses_approved_by_fkey(full_name),
+         submission_batches(submitted_at)`
+      )
+      .eq("id", parsed.data.id)
+      .is("deleted_at", null)
+      .single();
+    if (error || !data) return { ok: false, error: error?.message ?? "Not found" };
+    const e = data as any;
+
+    return {
+      ok: true,
+      detail: {
+        type: "expense",
+        id: e.id,
+        shop_name: e.shops?.name ?? "?",
+        status: e.status,
+        created_at: e.created_at,
+        expense_date: e.expense_date,
+        approved_at: e.approved_at,
+        recorded_by: e.recorded?.full_name ?? "?",
+        approved_by: e.approver?.full_name ?? null,
+        review_note: e.review_note,
+        batch_submitted_at: e.submission_batches?.submitted_at ?? null,
+        amount_centavos: e.amount,
+        category_name: e.expense_categories?.name ?? "?",
+        category_proposed: e.expense_categories?.status === "proposed",
+        description: e.description,
+        paid_to: e.paid_to,
+        payment_method: e.payment_method,
+        reference_no: e.reference_no,
+        receipt_image_path: e.receipt_image_path,
       },
     };
   }

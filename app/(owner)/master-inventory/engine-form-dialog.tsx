@@ -39,35 +39,13 @@ const pesoField = z
   .string()
   .refine((v) => parsePesosToCentavos(v) !== null, "Enter a valid ₱ amount");
 
-const pctField = z
-  .string()
-  .refine((v) => v.trim() !== "" && !isNaN(Number(v)) && Number(v) >= 0, "Enter a %");
-
-const formSchema = z
-  .object({
-    condition: z.enum(["brand_new", "second_hand"]),
-    cost: pesoField,
-    margin_floor: pctField,
-    margin_mid: pctField,
-    margin_asking: pctField,
-    warranty_months: z.string(), // "" = model default
-  })
-  .refine(
-    (v) => Number(v.margin_floor) <= Number(v.margin_mid),
-    { message: "Floor % can't exceed mid %", path: ["margin_mid"] }
-  )
-  .refine(
-    (v) => Number(v.margin_mid) <= Number(v.margin_asking),
-    { message: "Mid % can't exceed asking %", path: ["margin_asking"] }
-  );
+const formSchema = z.object({
+  condition: z.enum(["brand_new", "second_hand"]),
+  price: pesoField,
+  warranty_months: z.string(), // "" = model default
+});
 
 type FormValues = z.infer<typeof formSchema>;
-
-/** Implied margin % from an engine's stored price vs cost (legacy fallback). */
-function impliedPct(priceCentavos: number, costCentavos: number): string {
-  if (!costCentavos) return "";
-  return (((priceCentavos / costCentavos) - 1) * 100).toFixed(0);
-}
 
 /**
  * EDIT-only since 0049 — engines are born on a supplier receiving; there is
@@ -99,10 +77,7 @@ export function EngineFormDialog({
     resolver: zodResolver(formSchema),
     defaultValues: {
       condition: "brand_new",
-      cost: "0",
-      margin_floor: "",
-      margin_mid: "",
-      margin_asking: "",
+      price: "0",
       warranty_months: "",
     },
   });
@@ -110,13 +85,9 @@ export function EngineFormDialog({
   React.useEffect(() => {
     if (open && engine) {
       setImageAction({ type: "keep" });
-      const implied = impliedPct(engine.price_centavos, engine.cost_centavos);
       reset({
         condition: engine.condition,
-        cost: (engine.cost_centavos / 100).toFixed(2),
-        margin_floor: engine.margin_floor_pct?.toString() ?? implied,
-        margin_mid: engine.margin_mid_pct?.toString() ?? implied,
-        margin_asking: engine.margin_asking_pct?.toString() ?? implied,
+        price: (engine.price_centavos / 100).toFixed(2),
         warranty_months: engine.warranty_months?.toString() ?? "",
       });
     }
@@ -124,16 +95,10 @@ export function EngineFormDialog({
 
   const conditionValue = watch("condition");
 
-  // Live computed tier prices as the owner types (owner-only preview).
-  const costC = parsePesosToCentavos(watch("cost")) ?? 0;
-  const tier = (raw: string): number | null => {
-    const n = Number(raw);
-    if (raw.trim() === "" || isNaN(n) || costC === 0) return null;
-    return Math.round(costC * (1 + n / 100));
-  };
-  const priceFloor = tier(watch("margin_floor"));
-  const priceMid = tier(watch("margin_mid"));
-  const priceAsking = tier(watch("margin_asking"));
+  // Selling price must clear cost — the new single-price floor (0053).
+  const costC = engine?.cost_centavos ?? 0;
+  const priceC = parsePesosToCentavos(watch("price"));
+  const belowCost = priceC !== null && priceC <= costC;
 
   async function applyImage(engineId: string) {
     if (imageAction.type === "keep") return;
@@ -174,20 +139,18 @@ export function EngineFormDialog({
       toast.error("Warranty months must be a number");
       return;
     }
-    const cost_centavos = parsePesosToCentavos(values.cost)!;
-    const margins = {
-      margin_floor_pct: Number(values.margin_floor),
-      margin_mid_pct: Number(values.margin_mid),
-      margin_asking_pct: Number(values.margin_asking),
-    };
-
     if (!engine) return; // edit-only since 0049 — never opened without one
+    const price_centavos = parsePesosToCentavos(values.price)!;
+    if (price_centavos <= engine.cost_centavos) {
+      toast.error(`Selling price must be above cost ${formatCentavos(engine.cost_centavos)}`);
+      return;
+    }
     const res = await updateEngine({
       id: engine.id,
       condition: values.condition,
-      cost_centavos,
+      cost_centavos: engine.cost_centavos,
       warranty_months: warranty,
-      ...margins,
+      price_centavos,
     });
     if (res.ok) {
       await applyImage(engine.id);
@@ -249,11 +212,8 @@ export function EngineFormDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="engine-cost">Cost ₱ (owner-only)</Label>
-              <Input id="engine-cost" inputMode="decimal" {...register("cost")} />
-              {errors.cost && (
-                <p className="text-sm text-destructive">{errors.cost.message}</p>
-              )}
+              <Label>Cost ₱ (owner-only)</Label>
+              <Input value={formatCentavos(costC)} disabled aria-label="Cost (set at receiving)" />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="engine-warranty">Warranty (months)</Label>
@@ -266,79 +226,16 @@ export function EngineFormDialog({
             </div>
           </div>
 
-          {/* Tiered pricing — owner sets three margins; prices auto-compute */}
-          <div className="grid gap-3 rounded-md border bg-muted/30 p-3">
-            <div>
-              <Label className="text-sm">Negotiable pricing — margins over cost</Label>
-              <p className="text-xs text-muted-foreground">
-                Floor is the hard minimum a shop can sell at. Employees see the
-                three prices, never the cost or margins.
-              </p>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="m-floor" className="text-xs">
-                  Floor %
-                </Label>
-                <Input
-                  id="m-floor"
-                  inputMode="decimal"
-                  placeholder="e.g. 30"
-                  {...register("margin_floor")}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="m-mid" className="text-xs">
-                  Mid %
-                </Label>
-                <Input
-                  id="m-mid"
-                  inputMode="decimal"
-                  placeholder="e.g. 40"
-                  {...register("margin_mid")}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="m-asking" className="text-xs">
-                  Asking %
-                </Label>
-                <Input
-                  id="m-asking"
-                  inputMode="decimal"
-                  placeholder="e.g. 50"
-                  {...register("margin_asking")}
-                />
-              </div>
-            </div>
-            {(errors.margin_floor || errors.margin_mid || errors.margin_asking) && (
+          <div className="grid gap-2">
+            <Label htmlFor="engine-price">Selling price ₱</Label>
+            <Input id="engine-price" inputMode="decimal" {...register("price")} />
+            {errors.price ? (
+              <p className="text-sm text-destructive">{errors.price.message}</p>
+            ) : belowCost ? (
               <p className="text-sm text-destructive">
-                {errors.margin_asking?.message ??
-                  errors.margin_mid?.message ??
-                  errors.margin_floor?.message}
+                Selling price must be above cost {formatCentavos(costC)}
               </p>
-            )}
-            {/* Live computed prices */}
-            <div className="grid grid-cols-3 gap-2 text-center">
-              {[
-                { label: "Floor", value: priceFloor, tone: "text-destructive" },
-                { label: "Mid", value: priceMid, tone: "text-foreground" },
-                { label: "Asking", value: priceAsking, tone: "text-success" },
-              ].map((t) => (
-                <div key={t.label} className="rounded-md bg-background p-2">
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {t.label}
-                  </div>
-                  <div className={`text-sm font-semibold tabular-nums ${t.tone}`}>
-                    {t.value != null ? formatCentavos(t.value) : "—"}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {costC === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Enter a cost above to preview computed prices.
-              </p>
-            )}
+            ) : null}
           </div>
 
           <DialogFooter>
@@ -349,7 +246,7 @@ export function EngineFormDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || belowCost}>
               {isSubmitting && <Loader2 className="size-4 animate-spin" />}
               {engine ? "Save changes" : "Add engine"}
             </Button>

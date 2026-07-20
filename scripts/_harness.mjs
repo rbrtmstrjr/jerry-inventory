@@ -132,11 +132,15 @@ export async function firstCategoryId() {
 /** A part in the master catalog. cost/price in centavos.
  *  Seeded via the SERVICE ROLE: 0049 revoked catalog INSERT from app roles
  *  (creation is fn_receive_stock's job) — fixtures aren't receivings. */
-export async function seedPart({ label = "Widget", cost = 1000, price = 2500, reorder_level = 0 } = {}) {
+export async function seedPart({
+  label = "Widget", cost = 1000, price = 2500, reorder_level = 0,
+  sku = null, barcode = null, name = null,
+} = {}) {
   const { data, error } = await admin.from("parts").insert({
-    name: `ZZ-TEST ${label} ${RUN}`,
+    name: name ?? `ZZ-TEST ${label} ${RUN}`,
     category_id: await firstCategoryId(),
     cost_centavos: cost, price_centavos: price, reorder_level,
+    sku, barcode,
   }).select().single();
   if (error) throw new Error(`seedPart: ${error.message}`);
   parts.push(data.id);
@@ -311,6 +315,13 @@ export async function cleanup() {
   await inShops("count_snapshots");
 
   await inShops("losses");
+  // expenses FK submission_batches (batch_id, 0051) AND deliveries — sweep
+  // them BEFORE both. By category too: a company-scoped expense has
+  // shop_id IS NULL, so the shop sweep alone would strand it.
+  await inShops("expenses");
+  if (expenseCategories.length) {
+    await del("expenses").in("category_id", expenseCategories);
+  }
   await inShops("submission_batches");
 
   // deliveries / returns / requests
@@ -321,12 +332,6 @@ export async function cleanup() {
   if (delIds.length) {
     await del("delivery_discrepancies").in("delivery_id", delIds);
     await del("delivery_lines").in("delivery_id", delIds);
-  }
-  // expenses FK deliveries. Sweep by category too: a company-scoped expense has
-  // shop_id IS NULL, so the shop sweep alone would strand it (and its delivery).
-  await inShops("expenses");
-  if (expenseCategories.length) {
-    await del("expenses").in("category_id", expenseCategories);
   }
   await inShops("deliveries");
 
@@ -379,6 +384,11 @@ export async function cleanup() {
   if (engines.length) await del("engines").in("id", engines);
   await inShops("engines");
   if (models.length) await del("engines").in("engine_model_id", models);
+  // part_merges (0052) FK both source and target parts — clear before parts
+  if (parts.length) {
+    await del("part_merges").in("source_part_id", parts);
+    await del("part_merges").in("target_part_id", parts);
+  }
   if (parts.length) await del("parts").in("id", parts);
   if (models.length) await del("engine_models").in("id", models);
   if (suppliers.length) await del("suppliers").in("id", suppliers);
@@ -390,6 +400,9 @@ export async function cleanup() {
   await del("customers").like("name", `%${RUN}%`);
   // after the expenses that reference them
   if (expenseCategories.length) await del("expense_categories").in("id", expenseCategories);
+  // category proposals created inside fn_record_shop_expense reference the
+  // shop (proposed_by_shop_id) and would FK-block the shop delete below
+  await inShops("expense_categories", "proposed_by_shop_id");
   if (receiptPaths.length) await admin.storage.from("receipts").remove(receiptPaths);
 
   // logins + shops last

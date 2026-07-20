@@ -11,6 +11,7 @@ import {
   Loader2,
   MapPin,
   MoreHorizontal,
+  Package,
   Pencil,
   Plus,
   Store,
@@ -59,6 +60,8 @@ import {
   MapPreview,
   type LatLng,
 } from "@/components/location-picker";
+import { ShopBadge } from "@/components/shop-badge";
+import { SHOP_COLOR_KEYS, shopColorVars } from "@/lib/shop-colors";
 import {
   closeShop,
   createEmployee,
@@ -74,6 +77,7 @@ export interface ShopRow {
   latitude: number | null;
   longitude: number | null;
   active: boolean;
+  color_key: string | null;
   part_units: number;
   engine_count: number;
   pending_count: number;
@@ -113,6 +117,7 @@ export function ShopsView({
   const [shopLocation, setShopLocation] = React.useState("");
   const [shopPin, setShopPin] = React.useState<LatLng | null>(null);
   const [shopActive, setShopActive] = React.useState(true);
+  const [shopColor, setShopColor] = React.useState<string | null>(null);
 
   // employee dialogs
   const [empDialog, setEmpDialog] = React.useState(false);
@@ -138,6 +143,7 @@ export function ShopsView({
         : null
     );
     setShopActive(shop?.active ?? true);
+    setShopColor(shop?.color_key ?? null);
     setShopDialog(true);
   }
 
@@ -160,6 +166,7 @@ export function ShopsView({
       latitude: shopPin?.lat ?? null,
       longitude: shopPin?.lng ?? null,
       active: shopActive,
+      color_key: shopColor,
     });
     setBusy(false);
     if (res.ok) {
@@ -213,7 +220,14 @@ export function ShopsView({
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex size-9 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
+                  {/* identity tile in the shop's palette color (token-resolved) */}
+                  <div
+                    className="flex size-9 items-center justify-center rounded-md"
+                    style={{
+                      backgroundColor: shopColorVars(shop.color_key).soft,
+                      color: shopColorVars(shop.color_key).strong,
+                    }}
+                  >
                     <Store className="size-4" />
                   </div>
                   <div>
@@ -244,9 +258,9 @@ export function ShopsView({
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="outline" size="sm" asChild>
+                  <Button size="sm" asChild>
                     <Link href={`/shops/${shop.id}/stock`}>
-                      <Boxes className="size-4" /> View stock
+                      <Package className="size-4" /> View stock
                     </Link>
                   </Button>
                   <DropdownMenu>
@@ -323,6 +337,9 @@ export function ShopsView({
                   lng={shop.longitude}
                   label={shop.name}
                   className="h-44 w-full"
+                  pinColor={
+                    shop.color_key ? shopColorVars(shop.color_key).strong : undefined
+                  }
                 />
               )}
 
@@ -426,6 +443,46 @@ export function ShopsView({
                   onChange={(e) => setShopLocation(e.target.value)}
                   placeholder="e.g. Poblacion"
                 />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>Shop color</Label>
+              <p className="text-xs text-muted-foreground">
+                Marks this branch everywhere it appears — lists, charts, its map
+                pin. One color per shop; the name is always shown with it.
+              </p>
+              {/* one compact row of circles; the preview below carries the name */}
+              <div className="flex flex-wrap items-center gap-2">
+                {SHOP_COLOR_KEYS.map((key) => {
+                  const takenByOther = shops.find(
+                    (s) => s.color_key === key && s.id !== editingShop?.id
+                  );
+                  const selected = shopColor === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={!!takenByOther}
+                      onClick={() => setShopColor(selected ? null : key)}
+                      title={takenByOther ? `Used by ${takenByOther.name}` : key}
+                      aria-pressed={selected}
+                      aria-label={`Color ${key}${takenByOther ? ` — used by ${takenByOther.name}` : ""}`}
+                      className={`size-7 rounded-full transition-shadow ${
+                        selected
+                          ? "ring-2 ring-ring ring-offset-2 ring-offset-background"
+                          : "hover:ring-2 hover:ring-ring/40 hover:ring-offset-1 hover:ring-offset-background"
+                      } ${takenByOther ? "cursor-not-allowed opacity-25" : ""}`}
+                      style={{ backgroundColor: shopColorVars(key).strong }}
+                    />
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                Preview:
+                <ShopBadge
+                  shop={{ name: shopName.trim() || "Shop name", color_key: shopColor }}
+                />
+                {shopColor === null && "(neutral — tap a circle to pick, tap again to clear; greyed = taken)"}
               </div>
             </div>
             <div className="grid gap-2">

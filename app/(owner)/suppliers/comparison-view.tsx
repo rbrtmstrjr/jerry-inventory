@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronRight, Plus, TriangleAlert } from "lucide-react";
-import Link from "next/link";
+import { Plus, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
@@ -19,6 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { DatePicker } from "@/components/date-picker";
+import { MergeDuplicatesDialog, type MergePart } from "../master-inventory/merge-dialog";
 import { recordSupplierQuote, setPreferredSupplier } from "./actions";
 import type { ComparisonRow } from "./types";
 
@@ -51,22 +51,31 @@ interface ProductGroup {
   name: string;
   sku: string | null;
   category: string | null;
+  /** Suppliers sorted cheapest-first. */
   rows: ComparisonRow[];
   cheapest: ComparisonRow;
+  /** Second-cheapest supplier's effective price − cheapest; the switch is worth this. */
+  cheapestSaving: number;
+  secondName: string | null;
   preferredName: string | null;
   preferredEffective: number | null;
   /** preferred − cheapest; > 0 means the preferred supplier is dearer. */
   preferredDelta: number | null;
   hasQuotes: boolean;
   hasStale: boolean;
+  /** Distinct suppliers for this product (0052 folds merged duplicates first). */
+  supplierCount: number;
 }
+
+/** Normalise for duplicate detection: trim + case-fold. */
+const norm = (s: string | null) => (s ?? "").trim().toLowerCase();
 
 export function ComparisonView({
   rows, suppliers, parts, engineModels, categories, today,
 }: {
   rows: ComparisonRow[];
   suppliers: { id: string; name: string }[];
-  parts: { id: string; name: string; sku: string | null }[];
+  parts: MergePart[];
   engineModels: { id: string; name: string }[];
   categories: string[];
   today: string;
@@ -77,13 +86,16 @@ export function ComparisonView({
   const [onlyDearPreferred, setOnlyDearPreferred] = React.useState(false);
   const [onlyQuoted, setOnlyQuoted] = React.useState(false);
   const [onlyStale, setOnlyStale] = React.useState(false);
-  const [open, setOpen] = React.useState<Set<string>>(new Set());
+  const [showAll, setShowAll] = React.useState(false);
   const [dialog, setDialog] = React.useState<{
     kind: "part" | "engine_model";
     productId: string;
     productName: string;
     supplierId?: string;
   } | null>(null);
+  const [mergeOpen, setMergeOpen] = React.useState(false);
+  const [mergePrefill, setMergePrefill] =
+    React.useState<{ targetId: string; sourceIds: string[] } | null>(null);
 
   const groups = React.useMemo(() => {
     const byProduct = new Map<string, ComparisonRow[]>();
@@ -94,7 +106,9 @@ export function ComparisonView({
     const out: ProductGroup[] = [];
     for (const [key, rs] of byProduct) {
       const first = rs[0];
-      const cheapest = rs.find((r) => r.is_cheapest) ?? rs[0];
+      const sorted = [...rs].sort((a, b) => a.effective_centavos - b.effective_centavos);
+      const cheapest = rs.find((r) => r.is_cheapest) ?? sorted[0];
+      const second = sorted.find((r) => r.supplier_id !== cheapest.supplier_id) ?? null;
       const preferredRow = rs.find((r) => r.is_preferred) ?? null;
       const preferredEffective = first.preferred_effective_centavos;
       out.push({
@@ -105,20 +119,23 @@ export function ComparisonView({
         name: first.product_name,
         sku: first.sku,
         category: first.category_name,
-        rows: [...rs].sort((a, b) => a.effective_centavos - b.effective_centavos),
+        rows: sorted,
         cheapest,
+        cheapestSaving: second ? second.effective_centavos - cheapest.effective_centavos : 0,
+        secondName: second?.supplier_name ?? null,
         preferredName: preferredRow?.supplier_name ?? null,
         preferredEffective,
         preferredDelta:
           preferredEffective !== null ? preferredEffective - cheapest.effective_centavos : null,
         hasQuotes: rs.some((r) => r.quote_id !== null),
         hasStale: rs.some((r) => r.quote_stale),
+        supplierCount: first.supplier_count,
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
   }, [rows]);
 
-  const filtered = groups.filter((g) => {
+  const matched = groups.filter((g) => {
     if (q && !`${g.name} ${g.sku ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
     if (category !== "all" && g.category !== category) return false;
     if (kind !== "all" && g.kind !== kind) return false;
@@ -127,14 +144,60 @@ export function ComparisonView({
     if (onlyStale && !g.hasStale) return false;
     return true;
   });
+  // Comparable-only by default: a single paid supplier + a quote from a
+  // different one is 2, which is exactly the point.
+  const filtered = matched.filter((g) => showAll || g.supplierCount >= 2);
 
-  const toggle = (key: string) =>
-    setOpen((s) => {
-      const n = new Set(s);
-      if (n.has(key)) n.delete(key);
-      else n.add(key);
-      return n;
-    });
+  // Duplicate nudge: among VISIBLE distinct parts, cluster those sharing a
+  // normalised SKU OR an exact (case-insensitive) name via union-find. Engines
+  // can't be merged, so parts only. Maps each part_id → its cluster (size ≥ 2).
+  const dupClusters = React.useMemo(() => {
+    const partGroups = filtered.filter((g) => g.kind === "part" && g.part_id);
+    const parent: Record<string, string> = {};
+    for (const g of partGroups) parent[g.part_id!] = g.part_id!;
+    const find = (x: string): string => {
+      let r = x;
+      while (parent[r] !== r) r = parent[r];
+      while (parent[x] !== r) { const n = parent[x]; parent[x] = r; x = n; }
+      return r;
+    };
+    const union = (a: string, b: string) => { parent[find(a)] = find(b); };
+    const link = (buckets: Map<string, string[]>) => {
+      for (const ids of buckets.values())
+        for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
+    };
+    const bySku = new Map<string, string[]>();
+    const byName = new Map<string, string[]>();
+    for (const g of partGroups) {
+      const sku = norm(g.sku);
+      if (sku) bySku.set(sku, [...(bySku.get(sku) ?? []), g.part_id!]);
+      const name = norm(g.name);
+      byName.set(name, [...(byName.get(name) ?? []), g.part_id!]);
+    }
+    link(bySku);
+    link(byName);
+    const comps = new Map<string, string[]>();
+    for (const g of partGroups) {
+      const root = find(g.part_id!);
+      comps.set(root, [...(comps.get(root) ?? []), g.part_id!]);
+    }
+    const map = new Map<string, string[]>();
+    for (const ids of comps.values())
+      if (ids.length >= 2) for (const id of ids) map.set(id, ids);
+    return map;
+  }, [filtered]);
+
+  const openMerge = (cluster: string[]) => {
+    setMergePrefill({ targetId: cluster[0], sourceIds: cluster.slice(1) });
+    setMergeOpen(true);
+  };
+
+  const emptyMsg =
+    rows.length === 0
+      ? "No price data yet — it builds itself from receivings; add quotes for the rest."
+      : !showAll && matched.length > 0
+        ? "No products with 2+ suppliers yet — record a quote or receive from another supplier, or Show all."
+        : "Nothing matches these filters.";
 
   return (
     <div className="flex flex-col gap-4">
@@ -180,12 +243,14 @@ export function ComparisonView({
             <Checkbox checked={onlyStale} onCheckedChange={(v) => setOnlyStale(!!v)} />
             Stale only
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={showAll} onCheckedChange={(v) => setShowAll(!!v)} />
+            Show all (incl. single-supplier)
+          </label>
           <div className="ml-auto">
             <Button
               size="sm"
-              onClick={() =>
-                setDialog({ kind: "part", productId: "", productName: "" })
-              }
+              onClick={() => setDialog({ kind: "part", productId: "", productName: "" })}
             >
               <Plus className="size-4" /> Record quote
             </Button>
@@ -193,207 +258,153 @@ export function ComparisonView({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                  <th className="w-8 py-2" />
-                  <th className="py-2 font-medium">Product</th>
-                  <th className="py-2 font-medium">Best price</th>
-                  <th className="py-2 font-medium">Preferred supplier</th>
-                  <th className="py-2 text-right font-medium">Suppliers</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-10 text-center text-muted-foreground">
-                      {rows.length === 0
-                        ? "No price data yet — it builds itself from receivings; add quotes for the rest."
-                        : "Nothing matches these filters."}
-                    </td>
-                  </tr>
-                )}
-                {filtered.map((g) => (
-                  <React.Fragment key={g.key}>
-                    <tr
-                      className="cursor-pointer border-b hover:bg-muted/40"
-                      onClick={() => toggle(g.key)}
-                    >
-                      <td className="py-2.5 text-muted-foreground">
-                        {open.has(g.key)
-                          ? <ChevronDown className="size-4" />
-                          : <ChevronRight className="size-4" />}
-                      </td>
-                      <td className="py-2.5">
-                        {g.name}
+      {filtered.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            {emptyMsg}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {filtered.map((g) => {
+            const cluster = g.part_id ? dupClusters.get(g.part_id) : undefined;
+            return (
+              <Card key={g.key}>
+                <CardContent className="flex flex-col gap-3 pt-6">
+                  {/* header */}
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="font-medium">{g.name}</span>
                         {g.kind === "engine_model" && (
-                          <span className="ml-1 text-xs text-muted-foreground">(engine)</span>
+                          <span className="text-xs text-muted-foreground">(engine)</span>
                         )}
                         {g.sku && (
-                          <span className="ml-2 font-mono text-xs text-muted-foreground">{g.sku}</span>
+                          <span className="font-mono text-xs text-muted-foreground">{g.sku}</span>
                         )}
                         {g.category && (
-                          <span className="ml-2 text-xs text-muted-foreground">{g.category}</span>
+                          <span className="text-xs text-muted-foreground">{g.category}</span>
                         )}
-                      </td>
-                      <td className="py-2.5">
-                        <span className="font-medium tabular-nums">
-                          {formatCentavos(g.cheapest.effective_centavos)}
-                        </span>
-                        <span className="ml-1.5 text-xs text-muted-foreground">
-                          {g.cheapest.supplier_name} · {provenance(g.cheapest)}
-                        </span>
-                      </td>
-                      <td className="py-2.5">
-                        {g.preferredName === null ? (
-                          <span className="text-xs text-muted-foreground">
-                            {g.rows[0].preferred_supplier_id ? "no price yet" : "none set"}
-                          </span>
-                        ) : (
-                          <>
-                            {g.preferredName}
-                            {g.preferredEffective !== null && (
-                              <span className="ml-1.5 text-xs tabular-nums text-muted-foreground">
-                                {formatCentavos(g.preferredEffective)}
-                              </span>
-                            )}
-                            {/* The insight this tab exists for. */}
-                            {g.preferredDelta !== null && g.preferredDelta > 0 && (
-                              <Badge variant="destructive" className="ml-2 gap-1">
-                                <TriangleAlert className="size-3" />
-                                Preferred is {formatCentavos(g.preferredDelta)} more
-                              </Badge>
-                            )}
-                          </>
+                        {cluster && (
+                          <button
+                            type="button"
+                            onClick={() => openMerge(cluster)}
+                            className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-500"
+                          >
+                            <TriangleAlert className="size-3" /> Possible duplicate — Merge
+                          </button>
                         )}
-                      </td>
-                      <td className="py-2.5 text-right tabular-nums">{g.rows.length}</td>
-                    </tr>
+                      </div>
+                      {g.cheapestSaving > 0 && g.secondName && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Cheapest saves {formatCentavos(g.cheapestSaving)} vs {g.secondName}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {/* The insight this tab exists for. */}
+                      {g.preferredDelta !== null && g.preferredDelta > 0 && (
+                        <Badge variant="destructive" className="gap-1">
+                          <TriangleAlert className="size-3" />
+                          Preferred is {formatCentavos(g.preferredDelta)} more
+                        </Badge>
+                      )}
+                      <Button
+                        variant="outline" size="sm"
+                        onClick={() =>
+                          setDialog({ kind: g.kind, productId: g.key, productName: g.name })
+                        }
+                      >
+                        <Plus className="size-3.5" /> Quote
+                      </Button>
+                    </div>
+                  </div>
 
-                    {open.has(g.key) && (
-                      <tr className="border-b bg-muted/20">
-                        <td />
-                        <td colSpan={4} className="py-3 pr-2">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="text-left text-xs uppercase text-muted-foreground">
-                                <th className="py-1 font-medium">Supplier</th>
-                                <th className="py-1 font-medium">Last paid</th>
-                                <th className="py-1 font-medium">Latest quote</th>
-                                <th className="py-1 font-medium">Compare price</th>
-                                <th className="py-1" />
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {g.rows.map((r) => (
-                                <tr key={r.supplier_id} className="border-t border-border/50">
-                                  <td className="py-2">
-                                    {r.supplier_name}
-                                    {r.is_preferred && (
-                                      <Badge variant="secondary" className="ml-2">Preferred</Badge>
-                                    )}
-                                    {r.is_cheapest && (
-                                      <Badge className="ml-2">Cheapest</Badge>
-                                    )}
-                                  </td>
-                                  <td className="py-2 text-xs">
-                                    {r.last_paid_centavos !== null ? (
-                                      <Link
-                                        href="/master-inventory/receiving"
-                                        className="underline-offset-4 hover:underline"
-                                      >
-                                        Paid {formatCentavos(r.last_paid_centavos)} ·{" "}
-                                        {phShort(r.last_paid_at!)}
-                                      </Link>
-                                    ) : (
-                                      <span className="text-muted-foreground">never bought</span>
-                                    )}
-                                  </td>
-                                  <td className="py-2 text-xs">
-                                    {r.quote_id !== null ? (
-                                      <>
-                                        Quoted {formatCentavos(r.quote_centavos!)} ·{" "}
-                                        {phShort(r.quoted_at!)}
-                                        {r.valid_until && ` (until ${phShort(r.valid_until)})`}
-                                        {r.quote_stale && (
-                                          <Badge variant="outline" className="ml-1.5">stale</Badge>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <span className="text-muted-foreground">no quote</span>
-                                    )}
-                                  </td>
-                                  <td className="py-2 text-xs font-medium">{provenance(r)}</td>
-                                  <td className="py-2 text-right whitespace-nowrap">
-                                    {!r.is_preferred && (
-                                      <Button
-                                        variant="ghost" size="sm"
-                                        onClick={async () => {
-                                          const res = await setPreferredSupplier({
-                                            kind: g.kind,
-                                            product_id: g.key,
-                                            supplier_id: r.supplier_id,
-                                          });
-                                          if (res.ok) toast.success(`${r.supplier_name} is now preferred for ${g.name}`);
-                                          else toast.error(res.error);
-                                        }}
-                                      >
-                                        Make preferred
-                                      </Button>
-                                    )}
-                                    <Button
-                                      variant="ghost" size="sm"
-                                      onClick={() =>
-                                        setDialog({
-                                          kind: g.kind,
-                                          productId: g.key,
-                                          productName: g.name,
-                                          supplierId: r.supplier_id,
-                                        })
-                                      }
-                                    >
-                                      <Plus className="size-3.5" /> Quote
-                                    </Button>
-                                  </td>
-                                </tr>
-                              ))}
-                              <tr className="border-t border-border/50">
-                                <td colSpan={5} className="py-2">
-                                  <Button
-                                    variant="outline" size="sm"
-                                    onClick={() =>
-                                      setDialog({
-                                        kind: g.kind,
-                                        productId: g.key,
-                                        productName: g.name,
-                                      })
-                                    }
-                                  >
-                                    <Plus className="size-3.5" /> Quote another supplier
-                                  </Button>
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Paid prices come from receivings automatically. Quotes are claims you
-            record; a quote past its valid-until date or older than the staleness
-            window (Settings → Alerts) is flagged and stops being the compare
-            price — it falls back to what was last actually paid.
-          </p>
-        </CardContent>
-      </Card>
+                  {/* suppliers — always visible, side by side, cheapest first */}
+                  <div className="flex flex-col divide-y">
+                    {g.rows.map((r) => {
+                      const delta = r.effective_centavos - g.cheapest.effective_centavos;
+                      return (
+                        <div
+                          key={r.supplier_id}
+                          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate">{r.supplier_name}</span>
+                              {r.is_cheapest && <Badge>Cheapest</Badge>}
+                              {r.is_preferred && <Badge variant="secondary">Preferred</Badge>}
+                            </div>
+                            {/* provenance — never a bare number */}
+                            <p className="text-xs text-muted-foreground">{provenance(r)}</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <div className="font-medium tabular-nums">
+                                {formatCentavos(r.effective_centavos)}
+                              </div>
+                              {delta > 0 && (
+                                <div className="text-xs tabular-nums text-muted-foreground">
+                                  +{formatCentavos(delta)}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 whitespace-nowrap">
+                              {!r.is_preferred && (
+                                <Button
+                                  variant="ghost" size="sm"
+                                  onClick={async () => {
+                                    const res = await setPreferredSupplier({
+                                      kind: g.kind,
+                                      product_id: g.key,
+                                      supplier_id: r.supplier_id,
+                                    });
+                                    if (res.ok) toast.success(`${r.supplier_name} is now preferred for ${g.name}`);
+                                    else toast.error(res.error);
+                                  }}
+                                >
+                                  Make preferred
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost" size="sm"
+                                onClick={() =>
+                                  setDialog({
+                                    kind: g.kind,
+                                    productId: g.key,
+                                    productName: g.name,
+                                    supplierId: r.supplier_id,
+                                  })
+                                }
+                              >
+                                <Plus className="size-3.5" /> Quote
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        Paid prices come from receivings automatically. Quotes are claims you
+        record; a quote past its valid-until date or older than the staleness
+        window (Settings → Alerts) is flagged and stops being the compare
+        price — it falls back to what was last actually paid.
+      </p>
+
+      <MergeDuplicatesDialog
+        open={mergeOpen}
+        parts={parts}
+        prefill={mergePrefill}
+        onClose={() => setMergeOpen(false)}
+      />
 
       {dialog && (
         <QuoteDialog

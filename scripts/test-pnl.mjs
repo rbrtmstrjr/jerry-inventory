@@ -53,36 +53,36 @@ const part = await seedPart({ label: "PnL Part", cost: PART_COST, price: PART_PR
 const model = await seedEngineModel({ brand: "ZZ-TEST", model: `P${RUN}` });
 
 await receive({ parts: [{ part_id: part.id, qty: 12, unit_cost_centavos: PART_COST }] });
+// 0053: one catalog price per engine (no tiers). Set it explicitly at receive.
+const ENG_A_PRICE = 3_500_000;  // ₱35,000 catalog on a ₱20,000 cost
 await receive({
   engines: [
     {
       serial_number: `ZZ-PNL-A-${RUN}`, engine_model_id: model.id, condition: "brand_new",
-      cost_centavos: ENG_A_COST, price_centavos: 0, warranty_months: 12,
-      margin_floor_pct: 10, margin_mid_pct: 50, margin_asking_pct: 75,
+      cost_centavos: ENG_A_COST, price_centavos: ENG_A_PRICE, warranty_months: 12,
     },
     {
       serial_number: `ZZ-PNL-B-${RUN}`, engine_model_id: model.id, condition: "brand_new",
-      cost_centavos: ENG_B_COST, price_centavos: 0, warranty_months: 12,
-      margin_floor_pct: 10, margin_mid_pct: 18, margin_asking_pct: 25,
+      cost_centavos: ENG_B_COST, price_centavos: ENG_B_ASKING, warranty_months: 12,
     },
   ],
 });
 
 const { data: engs } = await owner
   .from("engines")
-  .select("id, serial_number, price_asking_centavos, price_floor_centavos")
+  .select("id, serial_number, price_centavos, cost_centavos")
   .like("serial_number", `ZZ-PNL-%-${RUN}`);
 const engA = engs.find((e) => e.serial_number.includes("-A-"));
 const engB = engs.find((e) => e.serial_number.includes("-B-"));
 check(
-  `engine A asks ${P(3_500_000)} on a ${P(ENG_A_COST)} cost (the spec's case)`,
-  engA?.price_asking_centavos === 3_500_000,
-  String(engA?.price_asking_centavos)
+  `engine A catalog ${P(ENG_A_PRICE)} on a ${P(ENG_A_COST)} cost`,
+  engA?.price_centavos === ENG_A_PRICE,
+  String(engA?.price_centavos)
 );
 check(
-  `engine B asks ${P(ENG_B_ASKING)}`,
-  engB?.price_asking_centavos === ENG_B_ASKING,
-  String(engB?.price_asking_centavos)
+  `engine B catalog ${P(ENG_B_ASKING)}`,
+  engB?.price_centavos === ENG_B_ASKING,
+  String(engB?.price_centavos)
 );
 
 await deliverAndConfirm(shop, {
@@ -498,14 +498,26 @@ section("No shop-side access");
     (ownSales ?? []).length > 0
   );
 
-  for (const t of ["sale_line_costs", "expenses", "payroll_entries", "stock_movements"]) {
+  for (const t of ["sale_line_costs", "payroll_entries", "stock_movements"]) {
     const { data } = await emp.from(t).select("*").limit(3);
     check(`employee reads nothing from ${t}`, (data ?? []).length === 0, `got ${data?.length}`);
   }
+  {
+    // 0051: an employee reads their OWN shop's expenses (that is the feature);
+    // the P&L-relevant boundary is that company rows stay invisible.
+    const { data } = await emp.from("expenses").select("scope").limit(10);
+    check(
+      "employee sees no company-scoped expenses",
+      (data ?? []).every((e) => e.scope === "shop"),
+      `got ${data?.length}`
+    );
+  }
+  // 0053: shop_stock exposes own-shop cost (read-only) — every OTHER cost
+  // surface stays owner-only (asserted in the loop above + test-rls).
   const shopStock = await emp.from("shop_stock").select("*").limit(1);
   check(
-    "the safe view still strips cost",
-    !shopStock.data?.[0] || !("cost_centavos" in shopStock.data[0])
+    "the safe view exposes own-shop cost (read-only)",
+    !shopStock.data?.[0] || typeof shopStock.data[0].cost_centavos === "number"
   );
 }
 

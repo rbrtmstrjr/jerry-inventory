@@ -4,6 +4,7 @@ import {
   ApprovalsView,
   type PendingSale,
   type PendingLoss,
+  type PendingExpense,
 } from "./approvals-view";
 import { ReviewedHistory, type ReviewedItemRow } from "./reviewed-history";
 
@@ -47,19 +48,20 @@ export default async function ApprovalsPage({
     historyQuery = historyQuery.ilike("search_text", `%${filters.q.trim().toLowerCase()}%`);
   }
 
-  const [salesRes, lossesRes, historyRes, shopListRes] = await Promise.all([
+  const [salesRes, lossesRes, expensesRes, activeCatsRes, historyRes, shopListRes] =
+    await Promise.all([
     supabase
       .from("sales")
       .select(
         `id, shop_id, business_date, status, total_centavos, owner_note, created_at, batch_id,
          payment_type, amount_paid_centavos, balance_due_centavos, receipt_no,
          submission_batches(submitted_at),
-         shops(name),
+         shops(name, color_key),
          profiles!sales_recorded_by_fkey(full_name),
          customers(name, phone),
          sale_lines(description, qty, unit_price_centavos, line_total_centavos, engine_id,
                     agreed_price_centavos, list_reference_centavos, discount_centavos,
-                    engines(price_floor_centavos))`
+                    engines(cost_centavos))`
       )
       .in("status", ["pending", "questioned"])
       .is("deleted_at", null)
@@ -69,14 +71,35 @@ export default async function ApprovalsPage({
       .select(
         `id, shop_id, business_date, status, reason, qty, note, owner_note, description, created_at, batch_id,
          submission_batches(submitted_at),
-         shops(name),
+         shops(name, color_key),
          profiles!losses_recorded_by_fkey(full_name)`
       )
       .in("status", ["pending", "questioned"])
       .is("deleted_at", null)
       .order("created_at", { ascending: true }),
+    supabase
+      .from("expenses")
+      .select(
+        `id, shop_id, expense_date, status, amount, description, paid_to,
+         payment_method, reference_no, receipt_image_path, review_note, created_at, batch_id,
+         submission_batches(submitted_at),
+         shops(name, color_key),
+         profiles!expenses_recorded_by_fkey(full_name),
+         expense_categories(id, name, status)`
+      )
+      .eq("source", "shop")
+      .in("status", ["pending", "questioned"])
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("expense_categories")
+      .select("id, name")
+      .eq("status", "active")
+      .eq("active", true)
+      .is("deleted_at", null)
+      .order("sort_order"),
     historyQuery,
-    supabase.from("shops").select("id, name").is("deleted_at", null).order("name"),
+    supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -85,6 +108,7 @@ export default async function ApprovalsPage({
     batch_id: s.batch_id ?? null,
     batch_submitted_at: s.submission_batches?.submitted_at ?? null,
     shop_name: s.shops?.name ?? "?",
+    shop_color_key: s.shops?.color_key ?? null,
     employee: s.profiles?.full_name ?? "?",
     customer: s.customers?.name ?? null,
     status: s.status,
@@ -104,7 +128,7 @@ export default async function ApprovalsPage({
       agreed_price_centavos: l.agreed_price_centavos ?? null,
       list_reference_centavos: l.list_reference_centavos ?? null,
       discount_centavos: l.discount_centavos ?? null,
-      floor_centavos: l.engines?.price_floor_centavos ?? null,
+      floor_centavos: l.engines?.cost_centavos ?? null, // floor = cost since 0053
     })),
   }));
 
@@ -113,6 +137,7 @@ export default async function ApprovalsPage({
     batch_id: l.batch_id ?? null,
     batch_submitted_at: l.submission_batches?.submitted_at ?? null,
     shop_name: l.shops?.name ?? "?",
+    shop_color_key: l.shops?.color_key ?? null,
     employee: l.profiles?.full_name ?? "?",
     status: l.status,
     reason: l.reason,
@@ -123,11 +148,38 @@ export default async function ApprovalsPage({
     created_at: l.created_at,
   }));
 
+  const expenses: PendingExpense[] = (expensesRes.data ?? []).map((e: any) => ({
+    id: e.id,
+    batch_id: e.batch_id ?? null,
+    batch_submitted_at: e.submission_batches?.submitted_at ?? null,
+    shop_name: e.shops?.name ?? "?",
+    shop_color_key: e.shops?.color_key ?? null,
+    employee: e.profiles?.full_name ?? "?",
+    status: e.status,
+    amount_centavos: e.amount,
+    expense_date: e.expense_date,
+    description: e.description,
+    paid_to: e.paid_to,
+    payment_method: e.payment_method,
+    reference_no: e.reference_no,
+    receipt_image_path: e.receipt_image_path,
+    review_note: e.review_note,
+    created_at: e.created_at,
+    category_id: e.expense_categories?.id ?? "",
+    category_name: e.expense_categories?.name ?? "?",
+    category_proposed: e.expense_categories?.status === "proposed",
+  }));
+
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return (
     <div className="flex flex-col gap-10">
-      <ApprovalsView sales={sales} losses={losses} />
+      <ApprovalsView
+        sales={sales}
+        losses={losses}
+        expenses={expenses}
+        activeCategories={activeCatsRes.data ?? []}
+      />
       <ReviewedHistory
         rows={(historyRes.data ?? []) as ReviewedItemRow[]}
         total={historyRes.count ?? 0}

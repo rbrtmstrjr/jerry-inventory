@@ -11,6 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { DatePicker } from "@/components/date-picker";
+import { ShopBadge } from "@/components/shop-badge";
 import type { StockCardRow } from "./types";
 
 const phDate = (iso: string) =>
@@ -26,7 +27,7 @@ export function StockCardView({
   partId: string | null;
   shopParam: string | null;
   parts: { id: string; name: string; sku: string | null; unit: string }[];
-  shops: { id: string; name: string; closed: boolean }[];
+  shops: { id: string; name: string; color_key: string | null; closed: boolean }[];
   rows: StockCardRow[];
   liveQty: number | null;
   today: string;
@@ -45,6 +46,10 @@ export function StockCardView({
   }
 
   const part = parts.find((p) => p.id === partId) ?? null;
+  const locShop =
+    shopParam && shopParam !== "master"
+      ? shops.find((s) => s.id === shopParam) ?? null
+      : null;
   const opening = rows.find((r) => r.kind === "opening") ?? null;
   const moves = rows.filter((r) => r.kind === "movement");
   const closing = moves.length ? moves[moves.length - 1].balance : (opening?.balance ?? 0);
@@ -114,9 +119,11 @@ export function StockCardView({
                 )}
               </CardTitle>
               <CardDescription>
-                {shopParam && shopParam !== "master"
-                  ? shops.find((s) => s.id === shopParam)?.name
-                  : "Master"}{" "}
+                {shopParam && shopParam !== "master" ? (
+                  locShop && <ShopBadge variant="text" shop={locShop} />
+                ) : (
+                  "Master"
+                )}{" "}
                 · {from} to {to}
               </CardDescription>
             </div>

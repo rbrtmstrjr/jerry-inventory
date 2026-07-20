@@ -22,6 +22,9 @@ const check = (name, ok, detail = "") => {
 const owner = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
   auth: { persistSession: false },
 });
+const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+});
 {
   const { error } = await owner.auth.signInWithPassword({
     email: "robertmaestro09@gmail.com",
@@ -51,15 +54,29 @@ async function guards(shopId) {
   };
 }
 
-console.log("Guard on a shop that still has stock/staff (Branch 1):");
+// Self-provisioned blocked case — never a hardcoded seed UUID (those are gone
+// since the fresh-start wipe, and were real branches before it).
+console.log("Guard on a shop that still has stock:");
 {
-  const SHOP1 = "a0000000-0000-4000-8000-000000000001";
-  const g = await guards(SHOP1);
+  const { data: shopB } = await owner
+    .from("shops")
+    .insert({ name: `CLOSE-TEST Blocked ${RUN}`, active: true })
+    .select()
+    .single();
+  const { data: partB } = await admin
+    .from("parts")
+    .insert({ name: `CLOSE-TEST Part ${RUN}`, cost_centavos: 100, price_centavos: 200 })
+    .select()
+    .single();
+  await admin.from("stock_levels").insert({ part_id: partB.id, shop_id: shopB.id, qty: 3 });
+
+  const g = await guards(shopB.id);
   const blocked = g.units > 0 || g.engines > 0 || g.staff > 0 || g.pending > 0;
-  check(
-    `Branch 1 close would be BLOCKED (units=${g.units}, engines=${g.engines}, staff=${g.staff}, pending=${g.pending})`,
-    blocked
-  );
+  check(`a shop still holding stock would be BLOCKED (units=${g.units})`, blocked);
+
+  await admin.from("stock_levels").delete().eq("part_id", partB.id);
+  await admin.from("parts").delete().eq("id", partB.id);
+  await admin.from("shops").delete().eq("id", shopB.id);
 }
 
 console.log("\nFull lifecycle on a throwaway shop:");

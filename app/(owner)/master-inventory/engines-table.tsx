@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DataTable, SortableHeader } from "@/components/data-table/data-table";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ShopBadge } from "@/components/shop-badge";
 import { ProductCardImage } from "@/components/product-image";
 import { ViewToggle, usePersistedView } from "@/components/view-toggle";
 import { Input } from "@/components/ui/input";
@@ -156,12 +157,15 @@ export function EnginesTable({
       cell: ({ row }) => {
         const s = STATUS_BADGE[row.original.status];
         return (
-          <div>
+          <div className="flex flex-wrap items-center gap-1">
             <Badge variant={s.variant}>{s.label}</Badge>
             {row.original.shop_name && (
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                {row.original.shop_name}
-              </div>
+              <ShopBadge
+                shop={{
+                  name: row.original.shop_name,
+                  color_key: row.original.shop_color_key,
+                }}
+              />
             )}
           </div>
         );
@@ -177,10 +181,15 @@ export function EnginesTable({
     {
       accessorKey: "price_centavos",
       header: ({ column }) => <SortableHeader column={column}>Price</SortableHeader>,
-      cell: ({ getValue }) => (
-        <span className="tabular-nums font-medium">
-          {formatCentavos(getValue<number>())}
-        </span>
+      cell: ({ row }) => (
+        <div className="flex items-center gap-1.5">
+          <span className="tabular-nums font-medium">
+            {formatCentavos(row.original.price_centavos)}
+          </span>
+          {row.original.price_centavos <= row.original.cost_centavos && (
+            <Badge variant="destructive">Below cost</Badge>
+          )}
+        </div>
       ),
     },
     {
@@ -263,9 +272,14 @@ export function EnginesTable({
                       <div className="absolute right-1.5 top-1.5">
                         <RowActions engine={e} onImage />
                       </div>
-                      <Badge variant={s.variant} className="absolute bottom-1.5 left-1.5">
-                        {s.label}
-                      </Badge>
+                      <div className="absolute bottom-1.5 left-1.5 flex flex-wrap items-center gap-1">
+                        <Badge variant={s.variant}>{s.label}</Badge>
+                        {e.shop_name && (
+                          <ShopBadge
+                            shop={{ name: e.shop_name, color_key: e.shop_color_key }}
+                          />
+                        )}
+                      </div>
                     </div>
                     <div className="flex flex-1 flex-col gap-1 p-3">
                       <div className="line-clamp-2 text-sm font-medium">
@@ -276,8 +290,13 @@ export function EnginesTable({
                         SN {e.serial_number}
                       </div>
                       <div className="mt-auto flex items-baseline justify-between pt-1.5">
-                        <span className="text-base font-semibold tabular-nums">
-                          {formatCentavos(e.price_centavos)}
+                        <span className="flex items-baseline gap-1.5">
+                          <span className="text-base font-semibold tabular-nums">
+                            {formatCentavos(e.price_centavos)}
+                          </span>
+                          {e.price_centavos <= e.cost_centavos && (
+                            <Badge variant="destructive">Below cost</Badge>
+                          )}
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {e.condition === "brand_new" ? "Brand new" : "Second hand"}

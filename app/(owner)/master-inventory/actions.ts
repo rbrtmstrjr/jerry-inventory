@@ -47,6 +47,85 @@ export async function upsertPart(input: unknown): Promise<ActionResult> {
   return { ok: true, id: data.id };
 }
 
+/**
+ * Read-only preview of whether a duplicate part can be merged (0052). Mirrors
+ * fn_merge_parts's preconditions so the dialog can grey out blocked sources
+ * before anyone clicks. The RPC re-checks server-side — this is UX, not the gate.
+ */
+export async function checkPartMergeable(
+  sourceId: string
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!z.uuid().safeParse(sourceId).success) return { ok: false, reason: "Invalid part" };
+  const supabase = await createClient();
+
+  const { data: stock } = await supabase
+    .from("stock_levels")
+    .select("qty, shops(name)")
+    .eq("part_id", sourceId)
+    .gt("qty", 0)
+    .order("qty", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (stock) {
+    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+    const loc = (stock as any).shops?.name ?? "master";
+    return { ok: false, reason: `${stock.qty} on hand at ${loc} — sell, return, or count to zero first` };
+  }
+
+  const { data: transit } = await supabase
+    .from("delivery_lines")
+    .select("qty_outstanding")
+    .eq("part_id", sourceId)
+    .gt("qty_outstanding", 0)
+    .limit(1)
+    .maybeSingle();
+  if (transit) return { ok: false, reason: "Still has units in transit — confirm or resolve the delivery first" };
+
+  const { data: openSale } = await supabase
+    .from("sale_lines")
+    .select("id, sales!inner(status, deleted_at)")
+    .eq("part_id", sourceId)
+    .in("sales.status", ["recorded", "pending", "questioned"])
+    .is("sales.deleted_at", null)
+    .limit(1)
+    .maybeSingle();
+  const { data: openLoss } = await supabase
+    .from("losses")
+    .select("id")
+    .eq("part_id", sourceId)
+    .in("status", ["recorded", "pending", "questioned"])
+    .is("deleted_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (openSale || openLoss)
+    return { ok: false, reason: "On an unsubmitted or pending sale/loss — resolve it first" };
+
+  return { ok: true };
+}
+
+/** Fold a duplicate part into a survivor (catalog identity only — 0052). */
+export async function mergeParts(
+  sourceId: string,
+  targetId: string,
+  note?: string | null
+): Promise<ActionResult> {
+  const parsed = z
+    .object({ sourceId: z.uuid(), targetId: z.uuid(), note: z.string().trim().max(500).optional().nullable() })
+    .safeParse({ sourceId, targetId, note });
+  if (!parsed.success) return { ok: false, error: "Invalid input" };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_merge_parts", {
+    p_source_id: parsed.data.sourceId,
+    p_target_id: parsed.data.targetId,
+    p_note: parsed.data.note || null,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/master-inventory");
+  revalidatePath("/suppliers");
+  return { ok: true };
+}
+
 export async function softDeletePart(id: string): Promise<ActionResult> {
   const supabase = await createClient();
 
@@ -112,22 +191,13 @@ export async function generateInternalBarcode(partId: string): Promise<ActionRes
 // ---------------------------------------------------------------------------
 // Engines
 // ---------------------------------------------------------------------------
-const engineEditSchema = z
-  .object({
-    id: z.uuid(),
-    condition: z.enum(["brand_new", "second_hand"]),
-    cost_centavos: z.number().int().min(0),
-    margin_floor_pct: z.number().min(0),
-    margin_mid_pct: z.number().min(0),
-    margin_asking_pct: z.number().min(0),
-    warranty_months: z.number().int().min(0).nullable(),
-  })
-  .refine(
-    (v) =>
-      v.margin_floor_pct <= v.margin_mid_pct &&
-      v.margin_mid_pct <= v.margin_asking_pct,
-    { message: "Margins must be floor ≤ mid ≤ asking", path: ["margin_asking_pct"] }
-  );
+const engineEditSchema = z.object({
+  id: z.uuid(),
+  condition: z.enum(["brand_new", "second_hand"]),
+  cost_centavos: z.number().int().min(0),
+  price_centavos: z.number().int().min(0),
+  warranty_months: z.number().int().min(0).nullable(),
+});
 
 export async function updateEngine(input: unknown): Promise<ActionResult> {
   const parsed = engineEditSchema.safeParse(input);
@@ -136,8 +206,6 @@ export async function updateEngine(input: unknown): Promise<ActionResult> {
   }
   const { id, ...fields } = parsed.data;
   const supabase = await createClient();
-  // The DB trigger recomputes price_centavos + the three tier prices from
-  // cost + margins — we never write those prices directly.
   const { error } = await supabase.from("engines").update(fields).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/master-inventory");

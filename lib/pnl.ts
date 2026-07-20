@@ -245,10 +245,13 @@ export async function computePnl(
       .lte("business_date", to)
       .is("deleted_at", null),
 
+    // status='approved' (0051): shop-recorded expenses only count once the
+    // owner approves — a pending claim must never inflate costs.
     supabase
       .from("expenses")
       .select("shop_id, amount")
       .eq("scope", "shop")
+      .eq("status", "approved")
       .gte("expense_date", from)
       .lte("expense_date", to)
       .is("deleted_at", null),
@@ -257,6 +260,7 @@ export async function computePnl(
       .from("expenses")
       .select("amount")
       .eq("scope", "company")
+      .eq("status", "approved")
       .gte("expense_date", from)
       .lte("expense_date", to)
       .is("deleted_at", null),

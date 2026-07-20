@@ -92,8 +92,9 @@ check("a delivery moves stock, never destroys it (still own 20)",
 section("Employee visibility after delivery:");
 {
   const { data } = await emp1.from("shop_stock").select("*").eq("part_id", part.id);
-  check("shop A employee sees delivered part (qty 8, no cost)",
-    data?.length === 1 && data[0].qty === 8 && !("cost_centavos" in data[0]));
+  // 0053: the shop DOES see its own-shop cost now (read-only tawad floor).
+  check("shop A employee sees delivered part (qty 8, with own-shop cost)",
+    data?.length === 1 && data[0].qty === 8 && typeof data[0].cost_centavos === "number");
   const { data: se } = await emp1.from("shop_engines").select("*").eq("engine_id", engine.id);
   check("shop A employee sees delivered engine", se?.length === 1);
 }

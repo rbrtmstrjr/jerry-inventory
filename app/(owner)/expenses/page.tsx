@@ -18,7 +18,8 @@ export default async function ExpensesPage() {
       .select(
         `id, amount, expense_date, scope, shop_id, delivery_id, description,
          paid_to, payment_method, reference_no, receipt_image_path, category_id,
-         expense_categories(name), shops(name)`
+         status, source, review_note, batch_id,
+         expense_categories(name), shops(name, color_key)`
       )
       .is("deleted_at", null)
       .order("expense_date", { ascending: false })
@@ -28,6 +29,7 @@ export default async function ExpensesPage() {
       .from("expense_categories")
       .select("id, name, sort_order")
       .eq("active", true)
+      .eq("status", "active")
       .is("deleted_at", null)
       .order("sort_order"),
     supabase.from("shops").select("id, name").is("deleted_at", null).order("name"),
@@ -47,6 +49,7 @@ export default async function ExpensesPage() {
     scope: e.scope,
     shop_id: e.shop_id,
     shop_name: e.shops?.name ?? null,
+    shop_color_key: e.shops?.color_key ?? null,
     delivery_id: e.delivery_id,
     description: e.description,
     paid_to: e.paid_to,
@@ -55,6 +58,10 @@ export default async function ExpensesPage() {
     receipt_image_path: e.receipt_image_path,
     category_id: e.category_id,
     category_name: e.expense_categories?.name ?? "?",
+    status: e.status,
+    source: e.source,
+    review_note: e.review_note,
+    batch_id: e.batch_id,
   }));
 
   const deliveries: DeliveryOption[] = (deliveriesRes.data ?? []).map((d: any) => ({

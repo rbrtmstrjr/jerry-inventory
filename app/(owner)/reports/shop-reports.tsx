@@ -23,7 +23,9 @@ import {
 
 import { formatCentavos } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
+import { isShopColorKey, shopColorVars } from "@/lib/shop-colors";
 import { Badge } from "@/components/ui/badge";
+import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -55,7 +57,7 @@ export interface ShopReportData {
   from: string;
   to: string;
   shopFilter: string;
-  shops: { id: string; name: string; closed: boolean }[];
+  shops: { id: string; name: string; color_key: string | null; closed: boolean }[];
   shopNames: string[];
   totals: {
     revenue: number;
@@ -78,6 +80,7 @@ export interface ShopReportData {
   };
   perShop: {
     shop: string;
+    color_key: string | null;
     /** Shut down, but still had activity in this range — its money still counts. */
     closed: boolean;
     revenue: number;
@@ -216,6 +219,12 @@ export function ShopReports({ data }: { data: ShopReportData }) {
 
   const negative = (v: number) => (v < 0 ? "text-destructive" : "");
 
+  // Identity color when set; otherwise the shop keeps its chart-N slot
+  const seriesColor = (row: { shop: string; color_key: string | null }) =>
+    isShopColorKey(row.color_key)
+      ? shopColorVars(row.color_key).strong
+      : SHOP_COLORS[data.shopNames.indexOf(row.shop) % SHOP_COLORS.length];
+
   return (
     <div className="flex flex-col gap-5">
       {/* Filters + export */}
@@ -348,10 +357,7 @@ export function ShopReports({ data }: { data: ShopReportData }) {
                 <Tooltip content={<PesoTooltip />} cursor={{ fill: "var(--muted)" }} />
                 <Bar dataKey="revenue" name="Revenue" radius={[4, 4, 0, 0]} maxBarSize={48}>
                   {data.perShop.map((row) => (
-                    <Cell
-                      key={row.shop}
-                      fill={SHOP_COLORS[data.shopNames.indexOf(row.shop) % SHOP_COLORS.length]}
-                    />
+                    <Cell key={row.shop} fill={seriesColor(row)} />
                   ))}
                 </Bar>
               </BarChart>
@@ -392,7 +398,7 @@ export function ShopReports({ data }: { data: ShopReportData }) {
               {data.perShop.map((r) => (
                 <TableRow key={r.shop}>
                   <TableCell className="font-medium">
-                    {r.shop}
+                    <ShopBadge shop={{ name: r.shop, color_key: r.color_key }} />
                     {r.closed && (
                       <Badge variant="outline" className="ml-1.5 font-normal">
                         Closed
@@ -524,7 +530,7 @@ export function ShopReports({ data }: { data: ShopReportData }) {
               {data.perShop.map((r) => (
                 <TableRow key={r.shop}>
                   <TableCell className="font-medium">
-                    {r.shop}
+                    <ShopBadge shop={{ name: r.shop, color_key: r.color_key }} />
                     {r.pending > 0 && (
                       <span className="ml-1.5 text-xs text-muted-foreground">
                         ({r.pending} pending)

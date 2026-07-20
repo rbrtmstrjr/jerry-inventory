@@ -14,10 +14,11 @@ import {
   Wallet,
 } from "lucide-react";
 
-import type { ReceivableRow } from "@/lib/db-types";
+import type { ReceivableRow, ShopOption } from "@/lib/db-types";
 import { formatCentavos } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import { Badge } from "@/components/ui/badge";
+import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -55,12 +56,16 @@ export function OwnerReceivablesView({
 }: {
   rows: ReceivableRow[];
   history: PaymentHistoryRow[];
-  shops: { id: string; name: string }[];
+  shops: ShopOption[];
 }) {
   const [search, setSearch] = React.useState("");
   const [shopFilter, setShopFilter] = React.useState("all");
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
+  const colorByShopId = React.useMemo(
+    () => new Map(shops.map((s) => [s.id, s.color_key])),
+    [shops]
+  );
 
   const historyBySale = React.useMemo(() => {
     const m = new Map<string, PaymentHistoryRow[]>();
@@ -94,15 +99,23 @@ export function OwnerReceivablesView({
 
   // per-shop and per-customer rollups (open only)
   const byShop = React.useMemo(() => {
-    const m = new Map<string, { name: string; total: number; count: number }>();
+    const m = new Map<
+      string,
+      { name: string; color_key: string | null; total: number; count: number }
+    >();
     for (const r of open) {
-      const e = m.get(r.shop_id) ?? { name: r.shop_name, total: 0, count: 0 };
+      const e = m.get(r.shop_id) ?? {
+        name: r.shop_name,
+        color_key: colorByShopId.get(r.shop_id) ?? null,
+        total: 0,
+        count: 0,
+      };
       e.total += r.balance_centavos;
       e.count += 1;
       m.set(r.shop_id, e);
     }
     return [...m.values()].sort((a, b) => b.total - a.total);
-  }, [open]);
+  }, [open, colorByShopId]);
 
   const byCustomer = React.useMemo(() => {
     const m = new Map<string, { name: string; total: number; count: number }>();
@@ -245,7 +258,7 @@ export function OwnerReceivablesView({
               key={s.name}
               className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
             >
-              <span className="truncate text-muted-foreground">{s.name}</span>
+              <ShopBadge shop={s} variant="text" className="min-w-0 text-muted-foreground" />
               <span className="font-semibold tabular-nums">
                 {formatCentavos(s.total)}
               </span>
@@ -270,6 +283,7 @@ export function OwnerReceivablesView({
             <ReceivableCard
               key={r.sale_id}
               row={r}
+              shopColorKey={colorByShopId.get(r.shop_id) ?? null}
               history={historyBySale.get(r.sale_id) ?? []}
             />
           ))}
@@ -285,6 +299,7 @@ export function OwnerReceivablesView({
             <ReceivableCard
               key={r.sale_id}
               row={r}
+              shopColorKey={colorByShopId.get(r.shop_id) ?? null}
               history={historyBySale.get(r.sale_id) ?? []}
             />
           ))}
@@ -296,9 +311,11 @@ export function OwnerReceivablesView({
 
 function ReceivableCard({
   row,
+  shopColorKey,
   history,
 }: {
   row: ReceivableRow;
+  shopColorKey: string | null;
   history: PaymentHistoryRow[];
 }) {
   const [open, setOpen] = React.useState(false);
@@ -325,7 +342,11 @@ function ReceivableCard({
               )}
             </CardTitle>
             <CardDescription>
-              {row.shop_name}
+              <ShopBadge
+                shop={{ name: row.shop_name, color_key: shopColorKey }}
+                variant="text"
+                className="align-middle"
+              />
               {row.customer_phone && ` · ${row.customer_phone}`} ·{" "}
               {format(new Date(row.created_at), "MMM d, yyyy")}
               {row.receipt_no && ` · ${row.receipt_no}`}

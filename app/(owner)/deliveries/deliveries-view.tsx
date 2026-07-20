@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/data-table/data-table";
+import { ShopBadge } from "@/components/shop-badge";
 import type {
   DeliveryPrefill,
   DiscrepancyRow,
@@ -587,7 +588,18 @@ export function DeliveriesView({
       cell: ({ getValue }) =>
         format(new Date(getValue<string>()), "MMM d, yyyy h:mm a"),
     },
-    { accessorKey: "shop_name", header: "Shop" },
+    {
+      accessorKey: "shop_name",
+      header: "Shop",
+      cell: ({ row }) => (
+        <ShopBadge
+          shop={{
+            name: row.original.shop_name,
+            color_key: row.original.shop_color_key,
+          }}
+        />
+      ),
+    },
     {
       id: "lines",
       header: "Lines",

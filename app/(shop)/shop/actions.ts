@@ -16,11 +16,17 @@ const saleSchema = z
         address: z.string().trim().optional(),
       })
       .nullable(),
+    // every line carries a negotiable per-unit price (centavos); the server
+    // rejects anything priced at or below its cost
     part_lines: z
-      .array(z.object({ part_id: z.uuid(), qty: z.number().int().positive() }))
+      .array(
+        z.object({
+          part_id: z.uuid(),
+          qty: z.number().int().positive(),
+          unit_price_centavos: z.number().int().positive().nullable().optional(),
+        })
+      )
       .default([]),
-    // engines carry a negotiated agreed price (centavos); the server re-checks
-    // it against the hidden hard floor
     engine_lines: z
       .array(
         z.object({
@@ -46,7 +52,6 @@ export async function recordSale(input: unknown): Promise<ActionResult> {
     p_customer_id: parsed.data.customer_id,
     p_customer: parsed.data.customer,
     p_part_lines: parsed.data.part_lines,
-    p_engine_ids: [],
     p_engine_lines: parsed.data.engine_lines,
     p_payment_type: parsed.data.payment_type,
     p_amount_paid_centavos: parsed.data.amount_paid_centavos,
@@ -135,21 +140,77 @@ export async function voidUtangPayment(
   return { ok: true };
 }
 
+const shopExpenseSchema = z
+  .object({
+    amount_centavos: z.number().int().positive("Amount must be positive"),
+    description: z.string().trim().min(1, "A description is required").max(500),
+    category_id: z.uuid().nullable().default(null),
+    proposed_category: z.string().trim().max(120).optional().nullable(),
+    expense_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .default(null),
+    paid_to: z.string().trim().max(200).optional().nullable(),
+    payment_method: z.enum(["cash", "gcash", "bank", "other"]).default("cash"),
+    reference_no: z.string().trim().max(100).optional().nullable(),
+    // uploaded client-side to the shop's own prefix; the RPC re-checks it
+    receipt_path: z
+      .string()
+      .regex(/^shop-[0-9a-f-]{36}\/[0-9a-f-]{36}\.webp$/)
+      .nullable()
+      .default(null),
+  })
+  .refine((v) => (v.category_id !== null) !== !!v.proposed_category?.trim(), {
+    message: "Pick a category or propose a new one",
+  });
+
+/** Record a shop expense — saves as `recorded`; rides the submission batch. */
+export async function recordShopExpense(input: unknown): Promise<ActionResult> {
+  const parsed = shopExpenseSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("fn_record_shop_expense", {
+    p_amount_centavos: parsed.data.amount_centavos,
+    p_description: parsed.data.description,
+    p_category_id: parsed.data.category_id,
+    p_proposed_category: parsed.data.proposed_category?.trim() || null,
+    p_expense_date: parsed.data.expense_date,
+    p_paid_to: parsed.data.paid_to?.trim() || null,
+    p_payment_method: parsed.data.payment_method,
+    p_reference_no: parsed.data.reference_no?.trim() || null,
+    p_receipt_path: parsed.data.receipt_path,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/shop/expenses");
+  revalidatePath("/shop/submissions");
+  return { ok: true, id: data as string };
+}
+
 /**
- * Send everything the shop has recorded (sales + losses) to the owner's
- * approval queue in one batch — at the employee's chosen moment.
+ * Send everything the shop has recorded (sales + losses + expenses) to the
+ * owner's approval queue in one batch — at the employee's chosen moment.
  * Utang payments are NOT part of this: they post on record.
  */
 export async function submitShopBatch(): Promise<
-  { ok: true; sales: number; losses: number } | { ok: false; error: string }
+  | { ok: true; sales: number; losses: number; expenses: number }
+  | { ok: false; error: string }
 > {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("fn_submit_shop_batch");
   if (error) return { ok: false, error: error.message };
   revalidatePath("/shop");
   revalidatePath("/shop/submissions");
-  const counts = data as { sales: number; losses: number };
-  return { ok: true, sales: counts.sales, losses: counts.losses };
+  revalidatePath("/shop/expenses");
+  const counts = data as { sales: number; losses: number; expenses: number };
+  return {
+    ok: true,
+    sales: counts.sales,
+    losses: counts.losses,
+    expenses: counts.expenses ?? 0,
+  };
 }
 
 /**

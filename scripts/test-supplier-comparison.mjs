@@ -221,6 +221,67 @@ section("Engine models");
   );
 }
 
+// ── 5b. supplier_count + duplicate folding (0052) ──────────────────────────
+section("supplier_count and merged-duplicate folding");
+{
+  // (iii) a product bought from ONE supplier reports supplier_count = 1.
+  const solo = await seedPart({ label: "Cmp Solo", cost: 5_000, price: 12_000 });
+  await receive({ supplier_id: supA.id, parts: [{ part_id: solo.id, qty: 3, unit_cost_centavos: 5_000 }] });
+  let soloRows = (await owner.from("supplier_price_comparison").select("*").eq("part_id", solo.id)).data;
+  check(
+    "a single-supplier product reports supplier_count = 1",
+    soloRows?.length === 1 && soloRows[0]?.supplier_count === 1,
+    `rows ${soloRows?.length}, count ${soloRows?.[0]?.supplier_count}`
+  );
+
+  // (i) supplier_count reflects DISTINCT suppliers — a quote from a second one lifts it to 2.
+  await owner.from("supplier_quotes").insert({
+    supplier_id: supB.id, part_id: solo.id, unit_cost_centavos: 4_500, quoted_at: today,
+  });
+  soloRows = (await owner.from("supplier_price_comparison").select("*").eq("part_id", solo.id)).data;
+  check(
+    "a second supplier's quote lifts supplier_count to 2 on every row",
+    soloRows?.length === 2 && (soloRows ?? []).every((r) => r.supplier_count === 2),
+    `rows ${soloRows?.length}, count ${soloRows?.[0]?.supplier_count}`
+  );
+
+  // (ii) merge two DISTINCT parts → the view folds them to ONE canonical product
+  // carrying BOTH suppliers. The SOURCE must be stockless (merge precondition),
+  // so it is seeded with a quote only — never received.
+  const keep = await seedPart({ label: "Cmp Dup Keep", cost: 6_000, price: 15_000 });
+  const retire = await seedPart({ label: "Cmp Dup Retire", cost: 6_000, price: 15_000 });
+  await receive({ supplier_id: supA.id, parts: [{ part_id: keep.id, qty: 2, unit_cost_centavos: 6_000 }] });
+  await owner.from("supplier_quotes").insert({
+    supplier_id: supB.id, part_id: retire.id, unit_cost_centavos: 5_800, quoted_at: today,
+  });
+
+  const before = (await owner.from("supplier_price_comparison").select("*").eq("part_id", keep.id)).data;
+  check(
+    "pre-merge the survivor shows only its own 1 supplier",
+    before?.length === 1 && before[0]?.supplier_count === 1,
+    `rows ${before?.length}, count ${before?.[0]?.supplier_count}`
+  );
+
+  const { error: mErr } = await owner.rpc("fn_merge_parts", {
+    p_source_id: retire.id, p_target_id: keep.id, p_note: `ZZ-TEST merge ${RUN}`,
+  });
+  check("fn_merge_parts folds the stockless duplicate into the survivor", !mErr, mErr?.message);
+
+  const after = (await owner.from("supplier_price_comparison").select("*").eq("part_id", keep.id)).data;
+  check(
+    "post-merge the view returns ONE product carrying BOTH suppliers, supplier_count = 2",
+    after?.length === 2 && (after ?? []).every((r) => r.supplier_count === 2),
+    `rows ${after?.length}, count ${after?.[0]?.supplier_count}`
+  );
+  check(
+    "the retired duplicate no longer surfaces as its own product",
+    ((await owner.from("supplier_price_comparison").select("*").eq("part_id", retire.id)).data ?? []).length === 0
+  );
+
+  // Clean the merge record we created (harness also sweeps part_merges by tracked parts).
+  await admin.from("part_merges").delete().eq("source_part_id", retire.id);
+}
+
 // ── 6. Cost never reaches a shop ────────────────────────────────────────────
 section("Owner-only (the 0042 lesson)");
 {

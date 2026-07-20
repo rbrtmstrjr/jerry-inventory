@@ -26,6 +26,13 @@ export interface Category {
   name: string;
 }
 
+/** Minimal shop reference for pickers and ShopBadge coloring. */
+export interface ShopOption {
+  id: string;
+  name: string;
+  color_key: string | null;
+}
+
 export interface EngineModel {
   id: string;
   brand: string;
@@ -61,17 +68,10 @@ export interface EngineRow {
   condition: "brand_new" | "second_hand";
   cost_centavos: number;
   price_centavos: number;
-  // Owner-set negotiation margins (%) — null until configured
-  margin_floor_pct: number | null;
-  margin_mid_pct: number | null;
-  margin_asking_pct: number | null;
-  // Computed tier prices (centavos), kept in sync by a DB trigger
-  price_floor_centavos: number | null;
-  price_mid_centavos: number | null;
-  price_asking_centavos: number | null;
   warranty_months: number | null;
   status: "in_master" | "delivered" | "sold" | "returned";
   shop_name: string | null;
+  shop_color_key: string | null;
   image_path: string | null;
 }
 
@@ -125,7 +125,9 @@ export interface ReceivingBalanceRow {
   days_overdue: number | null;
 }
 
-// Employee-safe view rows (NO cost fields exist on these)
+// Employee-safe view rows. Since 0053 these carry the OWN-SHOP unit cost
+// (read-only, the tawad floor) — and nothing else about cost. Cost stays
+// hidden on suppliers/quotes/comparison/payables/receiving/sale_line_costs.
 export interface ShopStockRow {
   shop_id: string;
   part_id: string;
@@ -138,6 +140,7 @@ export interface ShopStockRow {
   reorder_level: number;
   image_path: string | null;
   qty: number;
+  cost_centavos: number;
 }
 
 export interface ShopEngineRow {
@@ -149,10 +152,7 @@ export interface ShopEngineRow {
   stroke: string | null;
   condition: "brand_new" | "second_hand";
   price_centavos: number;
-  // Three negotiable selling prices (NO cost/margin exposed to shops)
-  price_floor_centavos: number;
-  price_mid_centavos: number;
-  price_asking_centavos: number;
+  cost_centavos: number;
   status: string;
   shop_id: string;
   image_path: string | null;

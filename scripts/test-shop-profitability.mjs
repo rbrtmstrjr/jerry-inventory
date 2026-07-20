@@ -370,10 +370,13 @@ console.log("\nBoundaries:");
   check("supplier payments never appear in expenses (COGS boundary)", !leaked);
 }
 {
-  const { data, error } = await emp.from("expenses").select("id, amount");
+  // 0051 reversed "shops never see expenses": an employee now reads their OWN
+  // shop's expenses. The boundary that still matters: company rows and other
+  // shops' rows stay invisible.
+  const { data } = await emp.from("expenses").select("id, scope, shop_id");
   check(
-    "employee sees ZERO expenses",
-    (data ?? []).length === 0 || !!error,
+    "employee sees only own-shop expenses (company rows never)",
+    (data ?? []).every((e) => e.scope === "shop" && e.shop_id === shop.id),
     `got ${data?.length} rows`
   );
 }

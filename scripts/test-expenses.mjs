@@ -33,10 +33,23 @@ const WEBP_1PX = Buffer.from(
   "base64"
 );
 
-section("RLS: regular employee is locked out:");
-for (const table of ["expense_categories", "expenses"]) {
-  const { data } = await emp.from(table).select("*").limit(5);
-  check(`employee reads nothing from ${table}`, (data ?? []).length === 0, `got ${data?.length}`);
+section("RLS boundary (0051 reversed 'shops never see expenses'):");
+{
+  // employees now read ACTIVE categories (the record-expense picker)…
+  const { data: cats } = await emp.from("expense_categories").select("status").limit(20);
+  check(
+    "employee reads only ACTIVE categories (picker)",
+    (cats ?? []).length > 0 && (cats ?? []).every((c) => c.status === "active"),
+    `got ${cats?.length}`
+  );
+  // …and only their OWN shop's expenses; this run's fixtures are for a
+  // different (company/none) scope, so this employee still sees none of them
+  const { data: exp } = await emp.from("expenses").select("scope, shop_id").limit(20);
+  check(
+    "employee sees only own-shop expenses (none of this run's)",
+    (exp ?? []).every((e) => e.scope === "shop" && e.shop_id === S.id),
+    `got ${exp?.length}`
+  );
 }
 
 section("Categories CRUD:");

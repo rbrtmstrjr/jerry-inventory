@@ -437,9 +437,10 @@ section("Owner-only");
   const { data: raw } = await emp.from("stock_movements").select("*").limit(3);
   check("employee reads nothing from the base ledger", (raw ?? []).length === 0);
 
+  // 0053: shop_stock exposes own-shop cost (read-only). The ledger stays hidden.
   const stock = await emp.from("shop_stock").select("*").limit(1);
-  check("the safe view still strips cost",
-    !stock.data?.[0] || !("cost_centavos" in stock.data[0]));
+  check("the safe view exposes own-shop cost (read-only)",
+    !stock.data?.[0] || typeof stock.data[0].cost_centavos === "number");
 }
 
 section("Cleanup");

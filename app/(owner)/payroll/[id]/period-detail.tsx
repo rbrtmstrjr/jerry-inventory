@@ -24,6 +24,7 @@ import {
   employerShare,
 } from "@/lib/contributions";
 import { Badge } from "@/components/ui/badge";
+import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -66,6 +67,7 @@ export interface EntryRow {
   pay_rate: number;
   shop_id: string;
   shop_name: string;
+  shop_color_key: string | null;
   days_worked: number;
   gross_pay: number;
   /** Computed by the DB as gross − employee shares. Read it, never recompute it. */
@@ -333,7 +335,9 @@ export function PeriodDetail({
                       {e.position ?? "—"}
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm">{e.shop_name}</TableCell>
+                  <TableCell className="text-sm">
+                    <ShopBadge shop={{ name: e.shop_name, color_key: e.shop_color_key }} />
+                  </TableCell>
                   <TableCell className="text-sm tabular-nums">
                     {formatCentavos(e.pay_rate)}
                     <span className="text-xs text-muted-foreground">

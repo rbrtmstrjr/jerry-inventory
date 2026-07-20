@@ -11,6 +11,8 @@ function revalidate() {
   revalidatePath("/dashboard");
   revalidatePath("/master-inventory");
   revalidatePath("/receivables");
+  revalidatePath("/expenses");
+  revalidatePath("/expenses/categories");
 }
 
 export async function approveSale(id: string, note?: string): Promise<ActionResult> {
@@ -29,7 +31,10 @@ export async function approveSale(id: string, note?: string): Promise<ActionResu
 export async function approveBatch(
   id: string,
   note?: string
-): Promise<{ ok: true; sales: number; losses: number } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; sales: number; losses: number; expenses: number }
+  | { ok: false; error: string }
+> {
   if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid id" };
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("fn_approve_batch", {
@@ -38,8 +43,13 @@ export async function approveBatch(
   });
   if (error) return { ok: false, error: error.message };
   revalidate();
-  const counts = data as { sales: number; losses: number };
-  return { ok: true, sales: counts.sales, losses: counts.losses };
+  const counts = data as { sales: number; losses: number; expenses?: number };
+  return {
+    ok: true,
+    sales: counts.sales,
+    losses: counts.losses,
+    expenses: counts.expenses ?? 0,
+  };
 }
 
 export async function approveLoss(id: string, note?: string): Promise<ActionResult> {
@@ -54,8 +64,33 @@ export async function approveLoss(id: string, note?: string): Promise<ActionResu
   return { ok: true };
 }
 
+/**
+ * Approve one shop expense. When its category is a shop proposal:
+ * no remap = the proposal becomes an active category; a remap id reassigns the
+ * expense to that existing category and the proposal never activates.
+ */
+export async function approveExpense(
+  id: string,
+  note?: string,
+  remapCategoryId?: string | null
+): Promise<ActionResult> {
+  const parsed = z
+    .object({ id: z.uuid(), remap: z.uuid().nullable().optional() })
+    .safeParse({ id, remap: remapCategoryId ?? null });
+  if (!parsed.success) return { ok: false, error: "Invalid id" };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_approve_expense", {
+    p_expense_id: parsed.data.id,
+    p_note: note?.trim() || null,
+    p_remap_category_id: parsed.data.remap ?? null,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidate();
+  return { ok: true };
+}
+
 const reviewSchema = z.object({
-  kind: z.enum(["sale", "loss"]),
+  kind: z.enum(["sale", "loss", "expense"]),
   id: z.uuid(),
   action: z.enum(["question", "reject"]),
   note: z.string().trim().max(2000),

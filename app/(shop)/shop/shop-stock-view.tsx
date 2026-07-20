@@ -124,8 +124,17 @@ export function ShopStockView({
       },
     },
     {
+      accessorKey: "cost_centavos",
+      header: ({ column }) => <SortableHeader column={column}>Cost</SortableHeader>,
+      cell: ({ getValue }) => (
+        <span className="tabular-nums text-muted-foreground">
+          {formatCentavos(getValue<number>())}
+        </span>
+      ),
+    },
+    {
       accessorKey: "price_centavos",
-      header: ({ column }) => <SortableHeader column={column}>Price</SortableHeader>,
+      header: ({ column }) => <SortableHeader column={column}>Selling price</SortableHeader>,
       cell: ({ getValue }) => (
         <span className="tabular-nums font-medium">
           {formatCentavos(getValue<number>())}
@@ -184,8 +193,17 @@ export function ShopStockView({
         getValue<string>() === "brand_new" ? "Brand new" : "Second hand",
     },
     {
+      accessorKey: "cost_centavos",
+      header: "Cost",
+      cell: ({ getValue }) => (
+        <span className="tabular-nums text-muted-foreground">
+          {formatCentavos(getValue<number>())}
+        </span>
+      ),
+    },
+    {
       accessorKey: "price_centavos",
-      header: "Price",
+      header: "Selling price",
       cell: ({ getValue }) => (
         <span className="tabular-nums font-medium">
           {formatCentavos(getValue<number>())}
@@ -362,9 +380,14 @@ export function ShopStockView({
                             {s.category ?? "—"}
                           </div>
                           <div className="mt-auto flex items-baseline justify-between border-t pt-1.5">
-                            <span className="text-base font-semibold tabular-nums">
-                              {formatCentavos(s.price_centavos)}
-                            </span>
+                            <div className="flex flex-col">
+                              <span className="text-base font-semibold tabular-nums">
+                                {formatCentavos(s.price_centavos)}
+                              </span>
+                              <span className="text-[11px] tabular-nums text-muted-foreground">
+                                Cost {formatCentavos(s.cost_centavos)}
+                              </span>
+                            </div>
                             <span
                               className={`text-xs tabular-nums ${
                                 out
@@ -452,9 +475,14 @@ export function ShopStockView({
                           SN {e.serial_number}
                         </div>
                         <div className="mt-auto flex items-baseline justify-between border-t pt-1.5">
-                          <span className="text-base font-semibold tabular-nums">
-                            {formatCentavos(e.price_centavos)}
-                          </span>
+                          <div className="flex flex-col">
+                            <span className="text-base font-semibold tabular-nums">
+                              {formatCentavos(e.price_centavos)}
+                            </span>
+                            <span className="text-[11px] tabular-nums text-muted-foreground">
+                              Cost {formatCentavos(e.cost_centavos)}
+                            </span>
+                          </div>
                           <span className="text-xs text-muted-foreground">
                             {e.condition === "brand_new" ? "Brand new" : "Second hand"}
                           </span>

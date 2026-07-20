@@ -55,6 +55,10 @@ for (const table of [
   // cost/debt surfaces added by later add-ons
   "expenses", "sale_line_costs", "supplier_payments", "receiving_balances",
   "supplier_payables", "master_low_stock", "reviewed_items",
+  // 0053 narrowed cost visibility to OWN-SHOP stock only — every OTHER cost
+  // surface stays owner-only
+  "receiving_lines", "supplier_quotes", "supplier_price_comparison",
+  "supplier_product_prices_history",
 ]) {
   const { data, error } = await emp1.from(table).select("*").limit(5);
   check(
@@ -79,9 +83,10 @@ section("Employee — scoped visibility:");
   const row = data?.find((r) => r.part_id === part.id);
   check("shop_stock: only own shop's rows", data?.length === 1 && onlyOwn, `got ${data?.length}`);
   check("shop_stock: qty + price visible", row?.qty === 10 && row?.price_centavos === 25000);
+  // 0053: a shop now sees its OWN on-hand cost (the tawad floor), read-only.
   check(
-    "shop_stock: NO cost column exists",
-    !!row && !("cost_centavos" in row) && !("cost" in row)
+    "shop_stock: own-shop cost IS visible (0053)",
+    row?.cost_centavos === 15000
   );
 }
 {
@@ -91,11 +96,18 @@ section("Employee — scoped visibility:");
     "shop_engines: sees own shop's engine",
     data?.length === 1 && row?.serial_number === `RLS-${RUN}-SN1`
   );
-  check("shop_engines: NO cost column exists", !!row && !("cost_centavos" in row));
+  check("shop_engines: own-shop cost IS visible (0053)", row?.cost_centavos === 8_000_000);
   check(
-    "shop_engines: NO margin columns either",
-    !!row && !("margin_floor_pct" in row) && !("margin_asking_pct" in row)
+    "shop_engines: NO tier/margin columns remain",
+    !!row && !("margin_floor_pct" in row) && !("price_floor_centavos" in row)
+      && !("price_asking_centavos" in row)
   );
+}
+{
+  // cost is READ-only: no shop path can write it (base-table RLS blocks writes)
+  const { error } = await emp1.from("parts").update({ cost_centavos: 1 }).eq("id", part.id);
+  const { data: after } = await admin.from("parts").select("cost_centavos").eq("id", part.id).single();
+  check("shop cannot edit cost (read-only)", after?.cost_centavos === 15000, `now ${after?.cost_centavos}, err ${error?.message}`);
 }
 {
   const { data } = await emp2.from("shop_engines").select("*");

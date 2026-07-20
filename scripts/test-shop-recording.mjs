@@ -53,12 +53,13 @@ await deliverAndConfirm(A, { parts: [{ part_id: part.id, qty: 6 }], engine_ids: 
 }
 
 section("Record a sale (employee, shop A):");
+// 0053: parts are negotiable just like engines — the shop can tawad below the
+// catalog price, but never at/under cost. Here we agree ₱200 (cost ₱120).
+const PART_AGREED = 20_000;
 const { data: saleId, error: saleErr } = await emp1.rpc("fn_record_sale", {
   p_customer_id: null,
   p_customer: { name: `ZZ-TEST Mang Kanor ${RUN}`, phone: "0917-111-2222" },
-  // unit_price_centavos is deliberate noise: the RPC reads only {part_id, qty}
-  // and resolves the price from the catalog, so this ₱0.01 must be ignored.
-  p_part_lines: [{ part_id: part.id, qty: 2, unit_price_centavos: 1 }],
+  p_part_lines: [{ part_id: part.id, qty: 2, unit_price_centavos: PART_AGREED }],
   p_engine_lines: [{ engine_id: engine.id, agreed_price_centavos: ENGINE_PRICE }],
 });
 check("fn_record_sale succeeded", !saleErr, saleErr?.message);
@@ -72,8 +73,8 @@ check("fn_record_sale succeeded", !saleErr, saleErr?.message);
 
   check("sale is RECORDED (not yet with the owner)", s?.status === "recorded", s?.status);
   check(
-    `total = 2×${P(PART_PRICE)} + ${P(ENGINE_PRICE)} (catalog prices)`,
-    s?.total_centavos === 2 * PART_PRICE + ENGINE_PRICE,
+    `total = 2×${P(PART_AGREED)} + ${P(ENGINE_PRICE)} (negotiated prices)`,
+    s?.total_centavos === 2 * PART_AGREED + ENGINE_PRICE,
     `got ${s?.total_centavos}`
   );
   check("customer captured", !!s?.customer_id);
@@ -81,8 +82,8 @@ check("fn_record_sale succeeded", !saleErr, saleErr?.message);
   const partLine = s?.sale_lines.find((l) => l.part_id === part.id);
   const engLine = s?.sale_lines.find((l) => l.engine_id === engine.id);
   check(
-    "client-sent unit price ignored — catalog price wins",
-    partLine?.unit_price_centavos === PART_PRICE && partLine?.line_total_centavos === 2 * PART_PRICE,
+    "negotiated part price is honored (parts are negotiable now)",
+    partLine?.unit_price_centavos === PART_AGREED && partLine?.line_total_centavos === 2 * PART_AGREED,
     `got ${partLine?.unit_price_centavos}`
   );
   check(

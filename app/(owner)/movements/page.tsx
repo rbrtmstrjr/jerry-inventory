@@ -65,7 +65,7 @@ export default async function MovementsPage({
 
     const [partsRes, shopsRes, cardRes] = await Promise.all([
       supabase.from("parts").select("id, name, sku, unit").is("deleted_at", null).order("name"),
-      supabase.from("shops").select("id, name, deleted_at").order("name"),
+      supabase.from("shops").select("id, name, color_key, deleted_at").order("name"),
       partId
         ? supabase.rpc("fn_stock_card", {
             p_part_id: partId, p_shop_id: shopId, p_from: from, p_to: to,
@@ -203,7 +203,7 @@ export default async function MovementsPage({
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1),
-    supabase.from("shops").select("id, name").order("name"),
+    supabase.from("shops").select("id, name, color_key").order("name"),
     supabase.from("parts").select("id, name").is("deleted_at", null).order("name"),
     supabase.from("profiles").select("id, full_name").order("full_name"),
   ]);

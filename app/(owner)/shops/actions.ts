@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
+import { SHOP_COLOR_KEYS } from "@/lib/shop-colors";
 
 type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -24,6 +25,11 @@ const shopSchema = z.object({
   latitude: z.number().min(-90).max(90).nullable(),
   longitude: z.number().min(-180).max(180).nullable(),
   active: z.boolean().default(true),
+  // Palette KEY, never a hex — resolved to theme tokens at render (0050).
+  color_key: z
+    .enum(SHOP_COLOR_KEYS)
+    .nullable()
+    .default(null),
 });
 
 export async function upsertShop(input: unknown): Promise<ActionResult> {
@@ -38,7 +44,13 @@ export async function upsertShop(input: unknown): Promise<ActionResult> {
     ? supabase.from("shops").update(row).eq("id", id)
     : supabase.from("shops").insert(row);
   const { error } = await query;
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    // partial unique index on color_key (live shops) — surface it kindly
+    if (error.code === "23505" && /color_key/.test(error.message)) {
+      return { ok: false, error: "That color is already used by another shop." };
+    }
+    return { ok: false, error: error.message };
+  }
   revalidatePath("/shops");
   return { ok: true };
 }

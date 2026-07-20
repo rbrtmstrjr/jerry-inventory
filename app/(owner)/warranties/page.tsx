@@ -19,7 +19,7 @@ export default async function WarrantiesPage() {
         `id, engine_id, sold_on, months, expires_on,
          engines(serial_number, engine_models(brand, model, horsepower)),
          customers(name, phone),
-         sales(shops(name)),
+         sales(shops(name, color_key)),
          warranty_claims(id, claim_date, issue, action_taken)`
       )
       .is("deleted_at", null)
@@ -28,10 +28,10 @@ export default async function WarrantiesPage() {
     supabase
       .from("engines")
       .select(
-        "id, serial_number, status, deleted_at, sold_at, engine_models(brand, model, horsepower), shops(name), customers(name, phone)"
+        "id, serial_number, status, deleted_at, sold_at, engine_models(brand, model, horsepower), shops(name, color_key), customers(name, phone)"
       )
       .order("created_at", { ascending: false }),
-    supabase.from("shops").select("id, name").is("deleted_at", null).order("name"),
+    supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
   ]);
 
   const today = ph_today();
@@ -46,6 +46,7 @@ export default async function WarrantiesPage() {
     customer: w.customers?.name ?? "?",
     customer_phone: w.customers?.phone ?? null,
     shop: w.sales?.shops?.name ?? null,
+    shop_color_key: w.sales?.shops?.color_key ?? null,
     sold_on: w.sold_on,
     months: w.months,
     expires_on: w.expires_on,
@@ -67,6 +68,7 @@ export default async function WarrantiesPage() {
     horsepower: e.engine_models?.horsepower ?? null,
     status: e.deleted_at ? "written_off" : e.status,
     shop: e.shops?.name ?? null,
+    shop_color_key: e.shops?.color_key ?? null,
     customer: e.customers?.name ?? null,
     customer_phone: e.customers?.phone ?? null,
     sold_at: e.sold_at,

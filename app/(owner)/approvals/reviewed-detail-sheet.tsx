@@ -13,8 +13,11 @@ import {
 } from "lucide-react";
 
 import { formatCentavos } from "@/lib/format";
+import type { ShopOption } from "@/lib/db-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ShopBadge } from "@/components/shop-badge";
+import { ReceiptImage } from "@/components/receipt-image";
 import {
   Sheet,
   SheetContent,
@@ -75,9 +78,11 @@ function Section({
  */
 export function ReviewedDetailSheet({
   openItem,
+  shops,
   onClose,
 }: {
   openItem: string | null;
+  shops: ShopOption[];
   onClose: () => void;
 }) {
   const [detail, setDetail] = React.useState<ReviewedDetail | null>(null);
@@ -128,9 +133,22 @@ export function ReviewedDetailSheet({
             )}
           </SheetTitle>
           <SheetDescription>
-            {detail
-              ? `${detail.shop_name} · ${format(new Date(detail.created_at), "MMM d, yyyy h:mm a")}`
-              : "Loading…"}
+            {detail ? (
+              <>
+                {/* detail carries shop_name only — resolve the color by name */}
+                <ShopBadge
+                  variant="text"
+                  shop={{
+                    name: detail.shop_name,
+                    color_key:
+                      shops.find((s) => s.name === detail.shop_name)?.color_key ?? null,
+                  }}
+                />{" "}
+                · {format(new Date(detail.created_at), "MMM d, yyyy h:mm a")}
+              </>
+            ) : (
+              "Loading…"
+            )}
           </SheetDescription>
         </SheetHeader>
 
@@ -149,6 +167,7 @@ export function ReviewedDetailSheet({
           {detail?.type === "sale" && <SaleBody d={detail} />}
           {detail?.type === "loss" && <LossBody d={detail} />}
           {detail?.type === "utang_payment" && <PaymentBody d={detail} />}
+          {detail?.type === "expense" && <ExpenseBody d={detail} />}
         </div>
       </SheetContent>
     </Sheet>
@@ -410,6 +429,83 @@ function LossBody({ d }: { d: Extract<ReviewedDetail, { type: "loss" }> }) {
       </Section>
 
       <Movements movements={d.movements} />
+    </>
+  );
+}
+
+const METHOD_LABEL: Record<string, string> = {
+  cash: "Cash",
+  gcash: "GCash",
+  bank: "Bank",
+  other: "Other",
+};
+
+function ExpenseBody({ d }: { d: Extract<ReviewedDetail, { type: "expense" }> }) {
+  return (
+    <>
+      <WhoWhen
+        recordedBy={d.recorded_by}
+        reviewedBy={d.approved_by}
+        reviewedAt={d.approved_at}
+        batchAt={d.batch_submitted_at}
+        ownerNote={d.review_note}
+      />
+
+      <Section title="Expense">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Amount">
+            <span className="text-base font-semibold tabular-nums">
+              {formatCentavos(d.amount_centavos)}
+            </span>
+          </Field>
+          <Field label="Category">
+            {d.category_proposed ? (
+              <Badge
+                variant="outline"
+                className="border-warning/50 bg-warning/10 text-warning-foreground"
+              >
+                proposed: {d.category_name}
+              </Badge>
+            ) : (
+              <Badge variant="secondary">{d.category_name}</Badge>
+            )}
+          </Field>
+          <Field label="Expense date">
+            {format(new Date(d.expense_date), "MMM d, yyyy")}
+          </Field>
+          <Field label="Paid to">
+            {d.paid_to ?? <span className="text-muted-foreground">—</span>}
+          </Field>
+          <Field label="Method">
+            {d.payment_method ? (
+              METHOD_LABEL[d.payment_method] ?? d.payment_method
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
+          </Field>
+          <Field label="OR / Ref no">
+            {d.reference_no ? (
+              <span className="font-mono">{d.reference_no}</span>
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
+          </Field>
+        </div>
+        <p className="rounded-md border p-2.5 text-sm">{d.description}</p>
+        <p className="text-xs text-muted-foreground">
+          No stock moved — an expense is cash out, not inventory. It counts in
+          expenses and P&amp;L only when approved.
+        </p>
+      </Section>
+
+      {d.receipt_image_path && (
+        <Section title="Receipt">
+          <ReceiptImage
+            path={d.receipt_image_path}
+            className="max-h-80 w-full"
+          />
+        </Section>
+      )}
     </>
   );
 }

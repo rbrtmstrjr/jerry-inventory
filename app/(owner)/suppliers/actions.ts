@@ -218,10 +218,6 @@ const receivingSchema = z
             cost_centavos: z.number().int().min(0),
             price_centavos: z.number().int().min(0),
             warranty_months: z.number().int().min(0).nullable(),
-            // optional 3-tier margins; trigger computes tier prices when present
-            margin_floor_pct: z.number().min(0).nullable().default(null),
-            margin_mid_pct: z.number().min(0).nullable().default(null),
-            margin_asking_pct: z.number().min(0).nullable().default(null),
           })
           .refine((l) => !!l.engine_model_id !== !!l.new_model, {
             message: "An engine line is either an existing model or a new one",

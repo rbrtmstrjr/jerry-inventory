@@ -11,7 +11,9 @@ import {
   Loader2,
   MessageCircleQuestion,
   Receipt,
+  ReceiptText,
   ShoppingCart,
+  Wallet,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -35,14 +37,31 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { approveBatch, approveLoss, approveSale, reviewSubmission } from "./actions";
+import { ShopBadge } from "@/components/shop-badge";
+import { ReceiptImage } from "@/components/receipt-image";
+import {
+  approveBatch,
+  approveExpense,
+  approveLoss,
+  approveSale,
+  reviewSubmission,
+} from "./actions";
 
 export interface PendingSale {
   id: string;
   batch_id: string | null;
   batch_submitted_at: string | null;
   shop_name: string;
+  shop_color_key: string | null;
   employee: string;
   customer: string | null;
   status: "pending" | "questioned";
@@ -71,6 +90,7 @@ export interface PendingLoss {
   batch_id: string | null;
   batch_submitted_at: string | null;
   shop_name: string;
+  shop_color_key: string | null;
   employee: string;
   status: "pending" | "questioned";
   reason: "nasira" | "nawala" | "expired" | "sample" | "correction";
@@ -79,6 +99,33 @@ export interface PendingLoss {
   owner_note: string | null;
   description: string;
   created_at: string;
+}
+
+export interface PendingExpense {
+  id: string;
+  batch_id: string | null;
+  batch_submitted_at: string | null;
+  shop_name: string;
+  shop_color_key: string | null;
+  employee: string;
+  status: "pending" | "questioned";
+  amount_centavos: number;
+  expense_date: string;
+  description: string;
+  paid_to: string | null;
+  payment_method: string | null;
+  reference_no: string | null;
+  receipt_image_path: string | null;
+  review_note: string | null;
+  created_at: string;
+  category_id: string;
+  category_name: string;
+  category_proposed: boolean;
+}
+
+export interface ActiveCategoryOption {
+  id: string;
+  name: string;
 }
 
 const REASON_LABEL: Record<PendingLoss["reason"], string> = {
@@ -93,26 +140,41 @@ interface BatchGroup {
   key: string;
   batchId: string | null;
   shopName: string;
+  shopColorKey: string | null;
   submittedAt: string | null;
   sales: PendingSale[];
   losses: PendingLoss[];
+  expenses: PendingExpense[];
 }
 
 type DialogState =
-  | { kind: "sale" | "loss"; id: string; action: "question" | "reject"; title: string }
+  | {
+      kind: "sale" | "loss" | "expense";
+      id: string;
+      action: "question" | "reject";
+      title: string;
+    }
   | null;
 
 export function ApprovalsView({
   sales,
   losses,
+  expenses,
+  activeCategories,
 }: {
   sales: PendingSale[];
   losses: PendingLoss[];
+  expenses: PendingExpense[];
+  activeCategories: ActiveCategoryOption[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [dialog, setDialog] = React.useState<DialogState>(null);
   const [note, setNote] = React.useState("");
+  const [approvingExpense, setApprovingExpense] =
+    React.useState<PendingExpense | null>(null);
+  const [viewingReceipt, setViewingReceipt] =
+    React.useState<PendingExpense | null>(null);
 
   // Near-live queue: refresh when any submission changes. Shops record as
   // 'recorded' first (invisible here) and batch-submit later, so only an
@@ -157,12 +219,27 @@ export function ApprovalsView({
       )
       .on(
         "postgres_changes",
+        { event: "INSERT", schema: "public", table: "expenses" },
+        () => refresh(false)
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "expenses" },
+        (payload) => refresh(becamePending(payload))
+      )
+      .on(
+        "postgres_changes",
         { event: "DELETE", schema: "public", table: "sales" },
         () => refresh(false)
       )
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "losses" },
+        () => refresh(false)
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "expenses" },
         () => refresh(false)
       )
       .subscribe();
@@ -178,6 +255,7 @@ export function ApprovalsView({
     const groupFor = (
       batchId: string | null,
       shopName: string,
+      shopColorKey: string | null,
       submittedAt: string | null
     ) => {
       const key = batchId ?? `legacy-${shopName}`;
@@ -187,25 +265,30 @@ export function ApprovalsView({
           key,
           batchId,
           shopName,
+          shopColorKey,
           submittedAt,
           sales: [],
           losses: [],
+          expenses: [],
         };
         map.set(key, g);
       }
       return g;
     };
     for (const s of sales) {
-      groupFor(s.batch_id, s.shop_name, s.batch_submitted_at).sales.push(s);
+      groupFor(s.batch_id, s.shop_name, s.shop_color_key, s.batch_submitted_at).sales.push(s);
     }
     for (const l of losses) {
-      groupFor(l.batch_id, l.shop_name, l.batch_submitted_at).losses.push(l);
+      groupFor(l.batch_id, l.shop_name, l.shop_color_key, l.batch_submitted_at).losses.push(l);
+    }
+    for (const e of expenses) {
+      groupFor(e.batch_id, e.shop_name, e.shop_color_key, e.batch_submitted_at).expenses.push(e);
     }
     // oldest submission first — Admin clears the queue in arrival order
     return [...map.values()].sort((a, b) =>
       (a.submittedAt ?? "").localeCompare(b.submittedAt ?? "")
     );
-  }, [sales, losses]);
+  }, [sales, losses, expenses]);
 
   async function onApprove(kind: "sale" | "loss", id: string) {
     setBusy(id);
@@ -228,7 +311,7 @@ export function ApprovalsView({
     setBusy(null);
     if (res.ok) {
       toast.success(
-        `Batch approved — ${res.sales} sale(s) and ${res.losses} loss(es), stock deducted`
+        `Batch approved — ${res.sales} sale(s), ${res.losses} loss(es) and ${res.expenses} expense(s)`
       );
     } else {
       toast.error(res.error);
@@ -258,14 +341,27 @@ export function ApprovalsView({
     }
   }
 
-  function ActionButtons({ kind, id }: { kind: "sale" | "loss"; id: string }) {
+  function ActionButtons({
+    kind,
+    id,
+    onApproveClick,
+  }: {
+    kind: "sale" | "loss" | "expense";
+    id: string;
+    /** expenses approve via a confirm dialog (category remap) instead of directly */
+    onApproveClick?: () => void;
+  }) {
     return (
       <div className="flex gap-2">
         <Button
           size="sm"
           variant="outline"
           disabled={busy === id}
-          onClick={() => onApprove(kind, id)}
+          onClick={() =>
+            onApproveClick
+              ? onApproveClick()
+              : onApprove(kind as "sale" | "loss", id)
+          }
         >
           {busy === id ? (
             <Loader2 className="size-4 animate-spin" />
@@ -432,6 +528,69 @@ export function ApprovalsView({
     );
   }
 
+  function renderExpenseCard(e: PendingExpense) {
+    return (
+      <Card key={e.id} className={e.status === "questioned" ? "border-warning" : ""}>
+        <CardHeader className="pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base tabular-nums">
+              {formatCentavos(e.amount_centavos)}
+              {e.category_proposed ? (
+                <Badge
+                  variant="outline"
+                  className="ml-2 border-warning/50 bg-warning/10 text-warning-foreground"
+                >
+                  proposed: {e.category_name}
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="ml-2">
+                  {e.category_name}
+                </Badge>
+              )}
+              {e.status === "questioned" && (
+                <Badge variant="outline" className="ml-2">
+                  Questioned
+                </Badge>
+              )}
+            </CardTitle>
+            <ActionButtons
+              kind="expense"
+              id={e.id}
+              onApproveClick={() => setApprovingExpense(e)}
+            />
+          </div>
+          <CardDescription>
+            {format(new Date(e.expense_date), "MMM d")} · recorded{" "}
+            {format(new Date(e.created_at), "MMM d, h:mm a")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-1 text-sm">
+          <p>{e.description}</p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            {e.paid_to && <span>Paid to {e.paid_to}</span>}
+            {e.payment_method && <span>{e.payment_method}</span>}
+            {e.reference_no && <span>Ref {e.reference_no}</span>}
+            {e.receipt_image_path && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7"
+                onClick={() => setViewingReceipt(e)}
+              >
+                <ReceiptText className="size-3.5" /> View receipt
+              </Button>
+            )}
+          </div>
+          {e.review_note && (
+            <p className="text-xs text-muted-foreground">
+              Your note: {e.review_note}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -453,18 +612,24 @@ export function ApprovalsView({
       {batches.map((b) => {
         const pendingCount =
           b.sales.filter((s) => s.status === "pending").length +
-          b.losses.filter((l) => l.status === "pending").length;
+          b.losses.filter((l) => l.status === "pending").length +
+          b.expenses.filter((e) => e.status === "pending").length;
         const questionedCount =
           b.sales.filter((s) => s.status === "questioned").length +
-          b.losses.filter((l) => l.status === "questioned").length;
+          b.losses.filter((l) => l.status === "questioned").length +
+          b.expenses.filter((e) => e.status === "questioned").length;
         const salesTotal = b.sales.reduce((sum, s) => sum + s.total_centavos, 0);
-        const employee = b.sales[0]?.employee ?? b.losses[0]?.employee ?? "?";
+        const employee =
+          b.sales[0]?.employee ?? b.losses[0]?.employee ?? b.expenses[0]?.employee ?? "?";
         return (
           <section key={b.key} className="overflow-hidden rounded-lg border">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/50 px-4 py-3">
               <div>
                 <p className="font-semibold">
-                  {b.shopName}
+                  <ShopBadge
+                    variant="text"
+                    shop={{ name: b.shopName, color_key: b.shopColorKey }}
+                  />
                   <span className="ml-2 text-sm font-normal text-muted-foreground">
                     {b.submittedAt
                       ? `submitted ${format(new Date(b.submittedAt), "MMM d, h:mm a")}`
@@ -476,6 +641,8 @@ export function ApprovalsView({
                   {b.sales.length} sale{b.sales.length === 1 ? "" : "s"}
                   {b.losses.length > 0 &&
                     ` · ${b.losses.length} loss${b.losses.length === 1 ? "" : "es"}`}
+                  {b.expenses.length > 0 &&
+                    ` · ${b.expenses.length} expense${b.expenses.length === 1 ? "" : "s"}`}
                   {salesTotal > 0 && (
                     <>
                       {" · "}
@@ -515,12 +682,64 @@ export function ApprovalsView({
                 </p>
               )}
               {b.losses.map(renderLossCard)}
+              {b.expenses.length > 0 && (
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                  <Wallet className="size-3.5" /> EXPENSES
+                </p>
+              )}
+              {b.expenses.map(renderExpenseCard)}
             </div>
           </section>
         );
       })}
 
       {/* Reviewed history lives in its own section below (see ReviewedHistory) */}
+
+      {/* Approve expense (confirm + optional category remap) */}
+      <ApproveExpenseDialog
+        expense={approvingExpense}
+        activeCategories={activeCategories}
+        busy={busy !== null}
+        onClose={() => setApprovingExpense(null)}
+        onConfirm={async (remapCategoryId) => {
+          if (!approvingExpense) return;
+          setBusy(approvingExpense.id);
+          const res = await approveExpense(
+            approvingExpense.id,
+            undefined,
+            remapCategoryId
+          );
+          setBusy(null);
+          if (res.ok) {
+            toast.success("Expense approved");
+            setApprovingExpense(null);
+          } else {
+            toast.error(res.error);
+          }
+        }}
+      />
+
+      {/* Receipt viewer (private bucket — signed URL via ReceiptImage) */}
+      <Dialog
+        open={viewingReceipt !== null}
+        onOpenChange={(o) => !o && setViewingReceipt(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Receipt</DialogTitle>
+            <DialogDescription>
+              {viewingReceipt?.description} ·{" "}
+              {viewingReceipt && formatCentavos(viewingReceipt.amount_centavos)}
+            </DialogDescription>
+          </DialogHeader>
+          {viewingReceipt?.receipt_image_path && (
+            <ReceiptImage
+              path={viewingReceipt.receipt_image_path}
+              className="max-h-[60vh] w-full"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Question / Reject dialog */}
       <Dialog
@@ -568,5 +787,98 @@ export function ApprovalsView({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+const KEEP_PROPOSED = "__keep";
+
+function ApproveExpenseDialog({
+  expense,
+  activeCategories,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  expense: PendingExpense | null;
+  activeCategories: ActiveCategoryOption[];
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: (remapCategoryId: string | null) => Promise<void>;
+}) {
+  const [category, setCategory] = React.useState(KEEP_PROPOSED);
+
+  React.useEffect(() => {
+    if (expense) setCategory(KEEP_PROPOSED);
+  }, [expense]);
+
+  return (
+    <Dialog open={expense !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Approve this expense?</DialogTitle>
+          <DialogDescription>
+            {expense && (
+              <>
+                {formatCentavos(expense.amount_centavos)} · {expense.description}
+                {" — "}
+                <ShopBadge
+                  variant="text"
+                  shop={{
+                    name: expense.shop_name,
+                    color_key: expense.shop_color_key,
+                  }}
+                />
+              </>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        {expense?.category_proposed ? (
+          <div className="grid gap-2">
+            <Label>Category</Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger className="w-full max-w-full [&>span]:truncate">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={KEEP_PROPOSED}>
+                  Keep as proposed — creates “{expense.category_name}”
+                </SelectItem>
+                {activeCategories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              The shop proposed a new category. Approving as-is makes it a real
+              category everyone can pick; choosing an existing one files this
+              expense there instead and the proposal stays inactive.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Category: <Badge variant="secondary">{expense?.category_name}</Badge>
+            {" — "}counts in expenses and P&amp;L once approved.
+          </p>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={() =>
+              onConfirm(category === KEEP_PROPOSED ? null : category)
+            }
+          >
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            <Check className="size-4" /> Approve
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

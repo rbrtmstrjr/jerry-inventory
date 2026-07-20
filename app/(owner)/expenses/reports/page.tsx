@@ -30,8 +30,10 @@ export default async function ExpenseReportsPage({
     .from("expenses")
     .select(
       `id, amount, expense_date, scope, shop_id, delivery_id, description, paid_to,
-       payment_method, expense_categories(name), shops(name)`
+       payment_method, expense_categories(name), shops(name, color_key)`
     )
+    // reports are money that actually left — pending claims never count (0051)
+    .eq("status", "approved")
     .gte("expense_date", from)
     .lte("expense_date", to)
     .is("deleted_at", null);
@@ -39,7 +41,7 @@ export default async function ExpenseReportsPage({
 
   const [expensesRes, shopsRes, salesRes, lossesRes, payrollRes] = await Promise.all([
     expQ,
-    supabase.from("shops").select("id, name").is("deleted_at", null).order("name"),
+    supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
     // cross-module (read-only): approved revenue in range, per shop
     supabase
       .from("sales")
@@ -82,10 +84,15 @@ export default async function ExpenseReportsPage({
   }
 
   // per shop expenses (shop-scoped)
-  const expByShop = new Map<string, number>();
+  const expByShop = new Map<string, { color_key: string | null; total: number }>();
   for (const e of expenses) {
     if (e.scope === "shop" && e.shops?.name) {
-      expByShop.set(e.shops.name, (expByShop.get(e.shops.name) ?? 0) + e.amount);
+      const t = expByShop.get(e.shops.name) ?? {
+        color_key: e.shops.color_key ?? null,
+        total: 0,
+      };
+      t.total += e.amount;
+      expByShop.set(e.shops.name, t);
     }
   }
 
@@ -120,6 +127,7 @@ export default async function ExpenseReportsPage({
       const losses = lossByShop.get(s.id) ?? 0;
       return {
         shop: shopNameById.get(s.id) ?? "?",
+        color_key: s.color_key ?? null,
         revenue,
         opex,
         payroll,
@@ -156,7 +164,11 @@ export default async function ExpenseReportsPage({
     byMonth: [...byMonth.entries()]
       .map(([month, total]) => ({ month, total }))
       .sort((a, b) => a.month.localeCompare(b.month)),
-    byShop: [...expByShop.entries()].map(([shop, total]) => ({ shop, total })),
+    byShop: [...expByShop.entries()].map(([shop, t]) => ({
+      shop,
+      color_key: t.color_key,
+      total: t.total,
+    })),
     shopNames: shops.map((s) => s.name),
     costOfBusiness,
     csvRows: expenses.map((e: any) => ({

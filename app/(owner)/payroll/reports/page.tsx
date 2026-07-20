@@ -45,7 +45,7 @@ export default async function PayrollReportsPage({
       .select(
         `id, pay_period_id, staff_id, shop_id, days_worked, net_pay, status, date_paid,
          staff(full_name, pay_type, positions(title)),
-         shops(name)`
+         shops(name, color_key)`
       )
       .in("pay_period_id", periodIds);
     if (shopFilter) q = q.eq("shop_id", shopFilter);
@@ -55,7 +55,7 @@ export default async function PayrollReportsPage({
 
   const { data: shops } = await supabase
     .from("shops")
-    .select("id, name")
+    .select("id, name, color_key")
     .is("deleted_at", null)
     .order("name");
 
@@ -188,6 +188,7 @@ export default async function PayrollReportsPage({
     staff: e.staff?.full_name ?? "?",
     position: e.staff?.positions?.title ?? "—",
     shop: e.shops?.name ?? "?",
+    shop_color_key: (e.shops?.color_key ?? null) as string | null,
     pay_type: e.staff?.pay_type ?? "daily",
     days_worked: Number(e.days_worked),
     net_pay: e.net_pay as number,
@@ -195,12 +196,18 @@ export default async function PayrollReportsPage({
     date_paid: (e.date_paid ?? "") as string,
   }));
 
-  const byShop = new Map<string, { total: number; headcount: Set<string>; paid: number; unpaid: number }>();
+  const byShop = new Map<string, { color_key: string | null; total: number; headcount: Set<string>; paid: number; unpaid: number }>();
   const byPosition = new Map<string, { total: number; headcount: Set<string> }>();
   for (const e of entries) {
     const shopName = e.shops?.name ?? "?";
     const pos = e.staff?.positions?.title ?? "No position";
-    const s = byShop.get(shopName) ?? { total: 0, headcount: new Set(), paid: 0, unpaid: 0 };
+    const s = byShop.get(shopName) ?? {
+      color_key: (e.shops?.color_key ?? null) as string | null,
+      total: 0,
+      headcount: new Set(),
+      paid: 0,
+      unpaid: 0,
+    };
     s.total += e.net_pay;
     s.headcount.add(e.staff?.full_name ?? e.id);
     if (e.status === "paid") s.paid += e.net_pay;
@@ -230,6 +237,7 @@ export default async function PayrollReportsPage({
     },
     byShop: [...byShop.entries()].map(([shop, v]) => ({
       shop,
+      color_key: v.color_key,
       total: v.total,
       headcount: v.headcount.size,
       paid: v.paid,

@@ -45,7 +45,7 @@ export async function ShopsTab({
   ] = await Promise.all([
     computePnl(supabase, { from, to, shopId: shopFilter }),
     // Unfiltered — the shop picker lists every branch, not just the selected one.
-    supabase.from("shops").select("id, name, deleted_at").order("name"),
+    supabase.from("shops").select("id, name, color_key, deleted_at").order("name"),
     supabase
       .from("deliveries")
       .select("shop_id, delivery_lines(qty)")
@@ -113,10 +113,18 @@ export async function ShopsTab({
   const pct = (part: number, whole: number) =>
     whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0;
 
+  const colorByShopId = new Map(
+    (shopsRes.data ?? []).map((s) => [s.id, s.color_key ?? null])
+  );
+
   const perShop = pnl.perShop
     .map((r) => {
       const { shop_id, ...rest } = r;
-      return { ...rest, ...(ctx.get(shop_id) ?? zeroCtx()) };
+      return {
+        ...rest,
+        color_key: colorByShopId.get(shop_id) ?? null,
+        ...(ctx.get(shop_id) ?? zeroCtx()),
+      };
     })
     // An open shop always earns a row, even at zero. A closed one only if
     // something actually happened — including stock it still holds or units it
@@ -142,7 +150,12 @@ export async function ShopsTab({
     // Drill-down list: open shops, plus any closed one still showing in range.
     shops: (shopsRes.data ?? [])
       .filter((s) => !s.deleted_at || perShop.some((r) => r.shop === s.name))
-      .map((s) => ({ id: s.id, name: s.name, closed: !!s.deleted_at })),
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        color_key: s.color_key ?? null,
+        closed: !!s.deleted_at,
+      })),
     shopNames: (shopsRes.data ?? []).map((s) => s.name),
     totals: {
       revenue: sum("revenue"),

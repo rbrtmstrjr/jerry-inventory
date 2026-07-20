@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
+import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -45,6 +46,7 @@ export interface StaffRow {
   full_name: string;
   shop_id: string;
   shop_name: string;
+  shop_color_key: string | null;
   position_id: string | null;
   position: string | null;
   pay_type: "daily" | "monthly";
@@ -156,7 +158,18 @@ export function StaffView({
         </div>
       ),
     },
-    { accessorKey: "shop_name", header: "Shop" },
+    {
+      accessorKey: "shop_name",
+      header: "Shop",
+      cell: ({ row }) => (
+        <ShopBadge
+          shop={{
+            name: row.original.shop_name,
+            color_key: row.original.shop_color_key,
+          }}
+        />
+      ),
+    },
     {
       accessorKey: "pay_rate",
       header: ({ column }) => <SortableHeader column={column}>Rate</SortableHeader>,

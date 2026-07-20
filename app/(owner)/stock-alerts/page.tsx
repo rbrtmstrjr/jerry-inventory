@@ -29,10 +29,10 @@ export default async function StockAlertsPage() {
       supabase
         .from("shop_reorder_levels")
         .select(
-          "id, shop_id, part_id, engine_model_id, reorder_level, shops(name), parts(name, reorder_level), engine_models(brand, model, reorder_level)"
+          "id, shop_id, part_id, engine_model_id, reorder_level, shops(name, color_key), parts(name, reorder_level), engine_models(brand, model, reorder_level)"
         )
         .is("deleted_at", null),
-      supabase.from("shops").select("id, name").is("deleted_at", null).order("name"),
+      supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
       supabase.from("suppliers").select("id, name").is("deleted_at", null).order("name"),
     ]);
 
@@ -60,6 +60,7 @@ export default async function StockAlertsPage() {
     id: o.id,
     shop_id: o.shop_id,
     shop_name: o.shops?.name ?? "?",
+    shop_color_key: o.shops?.color_key ?? null,
     kind: o.part_id ? "part" : "engine_model",
     product_id: o.part_id ?? o.engine_model_id,
     product_name: o.part_id

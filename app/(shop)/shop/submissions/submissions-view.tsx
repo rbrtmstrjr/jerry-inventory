@@ -7,6 +7,7 @@ import {
   Loader2,
   MessageCircleQuestion,
   NotebookPen,
+  ReceiptText,
   Send,
   ShoppingCart,
   Trash2,
@@ -58,6 +59,20 @@ export interface LossSubmission {
   batch_submitted_at: string | null;
 }
 
+export interface ExpenseSubmission {
+  id: string;
+  expense_date: string;
+  status: "recorded" | "pending" | "questioned" | "approved" | "rejected";
+  amount: number;
+  description: string;
+  category_name: string | null;
+  paid_to: string | null;
+  review_note: string | null;
+  created_at: string;
+  batch_id: string | null;
+  batch_submitted_at: string | null;
+}
+
 const STATUS_BADGE: Record<
   SaleSubmission["status"],
   { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
@@ -88,14 +103,17 @@ interface ShopBatch {
   submittedAt: string | null; // null = legacy items from before batching
   sales: SaleSubmission[];
   losses: LossSubmission[];
+  expenses: ExpenseSubmission[];
 }
 
 export function SubmissionsView({
   sales,
   losses,
+  expenses,
 }: {
   sales: SaleSubmission[];
   losses: LossSubmission[];
+  expenses: ExpenseSubmission[];
 }) {
   const [busy, setBusy] = React.useState<string | null>(null);
   const [submittingBatch, setSubmittingBatch] = React.useState(false);
@@ -105,8 +123,11 @@ export function SubmissionsView({
 
   const currentSales = sales.filter((s) => s.status === "recorded");
   const currentLosses = losses.filter((l) => l.status === "recorded");
-  const currentTotal = currentSales.length + currentLosses.length;
+  const currentExpenses = expenses.filter((e) => e.status === "recorded");
+  const currentTotal =
+    currentSales.length + currentLosses.length + currentExpenses.length;
   const currentValue = currentSales.reduce((sum, s) => sum + s.total_centavos, 0);
+  const currentExpenseValue = currentExpenses.reduce((sum, e) => sum + e.amount, 0);
 
   // Group everything already submitted by its batch. A batch stays in
   // "Submitted" while anything inside still awaits Admin; once every item
@@ -117,7 +138,7 @@ export function SubmissionsView({
       const key = batchId ?? "legacy";
       let g = map.get(key);
       if (!g) {
-        g = { key, submittedAt, sales: [], losses: [] };
+        g = { key, submittedAt, sales: [], losses: [], expenses: [] };
         map.set(key, g);
       }
       return g;
@@ -130,9 +151,15 @@ export function SubmissionsView({
       if (l.status === "recorded") continue;
       groupFor(l.batch_id, l.batch_submitted_at).losses.push(l);
     }
+    for (const e of expenses) {
+      if (e.status === "recorded") continue;
+      groupFor(e.batch_id, e.batch_submitted_at).expenses.push(e);
+    }
     const open = (st: string) => st === "pending" || st === "questioned";
     const isOpen = (g: ShopBatch) =>
-      g.sales.some((s) => open(s.status)) || g.losses.some((l) => open(l.status));
+      g.sales.some((s) => open(s.status)) ||
+      g.losses.some((l) => open(l.status)) ||
+      g.expenses.some((e) => open(e.status));
     const all = [...map.values()].sort((a, b) =>
       (b.submittedAt ?? "").localeCompare(a.submittedAt ?? "")
     );
@@ -140,7 +167,7 @@ export function SubmissionsView({
       submitted: all.filter(isOpen),
       reviewed: all.filter((g) => !isOpen(g)),
     };
-  }, [sales, losses]);
+  }, [sales, losses, expenses]);
 
   async function onSubmitBatch() {
     setSubmittingBatch(true);
@@ -148,7 +175,7 @@ export function SubmissionsView({
     setSubmittingBatch(false);
     if (res.ok) {
       toast.success(
-        `Sent to Admin: ${res.sales} sale(s) and ${res.losses} loss(es)`
+        `Sent to Admin: ${res.sales} sale(s), ${res.losses} loss(es), ${res.expenses} expense(s)`
       );
     } else {
       toast.error(res.error);
@@ -242,11 +269,40 @@ export function SubmissionsView({
     );
   }
 
+  // no cancel here on purpose — employees have no delete path on expenses
+  function renderExpenseRow(e: ExpenseSubmission, showStatus: boolean) {
+    return (
+      <div key={e.id} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-medium">{e.description}</span>
+          <div className="flex items-center gap-2">
+            {e.category_name && <Badge variant="outline">{e.category_name}</Badge>}
+            {showStatus && <StatusBadge status={e.status} />}
+            <span className="font-medium tabular-nums">
+              {formatCentavos(e.amount)}
+            </span>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {format(new Date(e.created_at), "MMM d, h:mm a")}
+          {e.paid_to && ` · Paid to ${e.paid_to}`}
+        </p>
+        {e.review_note && (
+          <div className="mt-1 flex items-start gap-2 rounded-md bg-accent p-2 text-sm text-accent-foreground">
+            <MessageCircleQuestion className="mt-0.5 size-4 shrink-0" />
+            <span>Owner: {e.review_note}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderBatchCard(g: ShopBatch) {
     const salesTotal = g.sales.reduce((sum, s) => sum + s.total_centavos, 0);
     // only label sections when the report mixes types
     const mixed =
-      [g.sales.length, g.losses.length].filter((n) => n > 0).length > 1;
+      [g.sales.length, g.losses.length, g.expenses.length].filter((n) => n > 0)
+        .length > 1;
     return (
       <Card key={g.key}>
         <CardHeader className="pb-2">
@@ -259,6 +315,8 @@ export function SubmissionsView({
             {g.sales.length} sale{g.sales.length === 1 ? "" : "s"}
             {g.losses.length > 0 &&
               ` · ${g.losses.length} loss${g.losses.length === 1 ? "" : "es"}`}
+            {g.expenses.length > 0 &&
+              ` · ${g.expenses.length} expense${g.expenses.length === 1 ? "" : "s"}`}
             {salesTotal > 0 && ` · ${formatCentavos(salesTotal)}`}
           </CardDescription>
         </CardHeader>
@@ -285,6 +343,16 @@ export function SubmissionsView({
               </div>
             </div>
           )}
+          {g.expenses.length > 0 && (
+            <div>
+              <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                <ReceiptText className="size-3.5" /> EXPENSES
+              </p>
+              <div className="divide-y">
+                {g.expenses.map((e) => renderExpenseRow(e, true))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     );
@@ -308,6 +376,8 @@ export function SubmissionsView({
               {currentSales.length} sale{currentSales.length === 1 ? "" : "s"}
               {currentLosses.length > 0 &&
                 ` · ${currentLosses.length} loss${currentLosses.length === 1 ? "" : "es"}`}
+              {currentExpenses.length > 0 &&
+                ` · ${currentExpenses.length} expense${currentExpenses.length === 1 ? "" : "s"}`}
               {" "}
               in your current report
             </p>
@@ -339,7 +409,8 @@ export function SubmissionsView({
         <TabsContent value="current" className="flex flex-col gap-3 pt-2">
           {currentTotal === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              Nothing recorded yet — new sales and losses land here first.
+              Nothing recorded yet — new sales, losses, and expenses land here
+              first.
             </p>
           ) : (
             <Card>
@@ -351,7 +422,11 @@ export function SubmissionsView({
                   {currentSales.length} sale{currentSales.length === 1 ? "" : "s"}
                   {currentLosses.length > 0 &&
                     ` · ${currentLosses.length} loss${currentLosses.length === 1 ? "" : "es"}`}
-                  {currentValue > 0 && ` · ${formatCentavos(currentValue)} sold`} —
+                  {currentExpenses.length > 0 &&
+                    ` · ${currentExpenses.length} expense${currentExpenses.length === 1 ? "" : "s"}`}
+                  {currentValue > 0 && ` · ${formatCentavos(currentValue)} sold`}
+                  {currentExpenseValue > 0 &&
+                    ` · ${formatCentavos(currentExpenseValue)} spent`} —
                   everything here goes to Admin together.
                 </CardDescription>
               </CardHeader>
@@ -376,6 +451,20 @@ export function SubmissionsView({
                     <div className="divide-y">
                       {currentLosses.map((l) => renderLossRow(l, false))}
                     </div>
+                  </div>
+                )}
+                {currentExpenses.length > 0 && (
+                  <div>
+                    <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                      <ReceiptText className="size-3.5" /> EXPENSES
+                    </p>
+                    <div className="divide-y">
+                      {currentExpenses.map((e) => renderExpenseRow(e, false))}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Expenses can&apos;t be cancelled here — ask Admin to reject
+                      a mistaken one.
+                    </p>
                   </div>
                 )}
               </CardContent>

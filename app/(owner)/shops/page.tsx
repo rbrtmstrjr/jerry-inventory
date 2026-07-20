@@ -11,7 +11,7 @@ export default async function ShopsPage() {
   const [shopsRes, profilesRes, stockRes, enginesRes, pendSalesRes, pendLossesRes, staffRes] = await Promise.all([
     supabase
       .from("shops")
-      .select("id, name, location, latitude, longitude, active")
+      .select("id, name, location, latitude, longitude, active, color_key")
       .is("deleted_at", null)
       .order("name"),
     supabase

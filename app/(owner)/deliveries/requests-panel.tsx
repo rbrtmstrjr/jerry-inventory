@@ -26,12 +26,14 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ShopBadge } from "@/components/shop-badge";
 import { dismissDeliveryRequest } from "./request-actions";
 
 export interface RequestRow {
   id: string;
   shop_id: string;
   shop_name: string;
+  shop_color_key: string | null;
   employee: string;
   status: "open" | "fulfilled" | "dismissed";
   note: string | null;
@@ -113,7 +115,11 @@ export function RequestsPanel({
               <CardHeader className="pb-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <Truck className="size-4" /> {r.shop_name}
+                    <Truck className="size-4" />
+                    <ShopBadge
+                      variant="text"
+                      shop={{ name: r.shop_name, color_key: r.shop_color_key }}
+                    />
                     <Badge variant={STATUS[r.status].variant}>
                       {STATUS[r.status].label}
                     </Badge>
@@ -180,9 +186,12 @@ export function RequestsPanel({
             <Card key={r.id}>
               <CardHeader className="pb-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="text-base">
-                    {r.shop_name}
-                    <Badge variant={STATUS[r.status].variant} className="ml-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <ShopBadge
+                      variant="text"
+                      shop={{ name: r.shop_name, color_key: r.shop_color_key }}
+                    />
+                    <Badge variant={STATUS[r.status].variant}>
                       {STATUS[r.status].label}
                     </Badge>
                   </CardTitle>

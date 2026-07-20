@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   ArrowRight,
+  BellRing,
   ImagePlus,
   Loader2,
   MoreHorizontal,
@@ -26,6 +28,7 @@ import {
   type ProcessedImage,
 } from "@/lib/product-image";
 import { Badge } from "@/components/ui/badge";
+import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -64,6 +67,7 @@ export interface ExpenseRow {
   scope: "shop" | "company";
   shop_id: string | null;
   shop_name: string | null;
+  shop_color_key: string | null;
   delivery_id: string | null;
   description: string;
   paid_to: string | null;
@@ -72,6 +76,10 @@ export interface ExpenseRow {
   receipt_image_path: string | null;
   category_id: string;
   category_name: string;
+  status: "recorded" | "pending" | "questioned" | "approved" | "rejected";
+  source: "owner" | "shop";
+  review_note: string | null;
+  batch_id: string | null;
 }
 
 export interface CategoryOption {
@@ -92,6 +100,21 @@ const METHOD_LABEL: Record<string, string> = {
   bank: "Bank",
   other: "Other",
 };
+
+const STATUS_META: Record<
+  ExpenseRow["status"],
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+> = {
+  recorded: { label: "Recorded", variant: "outline" },
+  pending: { label: "Pending", variant: "outline" },
+  questioned: { label: "Questioned", variant: "outline" },
+  approved: { label: "Approved", variant: "secondary" },
+  rejected: { label: "Rejected", variant: "destructive" },
+};
+
+/** Pending/questioned shop claims belong to the approval flow, not this page. */
+const canEdit = (e: ExpenseRow) =>
+  e.source === "owner" || e.status === "approved";
 
 type ReceiptAction =
   | { type: "keep" }
@@ -117,6 +140,8 @@ export function ExpensesView({
   // list filters
   const [catFilter, setCatFilter] = React.useState("all");
   const [scopeFilter, setScopeFilter] = React.useState("all"); // all | company | shop-id
+  const [statusFilter, setStatusFilter] = React.useState("all"); // all | approved | review | rejected
+  const [sourceFilter, setSourceFilter] = React.useState("all"); // all | owner | shop
   const [fromDate, setFromDate] = React.useState("");
   const [toDate, setToDate] = React.useState("");
 
@@ -129,26 +154,42 @@ export function ExpensesView({
       e.shop_id !== scopeFilter
     )
       return false;
+    if (statusFilter === "approved" && e.status !== "approved") return false;
+    if (statusFilter === "review" && !["pending", "questioned"].includes(e.status))
+      return false;
+    if (statusFilter === "rejected" && e.status !== "rejected") return false;
+    if (sourceFilter !== "all" && e.source !== sourceFilter) return false;
     if (fromDate && e.expense_date < fromDate) return false;
     if (toDate && e.expense_date > toDate) return false;
     return true;
   });
 
-  const filteredTotal = filtered.reduce((s, e) => s + e.amount, 0);
+  // Shop claims awaiting review — decided on /approvals, surfaced loudly here.
+  const awaitingReview = expenses.filter(
+    (e) => e.source === "shop" && (e.status === "pending" || e.status === "questioned")
+  ).length;
+
+  // Money figures count APPROVED rows only — a pending claim isn't spend yet
+  // and a rejected one never was (same rule the reports already enforce).
+  const approvedFiltered = filtered.filter((e) => e.status === "approved");
+  const unapprovedCount = filtered.length - approvedFiltered.length;
+  const filteredTotal = approvedFiltered.reduce((s, e) => s + e.amount, 0);
 
   // Company-wide vs per-shop, over whatever the filters currently show.
   // Company overhead is never spread across shops — it's reported on its own.
-  const companyTotal = filtered
+  const companyTotal = approvedFiltered
     .filter((e) => e.scope === "company")
     .reduce((s, e) => s + e.amount, 0);
   const shopTotal = filteredTotal - companyTotal;
   const perShopTotals = (() => {
-    const m = new Map<string, number>();
-    for (const e of filtered) {
+    const m = new Map<string, { color_key: string | null; amount: number }>();
+    for (const e of approvedFiltered) {
       if (e.scope !== "shop" || !e.shop_name) continue;
-      m.set(e.shop_name, (m.get(e.shop_name) ?? 0) + e.amount);
+      const t = m.get(e.shop_name) ?? { color_key: e.shop_color_key, amount: 0 };
+      t.amount += e.amount;
+      m.set(e.shop_name, t);
     }
-    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+    return [...m.entries()].sort((a, b) => b[1].amount - a[1].amount);
   })();
 
   // recently-used categories first in the dialog
@@ -202,8 +243,32 @@ export function ExpensesView({
         row.original.scope === "company" ? (
           <Badge variant="outline">Company</Badge>
         ) : (
-          <span className="text-sm">{row.original.shop_name}</span>
+          <ShopBadge
+            shop={{
+              name: row.original.shop_name ?? "?",
+              color_key: row.original.shop_color_key,
+            }}
+          />
         ),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => (
+        <div className="flex flex-col items-start gap-0.5">
+          <Badge
+            variant={STATUS_META[row.original.status].variant}
+            title={row.original.review_note ?? undefined}
+          >
+            {STATUS_META[row.original.status].label}
+          </Badge>
+          {row.original.source === "shop" && (
+            <span className="text-[11px] text-muted-foreground">
+              shop-recorded
+            </span>
+          )}
+        </div>
+      ),
     },
     {
       accessorKey: "payment_method",
@@ -243,37 +308,65 @@ export function ExpensesView({
     {
       id: "actions",
       header: "",
-      cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Expense actions">
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => {
-                setEditing(row.original);
-                setDialogOpen(true);
-              }}
-            >
-              <Pencil className="size-4" /> Edit
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => setVoiding(row.original)}
-            >
-              <Trash2 className="size-4" /> Void
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
+      cell: ({ row }) =>
+        canEdit(row.original) ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Expense actions">
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => {
+                  setEditing(row.original);
+                  setDialogOpen(true);
+                }}
+              >
+                <Pencil className="size-4" /> Edit
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => setVoiding(row.original)}
+              >
+                <Trash2 className="size-4" /> Void
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Reviewed on the Approval Queue"
+            title="A shop claim under review is decided on the Approval Queue"
+            disabled
+          >
+            <MoreHorizontal className="size-4" />
+          </Button>
+        ),
     },
   ];
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Shop claims waiting on the owner — decided on /approvals, never here */}
+      {awaitingReview > 0 && (
+        <Link
+          href="/approvals"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warning/50 bg-warning/10 px-4 py-3 transition-colors hover:bg-warning/15"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-warning-foreground">
+            <BellRing className="size-4" />
+            {awaitingReview} shop expense{awaitingReview === 1 ? "" : "s"} awaiting
+            review
+          </span>
+          <span className="flex items-center gap-1 text-sm text-warning-foreground">
+            Review in Approval Queue <ArrowRight className="size-4" />
+          </span>
+        </Link>
+      )}
+
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-2">
         <div className="grid gap-1">
@@ -311,6 +404,27 @@ export function ExpensesView({
             ))}
           </SelectContent>
         </Select>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="approved">Approved</SelectItem>
+            <SelectItem value="review">Pending / questioned</SelectItem>
+            <SelectItem value="rejected">Rejected</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sourceFilter} onValueChange={setSourceFilter}>
+          <SelectTrigger className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All sources</SelectItem>
+            <SelectItem value="owner">Owner-recorded</SelectItem>
+            <SelectItem value="shop">Shop-recorded</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Summary — company overhead and branch running costs are different
@@ -343,11 +457,11 @@ export function ExpensesView({
 
         {perShopTotals.length > 0 && (
           <div className="flex flex-wrap gap-x-6 gap-y-1 px-4 py-2 text-sm">
-            {perShopTotals.map(([name, amount]) => (
-              <span key={name} className="text-muted-foreground">
-                {name}{" "}
+            {perShopTotals.map(([name, t]) => (
+              <span key={name} className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <ShopBadge shop={{ name, color_key: t.color_key }} variant="text" />
                 <span className="font-medium tabular-nums text-foreground">
-                  {formatCentavos(amount)}
+                  {formatCentavos(t.amount)}
                 </span>
               </span>
             ))}
@@ -355,7 +469,12 @@ export function ExpensesView({
         )}
 
         <p className="border-t px-4 py-2 text-xs text-muted-foreground">
-          Operating costs only — supplier payments are stock cost (COGS) and
+          Approved expenses only
+          {unapprovedCount > 0 &&
+            ` (${unapprovedCount} pending/rejected row${
+              unapprovedCount === 1 ? "" : "s"
+            } shown below don't count)`}
+          . Operating costs only — supplier payments are stock cost (COGS) and
           belong in Supplier Payables, not here.
         </p>
       </div>

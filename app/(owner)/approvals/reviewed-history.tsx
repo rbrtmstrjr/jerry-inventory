@@ -11,12 +11,15 @@ import {
   History,
   Search,
   ShoppingCart,
+  Wallet,
   X,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { formatCentavos } from "@/lib/format";
+import type { ShopOption } from "@/lib/db-types";
 import { Badge } from "@/components/ui/badge";
+import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/date-picker";
 import { Input } from "@/components/ui/input";
@@ -31,7 +34,7 @@ import {
 import { ReviewedDetailSheet } from "./reviewed-detail-sheet";
 
 export interface ReviewedItemRow {
-  item_type: "sale" | "loss" | "utang_payment";
+  item_type: "sale" | "loss" | "utang_payment" | "expense";
   id: string;
   shop_id: string;
   shop_name: string;
@@ -67,6 +70,11 @@ export const TYPE_META: Record<
     label: "Payment",
     icon: HandCoins,
     className: "border-success/40 bg-success/10 text-foreground",
+  },
+  expense: {
+    label: "Expense",
+    icon: Wallet,
+    className: "border-muted-foreground/40 bg-muted text-foreground",
   },
 };
 
@@ -110,7 +118,7 @@ export function ReviewedHistory({
   rows: ReviewedItemRow[];
   total: number;
   pageSize: number;
-  shops: { id: string; name: string }[];
+  shops: ShopOption[];
   filters: Filters;
   /** "<type>:<id>" from the URL — makes the drawer deep-linkable */
   openItem: string | null;
@@ -119,6 +127,11 @@ export function ReviewedHistory({
   const pathname = usePathname();
   const params = useSearchParams();
   const [search, setSearch] = React.useState(filters.q);
+  // reviewed_items exposes only shop_id/shop_name — color comes from the shops list
+  const colorByShop = React.useMemo(
+    () => new Map(shops.map((s) => [s.id, s.color_key])),
+    [shops]
+  );
 
   /** Write filter state into the URL so it survives refresh/share. */
   const setParam = React.useCallback(
@@ -151,8 +164,8 @@ export function ReviewedHistory({
           <History className="size-5" /> Reviewed History
         </h2>
         <p className="text-sm text-muted-foreground">
-          Everything already decided — sales, losses and utang payments. Click a
-          row to inspect it. Read-only.
+          Everything already decided — sales, losses, utang payments and shop
+          expenses. Click a row to inspect it. Read-only.
         </p>
       </div>
 
@@ -189,6 +202,7 @@ export function ReviewedHistory({
               <SelectItem value="sale">Sales</SelectItem>
               <SelectItem value="loss">Losses</SelectItem>
               <SelectItem value="utang_payment">Utang payments</SelectItem>
+              <SelectItem value="expense">Expenses</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -303,7 +317,14 @@ export function ReviewedHistory({
                 <td className="px-3 py-2">
                   <TypeBadge type={r.item_type} />
                 </td>
-                <td className="px-3 py-2 text-muted-foreground">{r.shop_name}</td>
+                <td className="px-3 py-2">
+                  <ShopBadge
+                    shop={{
+                      name: r.shop_name,
+                      color_key: colorByShop.get(r.shop_id) ?? null,
+                    }}
+                  />
+                </td>
                 <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">
                   {format(new Date(r.event_at), "MMM d, yyyy h:mm a")}
                 </td>
@@ -361,6 +382,7 @@ export function ReviewedHistory({
 
       <ReviewedDetailSheet
         openItem={openItem}
+        shops={shops}
         onClose={() => setParam({ item: null })}
       />
     </section>

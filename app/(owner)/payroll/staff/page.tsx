@@ -13,7 +13,7 @@ export default async function StaffPage() {
       .select(
         `id, full_name, shop_id, position_id, pay_type, pay_rate, date_hired, active, notes,
          sss_no, philhealth_no, pagibig_no, contributions_enabled,
-         shops(name), positions(title)`
+         shops(name, color_key), positions(title)`
       )
       .is("deleted_at", null)
       .order("full_name"),
@@ -32,6 +32,7 @@ export default async function StaffPage() {
     full_name: s.full_name,
     shop_id: s.shop_id,
     shop_name: s.shops?.name ?? "?",
+    shop_color_key: s.shops?.color_key ?? null,
     position_id: s.position_id,
     position: s.positions?.title ?? null,
     pay_type: s.pay_type,

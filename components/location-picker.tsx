@@ -18,12 +18,15 @@ export interface LatLng {
 // Cebu as a sensible starting view when no pin exists yet
 const DEFAULT_CENTER: LatLng = { lat: 10.3157, lng: 123.8854 };
 
-/** Themed SVG pin (avoids Leaflet's bundler-broken default icon assets). */
-const PIN_SVG = `
+/** Themed SVG pin (avoids Leaflet's bundler-broken default icon assets).
+ *  Fill is a CSS color/token expression — divIcon HTML lives in the DOM, so
+ *  var(--…) resolves against the theme (shop pins pass their palette token). */
+const pinSvg = (fill: string) => `
 <svg xmlns="http://www.w3.org/2000/svg" width="30" height="42" viewBox="0 0 30 42">
-  <path d="M15 0C6.7 0 0 6.7 0 15c0 11 15 27 15 27s15-16 15-27C30 6.7 23.3 0 15 0z" fill="#1e5a96"/>
-  <circle cx="15" cy="15" r="6" fill="#ffffff"/>
+  <path d="M15 0C6.7 0 0 6.7 0 15c0 11 15 27 15 27s15-16 15-27C30 6.7 23.3 0 15 0z" fill="${fill}"/>
+  <circle cx="15" cy="15" r="6" fill="var(--background)"/>
 </svg>`;
+const PIN_SVG = pinSvg("var(--primary)");
 
 /**
  * Small read-only map preview with a pin — clicking opens Google Maps.
@@ -34,11 +37,14 @@ export function MapPreview({
   lng,
   label,
   className,
+  pinColor,
 }: {
   lat: number;
   lng: number;
   label: string;
   className?: string;
+  /** CSS color expression (a theme token like `var(--shop-teal-strong)`). */
+  pinColor?: string;
 }) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<LeafletMap | null>(null);
@@ -67,7 +73,7 @@ export function MapPreview({
       }).addTo(map);
       L.marker([lat, lng], {
         icon: L.divIcon({
-          html: PIN_SVG,
+          html: pinColor ? pinSvg(pinColor) : PIN_SVG,
           className: "",
           iconSize: [30, 42],
           iconAnchor: [15, 42],

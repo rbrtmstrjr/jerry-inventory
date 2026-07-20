@@ -6,6 +6,7 @@ import { type ColumnDef } from "@tanstack/react-table";
 import {
   Barcode,
   FolderCog,
+  GitMerge,
   MoreHorizontal,
   PackagePlus,
   Pencil,
@@ -43,6 +44,7 @@ import { generateInternalBarcode, softDeletePart } from "./actions";
 import { PartFormDialog } from "./part-form-dialog";
 import { FitmentDialog } from "./fitment-dialog";
 import { CategoryManagerDialog } from "./reference-data-dialogs";
+import { MergeDuplicatesDialog } from "./merge-dialog";
 import {
   SupplierPricesDialog,
   provenanceLabel,
@@ -68,6 +70,7 @@ export function PartsTable({
   const [deleting, setDeleting] = React.useState<PartRow | null>(null);
   const [pricesFor, setPricesFor] = React.useState<PartRow | null>(null);
   const [catMgrOpen, setCatMgrOpen] = React.useState(false);
+  const [mergeOpen, setMergeOpen] = React.useState(false);
   const [view, setView] = usePersistedView("jm-view-owner-parts");
   const [cardSearch, setCardSearch] = React.useState("");
 
@@ -134,6 +137,9 @@ export function PartsTable({
   // direct INSERT at the database). This page is view + edit.
   const toolbarButtons = (
     <>
+      <Button variant="outline" onClick={() => setMergeOpen(true)}>
+        <GitMerge className="size-4" /> Merge duplicates
+      </Button>
       <Button variant="outline" onClick={() => setCatMgrOpen(true)}>
         <FolderCog className="size-4" /> Categories
       </Button>
@@ -210,10 +216,15 @@ export function PartsTable({
     {
       accessorKey: "price_centavos",
       header: ({ column }) => <SortableHeader column={column}>Price</SortableHeader>,
-      cell: ({ getValue }) => (
-        <span className="tabular-nums font-medium">
-          {formatCentavos(getValue<number>())}
-        </span>
+      cell: ({ row }) => (
+        <div className="flex items-center gap-1.5">
+          <span className="tabular-nums font-medium">
+            {formatCentavos(row.original.price_centavos)}
+          </span>
+          {row.original.price_centavos <= row.original.cost_centavos && (
+            <Badge variant="destructive">Below cost</Badge>
+          )}
+        </div>
       ),
     },
     {
@@ -374,8 +385,13 @@ export function PartsTable({
                         {p.category_name ?? "—"}
                       </div>
                       <div className="mt-auto flex items-baseline justify-between pt-1.5">
-                        <span className="text-base font-semibold tabular-nums">
-                          {formatCentavos(p.price_centavos)}
+                        <span className="flex items-baseline gap-1.5">
+                          <span className="text-base font-semibold tabular-nums">
+                            {formatCentavos(p.price_centavos)}
+                          </span>
+                          {p.price_centavos <= p.cost_centavos && (
+                            <Badge variant="destructive">Below cost</Badge>
+                          )}
                         </span>
                         {margin !== null && (
                           <span className="text-xs text-muted-foreground">
@@ -423,6 +439,11 @@ export function PartsTable({
         open={catMgrOpen}
         categories={categories}
         onClose={() => setCatMgrOpen(false)}
+      />
+      <MergeDuplicatesDialog
+        open={mergeOpen}
+        parts={parts.map((p) => ({ id: p.id, name: p.name, sku: p.sku }))}
+        onClose={() => setMergeOpen(false)}
       />
       <ConfirmDialog
         open={deleting !== null}

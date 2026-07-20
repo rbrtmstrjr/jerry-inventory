@@ -7,8 +7,9 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { Loader2, Package, Printer, Store, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import type { MasterLowStockRow, ShopLowStockRow } from "@/lib/db-types";
+import type { MasterLowStockRow, ShopLowStockRow, ShopOption } from "@/lib/db-types";
 import { Badge } from "@/components/ui/badge";
+import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ export interface OverrideRow {
   id: string;
   shop_id: string;
   shop_name: string;
+  shop_color_key: string | null;
   kind: "part" | "engine_model";
   product_id: string;
   product_name: string;
@@ -60,10 +62,11 @@ export function StockAlertsView({
   shopLow: ShopLowStockRow[];
   products: ProductThresholdRow[];
   overrides: OverrideRow[];
-  shops: { id: string; name: string }[];
+  shops: ShopOption[];
   suppliers: { id: string; name: string }[];
 }) {
   const [shopFilter, setShopFilter] = React.useState("all");
+  const colorByShopId = new Map(shops.map((s) => [s.id, s.color_key]));
 
   const shopRows =
     shopFilter === "all" ? shopLow : shopLow.filter((r) => r.shop_id === shopFilter);
@@ -116,6 +119,14 @@ export function StockAlertsView({
     {
       accessorKey: "shop_name",
       header: ({ column }) => <SortableHeader column={column}>Shop</SortableHeader>,
+      cell: ({ row }) => (
+        <ShopBadge
+          shop={{
+            name: row.original.shop_name,
+            color_key: colorByShopId.get(row.original.shop_id) ?? null,
+          }}
+        />
+      ),
     },
     {
       accessorKey: "name",
@@ -510,7 +521,7 @@ function OverrideEditor({
                 key={o.id}
                 className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm"
               >
-                <Badge variant="outline">{o.shop_name}</Badge>
+                <ShopBadge shop={{ name: o.shop_name, color_key: o.shop_color_key }} />
                 <span className="min-w-0 flex-1 truncate font-medium">
                   {o.product_name}
                 </span>

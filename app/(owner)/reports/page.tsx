@@ -97,7 +97,7 @@ export default async function ReportsPage({
     await Promise.all([
       salesQuery,
       lossesQuery,
-      supabase.from("shops").select("id, name").is("deleted_at", null).order("name"),
+      supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
       supabase
         .from("stock_levels")
         .select("qty, shop_id, shops(name), parts!inner(name, reorder_level, deleted_at)")

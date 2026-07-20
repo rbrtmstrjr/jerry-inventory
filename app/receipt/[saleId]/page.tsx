@@ -125,7 +125,8 @@ export default async function ReceiptPage({
                     {formatCentavos(l.line_total_centavos)}
                   </span>
                 </div>
-                {l.engine_id && discount > 0 && l.list_reference_centavos != null && (
+                {/* 0053: any discounted line (parts too) shows the tawad */}
+                {discount > 0 && l.list_reference_centavos != null && (
                   <div className="text-xs text-muted-foreground">
                     Was {formatCentavos(l.list_reference_centavos)} ·{" "}
                     {formatCentavos(discount)} off

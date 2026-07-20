@@ -68,6 +68,7 @@ export async function PnlTab({ from, to }: { from: string; to: string }) {
     supabase
       .from("expenses")
       .select("amount, scope, expense_categories(name)")
+      .eq("status", "approved")
       .gte("expense_date", from)
       .lte("expense_date", to)
       .is("deleted_at", null),

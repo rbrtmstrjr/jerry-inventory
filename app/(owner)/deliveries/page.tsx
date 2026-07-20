@@ -9,6 +9,7 @@ export interface TransferHistoryRow {
   id: string;
   at: string;
   shop_name: string;
+  shop_color_key: string | null;
   note: string | null;
   part_lines: number;
   engine_lines: number;
@@ -24,6 +25,7 @@ export interface DiscrepancyRow {
   delivery_id: string;
   delivery_line_id: string;
   shop_name: string;
+  shop_color_key: string | null;
   delivered_at: string;
   status: string;
   name: string;
@@ -90,7 +92,7 @@ export default async function DeliveriesPage({
   ] = await Promise.all([
       supabase
         .from("shops")
-        .select("id, name")
+        .select("id, name, color_key")
         .eq("active", true)
         .is("deleted_at", null)
         .order("name"),
@@ -115,14 +117,14 @@ export default async function DeliveriesPage({
       supabase
         .from("deliveries")
         .select(
-          "id, delivered_at, note, status, shops(name), delivery_lines(part_id, engine_id, qty, qty_outstanding)"
+          "id, delivered_at, note, status, shops(name, color_key), delivery_lines(part_id, engine_id, qty, qty_outstanding)"
         )
         .is("deleted_at", null)
         .order("delivered_at", { ascending: false })
         .limit(100),
       supabase
         .from("returns")
-        .select("id, returned_at, reason, shops(name), return_lines(part_id, engine_id, qty)")
+        .select("id, returned_at, reason, shops(name, color_key), return_lines(part_id, engine_id, qty)")
         .is("deleted_at", null)
         .order("returned_at", { ascending: false })
         .limit(100),
@@ -134,7 +136,7 @@ export default async function DeliveriesPage({
         .from("delivery_requests")
         .select(
           `id, shop_id, status, note, owner_note, created_at, fulfilled_at, fulfilled_delivery_id,
-           shops(name),
+           shops(name, color_key),
            profiles!delivery_requests_requested_by_fkey(full_name),
            delivery_request_lines(qty_requested, note, parts(name, unit), engine_models(brand, model))`
         )
@@ -236,6 +238,7 @@ export default async function DeliveriesPage({
       id: d.id,
       at: d.delivered_at,
       shop_name: d.shops?.name ?? "?",
+      shop_color_key: d.shops?.color_key ?? null,
       note: d.note,
       part_lines: (d.delivery_lines ?? []).filter((l: any) => l.part_id).length,
       engine_lines: (d.delivery_lines ?? []).filter((l: any) => l.engine_id).length,
@@ -251,6 +254,7 @@ export default async function DeliveriesPage({
       id: r.id,
       at: r.returned_at,
       shop_name: r.shops?.name ?? "?",
+      shop_color_key: r.shops?.color_key ?? null,
       note: r.reason,
       part_lines: (r.return_lines ?? []).filter((l: any) => l.part_id).length,
       engine_lines: (r.return_lines ?? []).filter((l: any) => l.engine_id).length,
@@ -262,10 +266,14 @@ export default async function DeliveriesPage({
   ];
 
   // Everything currently between master and a shop.
+  const shopColorById = new Map<string, string | null>(
+    (shopsRes.data ?? []).map((s: any) => [s.id, s.color_key ?? null])
+  );
   const transit: DiscrepancyRow[] = (transitRes.data ?? []).map((t: any) => ({
     delivery_id: t.delivery_id,
     delivery_line_id: t.delivery_line_id,
     shop_name: t.shop_name,
+    shop_color_key: shopColorById.get(t.shop_id) ?? null,
     delivered_at: t.delivered_at,
     status: t.delivery_status,
     name: t.name,
@@ -281,6 +289,7 @@ export default async function DeliveriesPage({
     id: r.id,
     shop_id: r.shop_id,
     shop_name: r.shops?.name ?? "?",
+    shop_color_key: r.shops?.color_key ?? null,
     employee: r.profiles?.full_name ?? "?",
     status: r.status,
     note: r.note,

@@ -129,7 +129,7 @@ section("Deactivate:");
   const { data: stock } = await empA.from("shop_stock").select("*").limit(1);
   check("deactivated: shop + stock access gone", (shops ?? []).length === 0 && (stock ?? []).length === 0);
   const { error: recErr } = await empA.rpc("fn_record_sale", {
-    p_customer_id: null, p_customer: null, p_part_lines: [], p_engine_ids: [],
+    p_customer_id: null, p_customer: null, p_part_lines: [], p_engine_lines: [],
   });
   check(
     "deactivated: cannot record sales",

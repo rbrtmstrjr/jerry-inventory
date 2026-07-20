@@ -116,6 +116,7 @@ const EMPLOYEE_NAV: NavGroup[] = [
       { href: "/shop/record-sale", label: "Record Sale", icon: ShoppingCart },
       { href: "/shop/record-loss", label: "Record Loss", icon: AlertTriangle },
       { href: "/shop/receivables", label: "Receivables", icon: HandCoins },
+      { href: "/shop/expenses", label: "Expenses", icon: ReceiptText },
       { href: "/shop/warranties", label: "Warranties", icon: ShieldCheck },
       { href: "/shop/submissions", label: "Submissions", icon: Send },
     ],

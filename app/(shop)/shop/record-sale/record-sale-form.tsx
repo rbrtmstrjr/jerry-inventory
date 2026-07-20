@@ -39,7 +39,9 @@ interface CartPart {
   part_id: string;
   name: string;
   unit: string;
-  price_centavos: number;
+  cost_centavos: number;
+  price_centavos: number; // catalog selling price
+  priceRaw: string; // pesos string — the editable per-unit price
   available: number;
   qty: number;
 }
@@ -48,13 +50,13 @@ interface CartEngine {
   engine_id: string;
   label: string;
   serial: string;
-  price_floor: number;
-  price_mid: number;
-  price_asking: number;
-  agreedRaw: string; // pesos string — single source for the agreed price
+  cost_centavos: number;
+  price_centavos: number; // catalog selling price
+  agreedRaw: string; // pesos string — the editable per-unit price
 }
 type CartLine = CartPart | CartEngine;
 
+const partPrice = (l: CartPart) => parsePesosToCentavos(l.priceRaw) ?? 0;
 const engineAgreed = (l: CartEngine) => parsePesosToCentavos(l.agreedRaw) ?? 0;
 
 export function RecordSaleForm({
@@ -85,8 +87,8 @@ export function RecordSaleForm({
   }, []);
 
   // Draft survives a refresh or brief WiFi drop — restore once on mount.
-  // v2: engine lines now carry tier prices + agreed price (old drafts ignored).
-  const CART_KEY = "jm-sale-draft-v2";
+  // v3: every line now carries cost + an editable per-unit price (old drafts ignored).
+  const CART_KEY = "jm-sale-draft-v3";
   React.useEffect(() => {
     try {
       const raw = localStorage.getItem(CART_KEY);
@@ -114,7 +116,7 @@ export function RecordSaleForm({
 
   const hasEngine = cart.some((l) => l.kind === "engine");
   const total = cart.reduce(
-    (s, l) => s + (l.kind === "part" ? l.price_centavos * l.qty : engineAgreed(l)),
+    (s, l) => s + (l.kind === "part" ? partPrice(l) * l.qty : engineAgreed(l)),
     0
   );
 
@@ -130,9 +132,9 @@ export function RecordSaleForm({
     paymentType === "partial" ? parsePesosToCentavos(downpayment || "0") ?? 0 : total;
   const balanceDue = Math.max(0, total - amountPaid);
 
-  // any engine negotiated below its floor?
-  const belowFloor = cart.some(
-    (l) => l.kind === "engine" && engineAgreed(l) < l.price_floor
+  // any line priced at or below its cost? the server rejects it, so block Save.
+  const belowCost = cart.some((l) =>
+    l.kind === "part" ? partPrice(l) <= l.cost_centavos : engineAgreed(l) <= l.cost_centavos
   );
 
   function addPart(p: ShopStockRow) {
@@ -153,7 +155,9 @@ export function RecordSaleForm({
           part_id: p.part_id,
           name: p.name,
           unit: p.unit,
+          cost_centavos: p.cost_centavos,
           price_centavos: p.price_centavos,
+          priceRaw: (p.price_centavos / 100).toFixed(2),
           available: p.qty,
           qty: 1,
         },
@@ -175,14 +179,21 @@ export function RecordSaleForm({
           engine_id: e.engine_id,
           serial: e.serial_number,
           label: `${e.brand} ${e.model}${e.horsepower != null ? ` ${e.horsepower}HP` : ""}`,
-          price_floor: e.price_floor_centavos,
-          price_mid: e.price_mid_centavos,
-          price_asking: e.price_asking_centavos,
-          // default the agreed price to the asking tier
-          agreedRaw: (e.price_asking_centavos / 100).toFixed(2),
+          cost_centavos: e.cost_centavos,
+          price_centavos: e.price_centavos,
+          // default the agreed price to the catalog selling price
+          agreedRaw: (e.price_centavos / 100).toFixed(2),
         },
       ];
     });
+  }
+
+  function setPartPrice(partId: string, raw: string) {
+    setCart((c) =>
+      c.map((l) =>
+        l.kind === "part" && l.part_id === partId ? { ...l, priceRaw: raw } : l
+      )
+    );
   }
 
   function setEngineAgreed(engineId: string, raw: string) {
@@ -262,19 +273,26 @@ export function RecordSaleForm({
       return;
     }
     for (const l of cart) {
-      if (l.kind === "part" && l.qty > l.available) {
-        toast.error(`${l.name}: only ${l.available} ${l.unit} on hand`);
-        return;
-      }
-      if (l.kind === "engine") {
-        const agreed = engineAgreed(l);
-        if (agreed <= 0) {
-          toast.error(`${l.label}: enter an agreed price`);
+      if (l.kind === "part") {
+        if (l.qty > l.available) {
+          toast.error(`${l.name}: only ${l.available} ${l.unit} on hand`);
           return;
         }
-        if (agreed < l.price_floor) {
+        if (partPrice(l) <= l.cost_centavos) {
           toast.error(
-            `${l.label}: ${formatCentavos(agreed)} is below the floor ${formatCentavos(l.price_floor)}`
+            `${l.name}: can't sell at or below cost ${formatCentavos(l.cost_centavos)}`
+          );
+          return;
+        }
+      } else {
+        const agreed = engineAgreed(l);
+        if (agreed <= 0) {
+          toast.error(`${l.label}: enter a price`);
+          return;
+        }
+        if (agreed <= l.cost_centavos) {
+          toast.error(
+            `${l.label}: can't sell at or below cost ${formatCentavos(l.cost_centavos)}`
           );
           return;
         }
@@ -299,7 +317,11 @@ export function RecordSaleForm({
         : null,
       part_lines: cart
         .filter((l): l is CartPart => l.kind === "part")
-        .map((l) => ({ part_id: l.part_id, qty: l.qty })),
+        .map((l) => ({
+          part_id: l.part_id,
+          qty: l.qty,
+          unit_price_centavos: partPrice(l),
+        })),
       engine_lines: cart
         .filter((l): l is CartEngine => l.kind === "engine")
         .map((l) => ({ engine_id: l.engine_id, agreed_price_centavos: engineAgreed(l) })),
@@ -439,7 +461,7 @@ export function RecordSaleForm({
                   <span className="flex shrink-0 items-center gap-2">
                     <Badge variant="secondary">Engine</Badge>
                     <span className="tabular-nums font-medium">
-                      {formatCentavos(en.price_asking_centavos)}
+                      {formatCentavos(en.price_centavos)}
                     </span>
                   </span>
                 </button>
@@ -476,42 +498,12 @@ export function RecordSaleForm({
               <div className="flex flex-col gap-2">
                 {cart.map((l) =>
                   l.kind === "part" ? (
-                    <div
+                    <PartCartLine
                       key={l.part_id}
-                      className="flex items-center gap-2 rounded-md border px-3 py-2.5"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">{l.name}</div>
-                        <div className="text-xs text-muted-foreground tabular-nums">
-                          {formatCentavos(l.price_centavos)} × {l.qty} ={" "}
-                          <span className="font-medium text-foreground">
-                            {formatCentavos(l.price_centavos * l.qty)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="outline"
-                          size="icon-sm"
-                          aria-label="Decrease"
-                          onClick={() => setQty(l.part_id, l.qty - 1)}
-                        >
-                          <Minus className="size-3" />
-                        </Button>
-                        <span className="w-8 text-center tabular-nums text-sm">
-                          {l.qty}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="icon-sm"
-                          aria-label="Increase"
-                          disabled={l.qty >= l.available}
-                          onClick={() => setQty(l.part_id, l.qty + 1)}
-                        >
-                          <Plus className="size-3" />
-                        </Button>
-                      </div>
-                    </div>
+                      line={l}
+                      onPriceChange={(raw) => setPartPrice(l.part_id, raw)}
+                      onQty={(qty) => setQty(l.part_id, qty)}
+                    />
                   ) : (
                     <EngineCartLine
                       key={l.engine_id}
@@ -662,7 +654,7 @@ export function RecordSaleForm({
 
                 <Button
                   onClick={onSubmit}
-                  disabled={submitting || belowFloor}
+                  disabled={submitting || belowCost}
                   className="self-end"
                 >
                   {submitting ? (
@@ -681,7 +673,65 @@ export function RecordSaleForm({
   );
 }
 
-/** Engine cart line: tier quick-picks + a negotiable agreed price with floor guard. */
+/** Part cart line: qty controls + read-only cost and a negotiable per-unit price. */
+function PartCartLine({
+  line,
+  onPriceChange,
+  onQty,
+}: {
+  line: CartPart;
+  onPriceChange: (raw: string) => void;
+  onQty: (qty: number) => void;
+}) {
+  const price = partPrice(line);
+  const below = price <= line.cost_centavos;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">{line.name}</div>
+          <div className="text-xs text-muted-foreground tabular-nums">
+            {formatCentavos(price)} × {line.qty} ={" "}
+            <span className="font-medium text-foreground">
+              {formatCentavos(price * line.qty)}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label="Decrease"
+            onClick={() => onQty(line.qty - 1)}
+          >
+            <Minus className="size-3" />
+          </Button>
+          <span className="w-8 text-center tabular-nums text-sm">{line.qty}</span>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label="Increase"
+            disabled={line.qty >= line.available}
+            onClick={() => onQty(line.qty + 1)}
+          >
+            <Plus className="size-3" />
+          </Button>
+        </div>
+      </div>
+
+      <PriceRow
+        id={`part-price-${line.part_id}`}
+        cost_centavos={line.cost_centavos}
+        priceRaw={line.priceRaw}
+        below={below}
+        onPriceChange={onPriceChange}
+      />
+    </div>
+  );
+}
+
+/** Engine cart line: read-only cost and a negotiable per-unit price. */
 function EngineCartLine({
   line,
   onAgreedChange,
@@ -692,12 +742,7 @@ function EngineCartLine({
   onRemove: () => void;
 }) {
   const agreed = engineAgreed(line);
-  const below = agreed < line.price_floor;
-  const tiers = [
-    { label: "Floor", value: line.price_floor },
-    { label: "Mid", value: line.price_mid },
-    { label: "Asking", value: line.price_asking },
-  ];
+  const below = agreed <= line.cost_centavos;
 
   return (
     <div className="flex flex-col gap-2 rounded-md border px-3 py-2.5">
@@ -723,50 +768,59 @@ function EngineCartLine({
         </Button>
       </div>
 
-      {/* Tier quick-picks */}
-      <div className="grid grid-cols-3 gap-1.5">
-        {tiers.map((t) => (
-          <button
-            key={t.label}
-            type="button"
-            onClick={() => onAgreedChange((t.value / 100).toFixed(2))}
-            className={cn(
-              "rounded-md border px-2 py-1.5 text-center transition-colors hover:bg-accent",
-              agreed === t.value && "border-primary bg-primary/10"
-            )}
-          >
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {t.label}
-            </div>
-            <div className="text-xs font-semibold tabular-nums">
-              {formatCentavos(t.value)}
-            </div>
-          </button>
-        ))}
-      </div>
+      <PriceRow
+        id={`engine-price-${line.engine_id}`}
+        cost_centavos={line.cost_centavos}
+        priceRaw={line.agreedRaw}
+        below={below}
+        onPriceChange={onAgreedChange}
+      />
+    </div>
+  );
+}
 
-      {/* Agreed price */}
+/** Read-only cost + editable per-unit price, floored strictly above cost. */
+function PriceRow({
+  id,
+  cost_centavos,
+  priceRaw,
+  below,
+  onPriceChange,
+}: {
+  id: string;
+  cost_centavos: number;
+  priceRaw: string;
+  below: boolean;
+  onPriceChange: (raw: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
       <div className="grid gap-1.5">
-        <Label htmlFor={`agreed-${line.engine_id}`} className="text-xs">
-          Agreed price ₱
+        <Label className="text-xs text-muted-foreground">Cost ₱</Label>
+        <div className="flex h-9 items-center rounded-md border border-dashed bg-muted/40 px-3 text-sm tabular-nums text-muted-foreground">
+          {formatCentavos(cost_centavos)}
+        </div>
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor={id} className="text-xs">
+          Price ₱
         </Label>
         <Input
-          id={`agreed-${line.engine_id}`}
+          id={id}
           inputMode="decimal"
-          value={line.agreedRaw}
-          onChange={(e) => onAgreedChange(e.target.value.replace(/[^\d.]/g, ""))}
+          value={priceRaw}
+          onChange={(e) => onPriceChange(e.target.value.replace(/[^\d.]/g, ""))}
           className={cn(
             "text-base tabular-nums",
             below && "border-destructive focus-visible:ring-destructive"
           )}
         />
-        {below && (
-          <p className="text-xs font-medium text-destructive">
-            Below the floor {formatCentavos(line.price_floor)} — the owner won&apos;t
-            allow this. Raise the price.
-          </p>
-        )}
       </div>
+      {below && (
+        <p className="col-span-2 text-xs font-medium text-destructive">
+          Can&apos;t sell at or below cost {formatCentavos(cost_centavos)}
+        </p>
+      )}
     </div>
   );
 }

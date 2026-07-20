@@ -21,6 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ShopBadge } from "@/components/shop-badge";
 import type { DiscrepancyRow } from "./page";
 import { resolveDeliveryDiscrepancy } from "./actions";
 
@@ -106,10 +107,16 @@ export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
                   )}
                   {t.name}
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {t.shop_name} · sent {t.qty_sent}, received {t.qty_received ?? 0}{" "}
-                  · {format(new Date(t.delivered_at), "MMM d")}
-                  {t.shop_note && ` · “${t.shop_note}”`}
+                <div className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+                  <ShopBadge
+                    variant="text"
+                    shop={{ name: t.shop_name, color_key: t.shop_color_key }}
+                  />
+                  <span>
+                    · sent {t.qty_sent}, received {t.qty_received ?? 0} ·{" "}
+                    {format(new Date(t.delivered_at), "MMM d")}
+                    {t.shop_note && ` · “${t.shop_note}”`}
+                  </span>
                 </div>
               </div>
               <span className="text-sm font-semibold tabular-nums text-warning-foreground">
@@ -139,9 +146,14 @@ export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{t.name}</div>
-                <div className="text-xs text-muted-foreground">
-                  {t.shop_name} · sent{" "}
-                  {format(new Date(t.delivered_at), "MMM d, h:mm a")}
+                <div className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+                  <ShopBadge
+                    variant="text"
+                    shop={{ name: t.shop_name, color_key: t.shop_color_key }}
+                  />
+                  <span>
+                    · sent {format(new Date(t.delivered_at), "MMM d, h:mm a")}
+                  </span>
                 </div>
               </div>
               <span className="text-sm tabular-nums">

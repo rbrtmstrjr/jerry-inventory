@@ -17,7 +17,9 @@ import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
 import { ph_today } from "@/lib/ph-date";
+import type { ShopOption } from "@/lib/db-types";
 import { Badge } from "@/components/ui/badge";
+import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -65,6 +67,7 @@ export interface WarrantyRow {
   customer: string;
   customer_phone: string | null;
   shop: string | null;
+  shop_color_key: string | null;
   sold_on: string;
   months: number;
   expires_on: string;
@@ -79,6 +82,7 @@ export interface SerialRow {
   horsepower: number | null;
   status: "in_master" | "delivered" | "sold" | "returned" | "written_off";
   shop: string | null;
+  shop_color_key: string | null;
   customer: string | null;
   customer_phone: string | null;
   sold_at: string | null;
@@ -121,7 +125,7 @@ export function WarrantiesView({
   warranties: WarrantyRow[];
   serials: SerialRow[];
   today: string;
-  shops?: { id: string; name: string }[];
+  shops?: ShopOption[];
 }) {
   const [claimsFor, setClaimsFor] = React.useState<WarrantyRow | null>(null);
   const [journeyFor, setJourneyFor] = React.useState<SerialRow | null>(null);
@@ -170,13 +174,14 @@ export function WarrantiesView({
     {
       accessorKey: "shop",
       header: ({ column }) => <SortableHeader column={column}>Sold by</SortableHeader>,
-      cell: ({ getValue }) => (
-        <span className="text-sm">
-          {getValue<string | null>() ?? (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </span>
-      ),
+      cell: ({ row }) =>
+        row.original.shop ? (
+          <ShopBadge
+            shop={{ name: row.original.shop, color_key: row.original.shop_color_key }}
+          />
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        ),
     },
     {
       accessorKey: "sold_on",
@@ -268,7 +273,13 @@ export function WarrantiesView({
             <Badge variant={s.variant}>{s.label}</Badge>
             {row.original.shop && row.original.status === "delivered" && (
               <div className="mt-0.5 text-xs text-muted-foreground">
-                {row.original.shop}
+                <ShopBadge
+                  shop={{
+                    name: row.original.shop,
+                    color_key: row.original.shop_color_key,
+                  }}
+                  variant="text"
+                />
               </div>
             )}
           </div>
@@ -350,7 +361,7 @@ export function WarrantiesView({
                     <SelectItem value="all">All shops</SelectItem>
                     {shops.map((s) => (
                       <SelectItem key={s.id} value={s.name}>
-                        {s.name}
+                        <ShopBadge shop={s} variant="text" />
                       </SelectItem>
                     ))}
                   </SelectContent>
