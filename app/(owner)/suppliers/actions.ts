@@ -235,6 +235,12 @@ const receivingSchema = z
       .default(null),
     override: z.boolean().default(false),
     override_reason: z.string().trim().max(500).optional().nullable(),
+    /** How the up-front money moved. Same set as supplier_payments.method. */
+    payment_method: z
+      .enum(["cash", "bank", "gcash", "check", "other"])
+      .nullable()
+      .default(null),
+    reference_no: z.string().trim().max(100).nullable().default(null),
   })
   .refine((v) => v.parts.length + v.engines.length > 0, {
     message: "Add at least one line",
@@ -258,6 +264,8 @@ export async function receiveStock(
     p_due_date: parsed.data.due_date,
     p_override: parsed.data.override,
     p_override_reason: parsed.data.override_reason || null,
+    p_payment_method: parsed.data.payment_method,
+    p_reference_no: parsed.data.reference_no || null,
   });
   if (error) {
     if (error.code === "23505") {

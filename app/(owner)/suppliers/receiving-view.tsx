@@ -381,7 +381,7 @@ function NewProductDialog({
                     set({ generate_barcode: v === true, barcode: "" })
                   }
                 />
-                Generate a JM barcode (unbranded goods)
+                Generate a GT barcode (unbranded goods)
               </label>
             </div>
           </div>
@@ -623,43 +623,51 @@ function BulkNewProductsDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-5xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Bulk new products</DialogTitle>
           <DialogDescription>
-            One row per brand-new item — all land as lines on this receiving.
-            Enter in the last column adds a row.
+            One card per brand-new item — all land as lines on this receiving.
+            Press Enter on Reorder to add another.
           </DialogDescription>
         </DialogHeader>
-        <div className="thin-scrollbar max-h-[55vh] overflow-auto">
-          <table className="w-full min-w-[64rem] text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground">
-                <th className="p-1 font-medium">#</th>
-                <th className="p-1 font-medium">Name *</th>
-                <th className="p-1 font-medium">Category</th>
-                <th className="p-1 font-medium">Barcode</th>
-                <th className="p-1 font-medium">JM</th>
-                <th className="p-1 font-medium">Unit</th>
-                <th className="p-1 font-medium">Qty</th>
-                <th className="p-1 font-medium">Cost ₱</th>
-                <th className="p-1 font-medium">Price ₱</th>
-                <th className="p-1 font-medium">Reorder</th>
-                <th className="p-1" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i} className="align-top">
-                  <td className="p-1 pt-3 text-xs text-muted-foreground">{i + 1}</td>
-                  <td className="min-w-44 p-1">
-                    <Input
-                      value={r.name}
-                      onChange={(e) => setRow(i, { name: e.target.value })}
-                      placeholder="Item name"
-                    />
-                  </td>
-                  <td className="min-w-32 p-1">
+        <div className="thin-scrollbar flex max-h-[60vh] flex-col gap-3 overflow-y-auto pr-1">
+          {rows.map((r, i) => (
+            <div key={i} className="rounded-lg border bg-muted/20 p-3">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground">
+                  Product {i + 1}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Remove product ${i + 1}`}
+                  onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}
+                  disabled={rows.length === 1}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+
+              <div className="grid gap-3">
+                {/* Name — full width */}
+                <div className="grid gap-1.5">
+                  <Label className="text-xs" htmlFor={`bulk-name-${i}`}>
+                    Name *
+                  </Label>
+                  <Input
+                    id={`bulk-name-${i}`}
+                    value={r.name}
+                    onChange={(e) => setRow(i, { name: e.target.value })}
+                    placeholder="Item name"
+                  />
+                </div>
+
+                {/* Category + Unit */}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Category</Label>
                     <Select
                       value={r.category_id}
                       onValueChange={(v) => setRow(i, { category_id: v })}
@@ -675,53 +683,86 @@ function BulkNewProductsDialog({
                         ))}
                       </SelectContent>
                     </Select>
-                  </td>
-                  <td className="w-28 p-1">
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs" htmlFor={`bulk-unit-${i}`}>
+                      Unit
+                    </Label>
                     <Input
-                      value={r.barcode}
-                      onChange={(e) => setRow(i, { barcode: e.target.value })}
-                      placeholder={r.generate_barcode ? "auto" : "scan…"}
-                      disabled={r.generate_barcode}
-                    />
-                  </td>
-                  <td className="p-1 pt-3">
-                    <Checkbox
-                      checked={r.generate_barcode}
-                      onCheckedChange={(v) =>
-                        setRow(i, { generate_barcode: v === true, barcode: "" })
-                      }
-                      aria-label="Generate JM barcode"
-                    />
-                  </td>
-                  <td className="w-16 p-1">
-                    <Input
+                      id={`bulk-unit-${i}`}
                       value={r.unit}
                       onChange={(e) => setRow(i, { unit: e.target.value })}
                     />
-                  </td>
-                  <td className="w-16 p-1">
+                  </div>
+                </div>
+
+                {/* Barcode + auto-GT */}
+                <div className="grid gap-1.5">
+                  <Label className="text-xs" htmlFor={`bulk-barcode-${i}`}>
+                    Barcode
+                  </Label>
+                  <div className="flex items-center gap-3">
                     <Input
+                      id={`bulk-barcode-${i}`}
+                      value={r.barcode}
+                      onChange={(e) => setRow(i, { barcode: e.target.value })}
+                      placeholder={r.generate_barcode ? "auto-generated" : "scan…"}
+                      disabled={r.generate_barcode}
+                    />
+                    <label className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs">
+                      <Checkbox
+                        checked={r.generate_barcode}
+                        onCheckedChange={(v) =>
+                          setRow(i, { generate_barcode: v === true, barcode: "" })
+                        }
+                        aria-label="Generate GT barcode"
+                      />
+                      Auto (GT)
+                    </label>
+                  </div>
+                </div>
+
+                {/* Qty / Cost / Price / Reorder */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs" htmlFor={`bulk-qty-${i}`}>
+                      Qty
+                    </Label>
+                    <Input
+                      id={`bulk-qty-${i}`}
                       inputMode="numeric"
                       value={r.qty}
                       onChange={(e) => setRow(i, { qty: e.target.value })}
                     />
-                  </td>
-                  <td className="w-20 p-1">
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs" htmlFor={`bulk-cost-${i}`}>
+                      Cost ₱
+                    </Label>
                     <Input
+                      id={`bulk-cost-${i}`}
                       inputMode="decimal"
                       value={r.cost}
                       onChange={(e) => setRow(i, { cost: e.target.value })}
                     />
-                  </td>
-                  <td className="w-20 p-1">
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs" htmlFor={`bulk-price-${i}`}>
+                      Price ₱
+                    </Label>
                     <Input
+                      id={`bulk-price-${i}`}
                       inputMode="decimal"
                       value={r.price}
                       onChange={(e) => setRow(i, { price: e.target.value })}
                     />
-                  </td>
-                  <td className="w-16 p-1">
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs" htmlFor={`bulk-reorder-${i}`}>
+                      Reorder
+                    </Label>
                     <Input
+                      id={`bulk-reorder-${i}`}
                       inputMode="numeric"
                       value={r.reorder}
                       onChange={(e) => setRow(i, { reorder: e.target.value })}
@@ -732,23 +773,11 @@ function BulkNewProductsDialog({
                         }
                       }}
                     />
-                  </td>
-                  <td className="p-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Remove row"
-                      onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}
-                      disabled={rows.length === 1}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
         <DialogFooter className="sm:justify-between">
           <Button
@@ -756,7 +785,7 @@ function BulkNewProductsDialog({
             variant="outline"
             onClick={() => setRows((rs) => [...rs, emptyRow()])}
           >
-            <Plus className="size-4" /> Add row
+            <Plus className="size-4" /> Add another product
           </Button>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
@@ -781,6 +810,14 @@ interface ReceivingLineDetail {
 }
 
 /** Per-receiving detail: every product/engine received in that transaction. */
+const METHOD_LABEL: Record<string, string> = {
+  cash: "Cash",
+  bank: "Bank transfer",
+  gcash: "GCash",
+  check: "Cheque",
+  other: "Other",
+};
+
 function ReceivingDetailDialog({
   receiving,
   onClose,
@@ -789,25 +826,38 @@ function ReceivingDetailDialog({
   onClose: () => void;
 }) {
   const [lines, setLines] = React.useState<ReceivingLineDetail[] | null>(null);
+  const [pay, setPay] = React.useState<{
+    payment_method: string | null;
+    reference_no: string | null;
+  } | null>(null);
 
   React.useEffect(() => {
     if (!receiving) {
       setLines(null);
+      setPay(null);
       return;
     }
     let cancelled = false;
     (async () => {
       const supabase = createClient();
-      const { data } = await supabase
-        .from("receiving_lines")
-        .select(
-          `qty, unit_cost_centavos, part_id, engine_id,
-           parts(name, unit),
-           engines(serial_number, engine_models(brand, model, horsepower))`
-        )
-        .eq("receiving_id", receiving.id)
-        .order("created_at");
+      const [{ data }, { data: hdr }] = await Promise.all([
+        supabase
+          .from("receiving_lines")
+          .select(
+            `qty, unit_cost_centavos, part_id, engine_id,
+             parts(name, unit),
+             engines(serial_number, engine_models(brand, model, horsepower))`
+          )
+          .eq("receiving_id", receiving.id)
+          .order("created_at"),
+        supabase
+          .from("receivings")
+          .select("payment_method, reference_no")
+          .eq("id", receiving.id)
+          .maybeSingle(),
+      ]);
       if (cancelled) return;
+      setPay(hdr ?? null);
       setLines(
         /* eslint-disable @typescript-eslint/no-explicit-any */
         (data ?? []).map((l: any) => ({
@@ -913,8 +963,29 @@ function ReceivingDetailDialog({
                 Total cost: {formatCentavos(total)}
               </span>
             </div>
+            {pay?.payment_method && (
+              <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <span className="text-muted-foreground">Paid via</span>
+                <span className="font-medium">
+                  {METHOD_LABEL[pay.payment_method] ?? pay.payment_method}
+                  {pay.reference_no ? ` · ${pay.reference_no}` : ""}
+                </span>
+              </div>
+            )}
           </>
         )}
+
+        <DialogFooter>
+          <Button asChild variant="outline">
+            <a
+              href={`/suppliers/receiving/${receiving?.id}/print`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Printer className="size-4" /> Print voucher
+            </a>
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -950,6 +1021,9 @@ export function ReceivingView({
   const [paymentStatus, setPaymentStatus] =
     React.useState<"unpaid" | "partial" | "paid">("paid");
   const [amountPaid, setAmountPaid] = React.useState(""); // pesos
+  const [paymentMethod, setPaymentMethod] =
+    React.useState<"cash" | "bank" | "gcash" | "check" | "other">("cash");
+  const [referenceNo, setReferenceNo] = React.useState("");
   const [dueDate, setDueDate] = React.useState("");
   const [overrideReason, setOverrideReason] = React.useState("");
   const [limit, setLimit] = React.useState<LimitCheck | null>(null);
@@ -1023,6 +1097,8 @@ export function ReceivingView({
     setEngineLines([]);
     setPaymentStatus("paid");
     setAmountPaid("");
+    setPaymentMethod("cash");
+    setReferenceNo("");
     setDueDate("");
     setOverrideReason("");
     setLimit(null);
@@ -1214,6 +1290,10 @@ export function ReceivingView({
       amount_paid_centavos:
         paymentStatus === "partial" ? parsePesosToCentavos(amountPaid || "") : null,
       due_date: paymentStatus === "paid" ? null : dueDate,
+      // method + reference only when money actually moved (paid/partial)
+      payment_method: paymentStatus === "unpaid" ? null : paymentMethod,
+      reference_no:
+        paymentStatus === "unpaid" ? null : referenceNo.trim() || null,
       override: wouldExceed,
       override_reason: wouldExceed ? overrideReason.trim() : null,
     });
@@ -1322,28 +1402,34 @@ export function ReceivingView({
                   </SelectContent>
                 </Select>
                 {/* Outstanding + utilisation the moment a supplier is picked —
-                    the limit is visible BEFORE committing, not after. */}
-                {supplier && limit && (
-                  <p className="text-xs text-muted-foreground">
-                    Owed now{" "}
-                    <span className="font-medium text-foreground tabular-nums">
-                      {formatCentavos(limit.outstanding)}
-                    </span>
-                    {limit.credit_limit != null && limit.credit_limit > 0 ? (
-                      <>
-                        {" "}of {formatCentavos(limit.credit_limit)} limit
-                        {limit.utilization_pct != null && (
-                          <> · {limit.utilization_pct}% used</>
-                        )}
-                      </>
-                    ) : (
-                      <> · no credit limit set</>
-                    )}
-                    {supplier.payment_terms_days != null && (
-                      <> · net-{supplier.payment_terms_days} terms</>
-                    )}
-                  </p>
-                )}
+                    the limit is visible BEFORE committing, not after. Always
+                    rendered (with a hint before selection) so this column and
+                    Note stay the same height. */}
+                <p className="text-xs text-muted-foreground">
+                  {supplier && limit ? (
+                    <>
+                      Owed now{" "}
+                      <span className="font-medium text-foreground tabular-nums">
+                        {formatCentavos(limit.outstanding)}
+                      </span>
+                      {limit.credit_limit != null && limit.credit_limit > 0 ? (
+                        <>
+                          {" "}of {formatCentavos(limit.credit_limit)} limit
+                          {limit.utilization_pct != null && (
+                            <> · {limit.utilization_pct}% used</>
+                          )}
+                        </>
+                      ) : (
+                        <> · no credit limit set</>
+                      )}
+                      {supplier.payment_terms_days != null && (
+                        <> · net-{supplier.payment_terms_days} terms</>
+                      )}
+                    </>
+                  ) : (
+                    "Outstanding balance appears here."
+                  )}
+                </p>
               </div>
               <div className="grid min-w-0 gap-2">
                 <Label htmlFor="rcv-note">Note</Label>
@@ -1353,6 +1439,9 @@ export function ReceivingView({
                   onChange={(e) => setNote(e.target.value)}
                   placeholder="e.g. April restock"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Optional — labels this receiving.
+                </p>
               </div>
             </div>
 
@@ -1688,6 +1777,50 @@ export function ReceivingView({
                     </Select>
                   </div>
 
+                  {/* method + reference sit beside status; only when money moves */}
+                  {paymentStatus !== "unpaid" && (
+                    <div className="grid min-w-0 gap-2">
+                      <Label>Payment method</Label>
+                      <Select
+                        value={paymentMethod}
+                        onValueChange={(v) =>
+                          setPaymentMethod(
+                            v as "cash" | "bank" | "gcash" | "check" | "other"
+                          )
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cash">Cash</SelectItem>
+                          <SelectItem value="bank">Bank transfer</SelectItem>
+                          <SelectItem value="gcash">GCash</SelectItem>
+                          <SelectItem value="check">Cheque</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {paymentStatus !== "unpaid" && (
+                    <div className="grid min-w-0 gap-2">
+                      <Label htmlFor="rcv-ref">Reference no.</Label>
+                      <Input
+                        id="rcv-ref"
+                        value={referenceNo}
+                        onChange={(e) => setReferenceNo(e.target.value)}
+                        placeholder={
+                          paymentMethod === "check"
+                            ? "Cheque no."
+                            : paymentMethod === "cash"
+                              ? "Optional"
+                              : "Transaction / ref no."
+                        }
+                      />
+                    </div>
+                  )}
+
                   {paymentStatus === "partial" && (
                     <div className="grid min-w-0 gap-2">
                       <Label htmlFor="rcv-paid">Amount paid now (₱)</Label>
@@ -1934,18 +2067,7 @@ export function ReceivingView({
             ) : (
               <span />
             )}
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSaved(null);
-                  setShowForm(true);
-                }}
-              >
-                Start another
-              </Button>
-              <Button onClick={() => setSaved(null)}>Done</Button>
-            </div>
+            <Button onClick={() => setSaved(null)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

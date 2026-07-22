@@ -419,6 +419,7 @@ section("Cash is not the same as earned");
     .from("receivables").select("sale_id").eq("shop_id", shop.id).gt("balance_centavos", 0).single();
   await emp.rpc("fn_record_utang_payment", {
     p_sale_id: sale.sale_id, p_amount_centavos: 1_000_000, p_note: `ZZ-TEST ${RUN}`,
+    p_payer_name: `ZZ-TEST Payer ${RUN}`,
   });
   const after = await computeCashPosition(owner, RANGE);
   check(

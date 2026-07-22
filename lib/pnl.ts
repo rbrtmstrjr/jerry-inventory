@@ -274,9 +274,12 @@ export async function computePnl(
       .gte("pay_periods.end_date", from)
       .is("pay_periods.deleted_at", null),
 
-    // Transit write-offs carry shop_id = NULL by design: the stock was lost
-    // between master and shop, so no branch ever held it. That makes them
-    // business-level shrinkage and never a shop's number.
+    // Transit write-offs are business-level shrinkage, never a shop's number.
+    // A master delivery's write-off carries shop_id = NULL; a shop-to-shop
+    // TRANSFER's write-off (0054) carries shop_id = the SOURCE shop (booked
+    // where it was debited). This query filters ONLY on movement_type, so it
+    // already counts both — and neither reaches a shop's Net Contribution,
+    // which is built from the `losses` table, not these ledger rows.
     //
     // KNOWN WEAKNESS: unlike a shop loss (value frozen at approval) and unlike
     // COGS (frozen by 0038), a transit write-off has no stored value — it is

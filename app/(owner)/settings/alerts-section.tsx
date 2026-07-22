@@ -25,12 +25,20 @@ export function AlertsSection({ settings }: { settings: SettingsRow }) {
   );
   const [warnPct, setWarnPct] = React.useState(String(settings.supplier_limit_warn_pct));
   const [staleDays, setStaleDays] = React.useState(String(settings.quote_stale_days));
+  const [sukiEngine, setSukiEngine] = React.useState(
+    String(settings.suki_engine_discount_pct ?? 10)
+  );
+  const [sukiPart, setSukiPart] = React.useState(
+    String(settings.suki_part_discount_pct ?? 5)
+  );
   const [busy, setBusy] = React.useState(false);
 
   async function onSave() {
     const days = parseInt(warrantyDays, 10);
     const pct = parseInt(warnPct, 10);
     const stale = parseInt(staleDays, 10);
+    const sEngine = parseInt(sukiEngine, 10);
+    const sPart = parseInt(sukiPart, 10);
     if (isNaN(days) || days < 0 || days > 365) {
       toast.error("Warranty alert lead time must be between 0 and 365 days");
       return;
@@ -43,11 +51,17 @@ export function AlertsSection({ settings }: { settings: SettingsRow }) {
       toast.error("Quote staleness must be between 1 and 365 days");
       return;
     }
+    if (isNaN(sEngine) || sEngine < 0 || sEngine > 100 || isNaN(sPart) || sPart < 0 || sPart > 100) {
+      toast.error("Suki discounts must be between 0 and 100 percent");
+      return;
+    }
     setBusy(true);
     const res = await updateAlertSettings({
       warranty_expiry_alert_days: days,
       supplier_limit_warn_pct: pct,
       quote_stale_days: stale,
+      suki_engine_discount_pct: sEngine,
+      suki_part_discount_pct: sPart,
     });
     setBusy(false);
     if (res.ok) toast.success("Alert thresholds saved");
@@ -116,6 +130,43 @@ export function AlertsSection({ settings }: { settings: SettingsRow }) {
             Suppliers → Price Comparison and is flagged stale — the comparison
             falls back to what you last actually paid. A quote past its own
             valid-until date goes stale regardless.
+          </p>
+        </div>
+
+        <Separator />
+
+        <div className="grid gap-2">
+          <Label>Suki card discounts (%)</Label>
+          <div className="flex items-center gap-4">
+            <div className="grid gap-1">
+              <Label htmlFor="suki-engine-pct" className="text-xs text-muted-foreground">
+                Engines
+              </Label>
+              <Input
+                id="suki-engine-pct"
+                inputMode="numeric"
+                className="w-24"
+                value={sukiEngine}
+                onChange={(e) => setSukiEngine(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="suki-part-pct" className="text-xs text-muted-foreground">
+                Parts
+              </Label>
+              <Input
+                id="suki-part-pct"
+                inputMode="numeric"
+                className="w-24"
+                value={sukiPart}
+                onChange={(e) => setSukiPart(e.target.value)}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            What a scanned suki card takes off the catalog price at Record Sale
+            — applied server-side and always capped so nothing sells at or
+            below cost. Changing a rate affects new sales only.
           </p>
         </div>
 

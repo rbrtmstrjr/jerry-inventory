@@ -4,7 +4,7 @@ import * as React from "react";
 import { Archive, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
-import type { Category, EngineModel } from "@/lib/db-types";
+import type { EngineModel } from "@/lib/db-types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,12 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import {
-  softDeleteCategory,
-  softDeleteEngineModel,
-  updateCategory,
-  updateEngineModel,
-} from "./actions";
+import { softDeleteEngineModel, updateEngineModel } from "./actions";
 
 /**
  * Reference data is CREATED at receiving only (0049 revoked direct INSERT);
@@ -111,7 +106,7 @@ export function ModelManagerDialog({
           </DialogHeader>
           {rows.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              No engine models yet — they're created on a receiving.
+              No engine models yet — they&apos;re created on a receiving.
             </p>
           ) : (
             <div className="thin-scrollbar max-h-[55vh] overflow-auto">
@@ -212,103 +207,3 @@ export function ModelManagerDialog({
   );
 }
 
-export function CategoryManagerDialog({
-  open,
-  categories,
-  onClose,
-}: {
-  open: boolean;
-  categories: Category[];
-  onClose: () => void;
-}) {
-  const [rows, setRows] = React.useState<{ id: string; name: string }[]>([]);
-  const [busy, setBusy] = React.useState<string | null>(null);
-  const [retiring, setRetiring] = React.useState<{ id: string; name: string } | null>(null);
-
-  React.useEffect(() => {
-    if (open) setRows(categories.map((c) => ({ id: c.id, name: c.name })));
-  }, [open, categories]);
-
-  return (
-    <>
-      <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Categories</DialogTitle>
-            <DialogDescription>
-              Rename or retire — existing products keep a retired category.
-            </DialogDescription>
-          </DialogHeader>
-          {rows.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No categories yet.
-            </p>
-          ) : (
-            <div className="thin-scrollbar flex max-h-[55vh] flex-col gap-2 overflow-auto">
-              {rows.map((r) => (
-                <div key={r.id} className="flex items-center gap-2">
-                  <Input
-                    value={r.name}
-                    onChange={(e) =>
-                      setRows((rs) =>
-                        rs.map((x) => (x.id === r.id ? { ...x, name: e.target.value } : x))
-                      )
-                    }
-                    aria-label="Category name"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Save ${r.name}`}
-                    disabled={busy !== null}
-                    onClick={async () => {
-                      setBusy(r.id);
-                      const res = await updateCategory(r.id, r.name);
-                      setBusy(null);
-                      if (res.ok) toast.success("Category updated");
-                      else toast.error(res.error);
-                    }}
-                  >
-                    {busy === r.id ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <Save className="size-4" />
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Retire ${r.name}`}
-                    title="Retire (existing products keep it)"
-                    onClick={() => setRetiring(r)}
-                  >
-                    <Archive className="size-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <ConfirmDialog
-        open={retiring !== null}
-        onOpenChange={(o) => !o && setRetiring(null)}
-        title={`Retire “${retiring?.name}”?`}
-        description="It disappears from pickers. Existing products keep it."
-        confirmLabel="Retire"
-        destructive
-        onConfirm={async () => {
-          if (!retiring) return;
-          const res = await softDeleteCategory(retiring.id);
-          if (res.ok) {
-            toast.success(`${retiring.name} retired`);
-            setRows((rs) => rs.filter((r) => r.id !== retiring.id));
-          } else toast.error(res.error);
-        }}
-      />
-    </>
-  );
-}

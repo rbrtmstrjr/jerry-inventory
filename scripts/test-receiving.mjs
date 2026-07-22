@@ -149,12 +149,62 @@ section("Validation & security:");
 section("Internal barcode:");
 {
   const { data: code, error } = await owner.rpc("fn_generate_internal_barcode", { p_part_id: part.id });
-  check("barcode generated (JM########)", !error && /^JM\d{8}$/.test(code),
+  check("barcode generated (GT########)", !error && /^GT\d{8}$/.test(code),
     error?.message ?? `got ${code}`);
   const { data: again } = await owner.rpc("fn_generate_internal_barcode", { p_part_id: part.id });
   check("idempotent: same code returned", again === code, `${again} vs ${code}`);
   const { data: p } = await owner.from("parts").select("barcode").eq("id", part.id).single();
   check("barcode persisted on the part", p?.barcode === code);
+}
+
+// Runs LAST: these receivings add stock/debt, so they must come after the
+// "master still 30" and "owed 0" assertions above.
+section("Payment method + reference (0063):");
+{
+  // paid via cheque with a reference — both stored on the receiving header
+  const paid = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id,
+    p_note: `ZZ-TEST pay ${RUN}`,
+    p_parts: [{ part_id: part.id, qty: 1, unit_cost_centavos: 5000 }],
+    p_engines: [],
+    p_payment_status: "paid",
+    p_payment_method: "check",
+    p_reference_no: "CHK-000777",
+  });
+  check("paid receiving with method succeeds", !paid.error && !!paid.data, paid.error?.message);
+  const { data: rp } = await owner
+    .from("receivings").select("payment_method, reference_no").eq("id", paid.data).single();
+  check("payment_method stored (check)", rp?.payment_method === "check", rp?.payment_method);
+  check("reference_no stored", rp?.reference_no === "CHK-000777", rp?.reference_no);
+
+  // unpaid on credit → no money moved → method/reference stay null
+  const credit = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id,
+    p_note: `ZZ-TEST credit ${RUN}`,
+    p_parts: [{ part_id: part.id, qty: 1, unit_cost_centavos: 5000 }],
+    p_engines: [],
+    p_payment_status: "unpaid",
+    p_due_date: "2027-01-01",
+    p_payment_method: "cash",
+    p_reference_no: "SHOULD-BE-IGNORED",
+  });
+  check("unpaid receiving succeeds", !credit.error && !!credit.data, credit.error?.message);
+  const { data: rc } = await owner
+    .from("receivings").select("payment_method, reference_no").eq("id", credit.data).single();
+  check("unpaid → payment_method null", rc?.payment_method === null, rc?.payment_method);
+  check("unpaid → reference_no null", rc?.reference_no === null, rc?.reference_no);
+
+  // a bogus method is rejected (mirrors the CHECK + supplier_payments enum)
+  const bad = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id,
+    p_note: `ZZ-TEST badpay ${RUN}`,
+    p_parts: [{ part_id: part.id, qty: 1, unit_cost_centavos: 5000 }],
+    p_engines: [],
+    p_payment_status: "paid",
+    p_payment_method: "bitcoin",
+  });
+  check("invalid method rejected", /invalid payment method/i.test(bad.error?.message ?? ""),
+    bad.error?.message);
 }
 
 section("Cleanup:");

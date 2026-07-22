@@ -6,8 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Anchor,
   AlertTriangle,
+  ArrowLeftRight,
   BarChart3,
   BellRing,
+  BadgePercent,
   ClipboardCheck,
   BookOpen,
   ClipboardList,
@@ -36,6 +38,16 @@ import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { ApprovalsBadge } from "@/components/shell/approvals-badge";
+import {
+  DeliveriesBadge,
+  ReceivablesBadge,
+  ShopDeliveriesBadge,
+  ShopLowStockBadge,
+  ShopReceivablesBadge,
+  StockAlertsBadge,
+  SuppliersBadge,
+  WarrantiesBadge,
+} from "@/components/shell/nav-badges";
 import { NotificationBell } from "@/components/shell/notification-bell";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -52,6 +64,23 @@ type NavItem = {
   href: string;
   label: string;
   icon: LucideIcon;
+};
+
+/** Owner sidebar count badges, keyed by the nav href they attach to. */
+const OWNER_BADGES: Record<string, React.FC<{ active?: boolean }>> = {
+  "/approvals": ApprovalsBadge,
+  "/deliveries": DeliveriesBadge,
+  "/stock-alerts": StockAlertsBadge,
+  "/suppliers": SuppliersBadge,
+  "/receivables": ReceivablesBadge,
+  "/warranties": WarrantiesBadge,
+};
+
+/** Employee (shop) sidebar count badges — the "needs your attention" numbers. */
+const EMPLOYEE_BADGES: Record<string, React.FC<{ active?: boolean }>> = {
+  "/shop/deliveries": ShopDeliveriesBadge,
+  "/shop/low-stock": ShopLowStockBadge,
+  "/shop/receivables": ShopReceivablesBadge,
 };
 
 type NavGroup = {
@@ -86,6 +115,7 @@ const OWNER_NAV: NavGroup[] = [
       { href: "/approvals", label: "Approval Queue", icon: ClipboardCheck },
       { href: "/receivables", label: "Receivables", icon: HandCoins },
       { href: "/warranties", label: "Warranties & Serials", icon: ShieldCheck },
+      { href: "/suki-cards", label: "Suki Cards", icon: BadgePercent },
     ],
   },
   {
@@ -107,6 +137,7 @@ const EMPLOYEE_NAV: NavGroup[] = [
     items: [
       { href: "/shop", label: "My Shop Stock", icon: Package },
       { href: "/shop/deliveries", label: "Incoming Deliveries", icon: Truck },
+      { href: "/shop/transfers", label: "Transfers", icon: ArrowLeftRight },
       { href: "/shop/low-stock", label: "Low Stock", icon: BellRing },
     ],
   },
@@ -142,12 +173,12 @@ function NavLinks({
   groups,
   pathname,
   onNavigate,
-  showApprovalsBadge,
+  badges,
 }: {
   groups: NavGroup[];
   pathname: string;
   onNavigate?: () => void;
-  showApprovalsBadge?: boolean;
+  badges?: Record<string, React.FC<{ active?: boolean }>>;
 }) {
   const hrefs = groups.flatMap((g) => g.items.map((i) => i.href));
   return (
@@ -173,9 +204,8 @@ function NavLinks({
               >
                 <item.icon className="size-4 shrink-0" />
                 {item.label}
-                {showApprovalsBadge && item.href === "/approvals" && (
-                  <ApprovalsBadge />
-                )}
+                {badges?.[item.href] &&
+                  React.createElement(badges[item.href], { active })}
               </Link>
             );
           })}
@@ -192,7 +222,7 @@ function Brand() {
         <Anchor className="size-4" />
       </div>
       <div className="leading-tight">
-        <div className="text-sm font-semibold">Jerry&apos;s Marine</div>
+        <div className="text-sm font-semibold">Gerwin Trading</div>
         <div className="text-xs text-muted-foreground">Inventory System</div>
       </div>
     </div>
@@ -299,18 +329,19 @@ export function AppShell({ variant, userName, contextLabel, children }: AppShell
   return (
     <div className="flex h-svh w-full overflow-hidden print:h-auto print:overflow-visible">
       {/* Desktop sidebar — fixed; only the content column scrolls */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar">
+      <aside className="thin-scrollbar hidden md:flex w-64 shrink-0 flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar">
         <Brand />
         <NavLinks
           groups={groups}
           pathname={pathname}
-          showApprovalsBadge={variant === "owner"}
+          badges={variant === "owner" ? OWNER_BADGES : EMPLOYEE_BADGES}
         />
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto print:overflow-visible">
-        {/* Top bar */}
-        <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden print:overflow-visible">
+        {/* Top bar — outside the scroll region so the scrollbar gutter never
+            shifts its right-aligned controls between scrolling pages and not */}
+        <header className="z-10 flex h-14 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
           {/* Mobile nav */}
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
@@ -325,7 +356,7 @@ export function AppShell({ variant, userName, contextLabel, children }: AppShell
                 groups={groups}
                 pathname={pathname}
                 onNavigate={() => setMobileOpen(false)}
-                showApprovalsBadge={variant === "owner"}
+                badges={variant === "owner" ? OWNER_BADGES : EMPLOYEE_BADGES}
               />
             </SheetContent>
           </Sheet>
@@ -336,7 +367,9 @@ export function AppShell({ variant, userName, contextLabel, children }: AppShell
           <UserMenu variant={variant} userName={userName} contextLabel={contextLabel} />
         </header>
 
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <div className="thin-scrollbar flex flex-1 flex-col overflow-y-auto print:overflow-visible">
+          <main className="flex-1 p-4 md:p-6">{children}</main>
+        </div>
       </div>
     </div>
   );

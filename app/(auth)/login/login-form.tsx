@@ -5,17 +5,10 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, TriangleAlert } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +36,7 @@ export function LoginForm({ initialError }: { initialError?: string }) {
   // state while the redirect + server render are still in flight.
   const [redirecting, setRedirecting] = React.useState(false);
   const [forgotOpen, setForgotOpen] = React.useState(false);
+  const [showPassword, setShowPassword] = React.useState(false);
 
   const {
     register,
@@ -99,64 +93,87 @@ export function LoginForm({ initialError }: { initialError?: string }) {
   const loading = isSubmitting || redirecting;
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>Sign in</CardTitle>
-        <CardDescription>
-          Use the account the owner created for you.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4" noValidate>
-          <div className="grid gap-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              placeholder="you@example.com"
-              {...register("email")}
-            />
-            {errors.email && (
-              <p className="text-sm text-destructive">{errors.email.message}</p>
-            )}
+    <div className="w-full">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Sign in with the account the owner created for you.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4" noValidate>
+        <div className="grid gap-2">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+            className="h-11"
+            aria-invalid={!!errors.email}
+            {...register("email")}
+          />
+          {errors.email && (
+            <p className="text-sm text-destructive">{errors.email.message}</p>
+          )}
+        </div>
+
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <button
+              type="button"
+              onClick={() => setForgotOpen(true)}
+              className="rounded text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              Forgot password?
+            </button>
           </div>
-          <div className="grid gap-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">Password</Label>
-              <button
-                type="button"
-                onClick={() => setForgotOpen(true)}
-                className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-              >
-                Forgot password?
-              </button>
-            </div>
+          <div className="relative">
             <Input
               id="password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               autoComplete="current-password"
+              className="h-11 pr-11"
+              aria-invalid={!!errors.password}
               {...register("password")}
             />
-            {errors.password && (
-              <p className="text-sm text-destructive">
-                {errors.password.message}
-              </p>
-            )}
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+              className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              {showPassword ? (
+                <EyeOff className="size-4" />
+              ) : (
+                <Eye className="size-4" />
+              )}
+            </button>
           </div>
-
-          {serverError && (
-            <p className="text-sm text-destructive" role="alert">
-              {serverError}
-            </p>
+          {errors.password && (
+            <p className="text-sm text-destructive">{errors.password.message}</p>
           )}
+        </div>
 
-          <Button type="submit" disabled={loading} className="w-full">
-            {loading && <Loader2 className="size-4 animate-spin" />}
-            {redirecting ? "Signing in…" : loading ? "Checking…" : "Sign in"}
-          </Button>
-        </form>
-      </CardContent>
+        {serverError && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+            <span>{serverError}</span>
+          </div>
+        )}
+
+        <Button type="submit" disabled={loading} className="h-11 w-full">
+          {loading && <Loader2 className="size-4 animate-spin" />}
+          {redirecting ? "Signing in…" : loading ? "Checking…" : "Sign in"}
+        </Button>
+      </form>
 
       {/* Mounted only while open, so it starts fresh every time and simply
           seeds itself from whatever email is already typed. The alternative —
@@ -168,7 +185,7 @@ export function LoginForm({ initialError }: { initialError?: string }) {
           defaultEmail={getValues("email")}
         />
       )}
-    </Card>
+    </div>
   );
 }
 

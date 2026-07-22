@@ -31,7 +31,7 @@ export default async function PayslipPage({
     supabase
       .from("payroll_entries")
       .select(
-        `id, days_worked, gross_pay, net_pay, status, date_paid, note,
+        `id, days_worked, gross_pay, net_pay, vale_centavos, status, date_paid, note,
          staff(full_name, pay_type, pay_rate, date_hired, contributions_enabled,
                sss_no, philhealth_no, pagibig_no, positions(title)),
          shops(name, location),
@@ -210,6 +210,17 @@ export default async function PayslipPage({
                 <td className="py-2.5 text-muted-foreground">Total deductions</td>
                 <td className="py-2.5 text-right tabular-nums">
                   −{formatCentavos(totalEE)}
+                </td>
+              </tr>
+            )}
+
+            {e.vale_centavos > 0 && (
+              <tr className="border-b">
+                <td className="py-2.5 text-muted-foreground">
+                  Less: cash advance (vale)
+                </td>
+                <td className="py-2.5 text-right tabular-nums">
+                  −{formatCentavos(e.vale_centavos)}
                 </td>
               </tr>
             )}

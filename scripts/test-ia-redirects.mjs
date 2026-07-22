@@ -50,7 +50,7 @@ async function getHtml(path) {
     process.exit(2);
   }
   if (!html.includes("Inventory &amp; Approvals")) {
-    console.error(`\n${BASE} is NOT Jerry's Marine — point TEST_BASE_URL at the right port.\n`);
+    console.error(`\n${BASE} is NOT Gerwin Trading — point TEST_BASE_URL at the right port.\n`);
     process.exit(2);
   }
 }

@@ -11,6 +11,7 @@ export function CatalogTabs({
   engines,
   categories,
   models,
+  suppliers,
   fitmentsByPart,
   pricesByPart,
 }: {
@@ -18,28 +19,28 @@ export function CatalogTabs({
   engines: EngineRow[];
   categories: Category[];
   models: EngineModel[];
+  suppliers: { id: string; name: string }[];
   fitmentsByPart: Record<string, string[]>;
   pricesByPart: Record<string, ComparisonRow[]>;
 }) {
   return (
     <Tabs defaultValue="parts">
       <TabsList>
-        <TabsTrigger value="parts">
-          Parts &amp; Goods ({parts.length})
-        </TabsTrigger>
-        <TabsTrigger value="engines">Engines ({engines.length})</TabsTrigger>
+        <TabsTrigger value="parts">Parts &amp; Goods</TabsTrigger>
+        <TabsTrigger value="engines">Engines</TabsTrigger>
       </TabsList>
       <TabsContent value="parts" className="pt-2">
         <PartsTable
           parts={parts}
           categories={categories}
           models={models}
+          suppliers={suppliers}
           fitmentsByPart={fitmentsByPart}
           pricesByPart={pricesByPart}
         />
       </TabsContent>
       <TabsContent value="engines" className="pt-2">
-        <EnginesTable engines={engines} models={models} />
+        <EnginesTable engines={engines} models={models} suppliers={suppliers} />
       </TabsContent>
     </Tabs>
   );

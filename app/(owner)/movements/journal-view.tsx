@@ -74,6 +74,7 @@ export function JournalView({
 }) {
   const router = useRouter();
   const [q, setQ] = React.useState(filters.q);
+  const qTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const colorByShop = React.useMemo(
     () => new Map(shops.map((s) => [s.id, s.color_key])),
     [shops]
@@ -94,6 +95,13 @@ export function JournalView({
     router.push(`/movements?${p.toString()}`);
   }
 
+  /** Instant search: debounce the server round-trip so it feels live. */
+  function onSearchChange(val: string) {
+    setQ(val);
+    if (qTimer.current) clearTimeout(qTimer.current);
+    qTimer.current = setTimeout(() => apply({ q: val }), 350);
+  }
+
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
   const firstRow = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastRow = Math.min(page * pageSize, total);
@@ -101,81 +109,88 @@ export function JournalView({
   return (
     <div className="flex flex-col gap-4">
       <Card>
-        <CardContent className="grid gap-3 pt-6 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="grid gap-1">
-            <Label htmlFor="mv-from" className="text-xs">From</Label>
-            <DatePicker id="mv-from" value={filters.from} onChange={(v) => apply({ from: v })} />
+        <CardContent className="flex flex-col gap-3 pt-6">
+          {/* Filters — date range kept tight as a pair; selects fill the rest */}
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex items-end gap-2">
+              <div className="grid gap-1">
+                <Label htmlFor="mv-from" className="text-xs">From</Label>
+                <DatePicker id="mv-from" value={filters.from} onChange={(v) => apply({ from: v })} />
+              </div>
+              <div className="grid gap-1">
+                <Label htmlFor="mv-to" className="text-xs">To</Label>
+                <DatePicker id="mv-to" value={filters.to} onChange={(v) => apply({ to: v })} />
+              </div>
+            </div>
+            <div className="grid min-w-44 flex-1 gap-1">
+              <Label className="text-xs">Location</Label>
+              <Select value={filters.location} onValueChange={(v) => apply({ location: v })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All locations</SelectItem>
+                  <SelectItem value="master">Master</SelectItem>
+                  {shops.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                  <SelectItem value="transit">In transit</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid min-w-44 flex-1 gap-1">
+              <Label className="text-xs">Type</Label>
+              <Select value={filters.type} onValueChange={(v) => apply({ type: v })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  {TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>{TYPE_LABEL[t]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid min-w-44 flex-1 gap-1">
+              <Label className="text-xs">Product</Label>
+              <Select value={filters.product || "all"} onValueChange={(v) => apply({ product: v === "all" ? "" : v })}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="All products" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All products</SelectItem>
+                  {parts.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid min-w-44 flex-1 gap-1">
+              <Label className="text-xs">Actor</Label>
+              <Select value={filters.actor} onValueChange={(v) => apply({ actor: v })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Anyone</SelectItem>
+                  {actors.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>{a.full_name ?? "—"}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="grid gap-1">
-            <Label htmlFor="mv-to" className="text-xs">To</Label>
-            <DatePicker id="mv-to" value={filters.to} onChange={(v) => apply({ to: v })} />
-          </div>
-          <div className="grid gap-1">
-            <Label className="text-xs">Location</Label>
-            <Select value={filters.location} onValueChange={(v) => apply({ location: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All locations</SelectItem>
-                <SelectItem value="master">Master</SelectItem>
-                {shops.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-                <SelectItem value="transit">In transit</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1">
-            <Label className="text-xs">Type</Label>
-            <Select value={filters.type} onValueChange={(v) => apply({ type: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All types</SelectItem>
-                {TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>{TYPE_LABEL[t]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1">
-            <Label className="text-xs">Product</Label>
-            <Select value={filters.product || "all"} onValueChange={(v) => apply({ product: v === "all" ? "" : v })}>
-              <SelectTrigger><SelectValue placeholder="All products" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All products</SelectItem>
-                {parts.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1">
-            <Label className="text-xs">Actor</Label>
-            <Select value={filters.actor} onValueChange={(v) => apply({ actor: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Anyone</SelectItem>
-                {actors.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>{a.full_name ?? "—"}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1 sm:col-span-2">
-            <Label htmlFor="mv-q" className="text-xs">Search</Label>
-            <form
-              onSubmit={(e) => { e.preventDefault(); apply({ q }); }}
-              className="flex gap-2"
-            >
-              <Input
-                id="mv-q"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Product, serial, receipt no, note…"
-              />
-              <Button type="submit" variant="outline" size="icon" aria-label="Search">
-                <Search className="size-4" />
-              </Button>
-            </form>
+
+          {/* Search — instant (debounced), matching the search boxes elsewhere */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="mv-q"
+              value={q}
+              onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (qTimer.current) clearTimeout(qTimer.current);
+                  apply({ q });
+                }
+              }}
+              placeholder="Search product, serial, receipt no, note…"
+              className="pl-8"
+              aria-label="Search movements"
+            />
           </div>
         </CardContent>
       </Card>

@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 
 /**
- * Delivery Requests moved into the Deliveries page as a tab — converting a
- * request only ever pre-filled the delivery form there anyway. Kept as a
- * redirect so old bookmarks and notification links don't 404.
+ * Delivery Requests live on Stock Alerts (a request is a stock-alert signal,
+ * not a movement). Kept as a redirect so old bookmarks / notification links
+ * don't 404. (Previously pointed at /deliveries?tab=requests.)
  */
 export default function DeliveryRequestsRedirect() {
-  redirect("/deliveries?tab=requests");
+  redirect("/stock-alerts?tab=requests");
 }

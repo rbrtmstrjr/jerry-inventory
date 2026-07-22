@@ -151,7 +151,7 @@ const { data: retId, error: retErr } = await owner.rpc("fn_return_stock", {
   p_shop_id: A.id,
   p_reason: `ZZ-TEST slow mover ${RUN}`,
   p_parts: [{ part_id: part.id, qty: 3 }],
-  p_engine_ids: [engine.id],
+  p_engine_ids: [{ engine_id: engine.id, condition: "good" }],
 });
 check("fn_return_stock succeeded", !retErr, retErr?.message);
 check("shop A 8 → 5", (await shopQty(part.id, A.id)) === 5);
@@ -192,7 +192,7 @@ section("Delivery note data:");
 {
   const { data: d } = await owner
     .from("deliveries")
-    .select("id, shops(name), delivery_lines(qty, parts(name), engines(serial_number))")
+    .select("id, shops!deliveries_shop_id_fkey(name), delivery_lines(qty, parts(name), engines(serial_number))")
     .eq("id", dlvId)
     .single();
   check("delivery joins for note render",

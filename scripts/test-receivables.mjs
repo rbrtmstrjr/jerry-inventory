@@ -171,7 +171,7 @@ console.log("\nShop isolation:");
 }
 {
   const { error } = await B.client.rpc("fn_record_utang_payment", {
-    p_sale_id: saleId, p_amount_centavos: 100000,
+    p_sale_id: saleId, p_amount_centavos: 100000, p_payer_name: "ZZ-TEST Payer",
   });
   check("Shop B cannot record a payment on Shop A's sale",
     !!error && /another shop/i.test(error.message), error?.message);
@@ -181,7 +181,7 @@ console.log("\nShop isolation:");
 console.log("\nOver-payment guard (server-side):");
 {
   const { error } = await A.client.rpc("fn_record_utang_payment", {
-    p_sale_id: saleId, p_amount_centavos: 2700001, // â‚±0.01 over
+    p_sale_id: saleId, p_amount_centavos: 2700001, p_payer_name: "ZZ-TEST Payer", // â‚±0.01 over
   });
   check("payment above the balance is rejected",
     !!error && /exceeds/i.test(error.message), error?.message);
@@ -191,8 +191,25 @@ console.log("\nOver-payment guard (server-side):");
 console.log("\nPayment posts immediately (utang = money already owed):");
 const { data: payId, error: payErr } = await A.client.rpc("fn_record_utang_payment", {
   p_sale_id: saleId, p_amount_centavos: 1000000,
+  p_method: "gcash", p_payer_name: "ZZ-TEST Juan Payer", p_payer_contact: "0917-000-0000",
 });
 check("payment recorded", !payErr, payErr?.message);
+{
+  const { data: p } = await owner
+    .from("utang_payments")
+    .select("method, payer_name, payer_contact")
+    .eq("id", payId).single();
+  check("payment stores method + payer name + contact (0068)",
+    p?.method === "gcash" && p?.payer_name === "ZZ-TEST Juan Payer" && p?.payer_contact === "0917-000-0000",
+    JSON.stringify(p));
+}
+{
+  const { error } = await A.client.rpc("fn_record_utang_payment", {
+    p_sale_id: saleId, p_amount_centavos: 100000,
+  });
+  check("a payment with NO payer name is rejected (0068)",
+    !!error && /payer/i.test(error.message), error?.message);
+}
 {
   check("balance drops AT ONCE to â‚±17,000 (27,000 âˆ’ 10,000)",
     (await balanceOf(A.client, saleId)) === 1700000,
@@ -234,7 +251,7 @@ console.log("\nVoid (mistake/typo) â€” balance restored, history kept:");
 // re-post it so the rest of the flow continues
 {
   const { error } = await A.client.rpc("fn_record_utang_payment", {
-    p_sale_id: saleId, p_amount_centavos: 1000000,
+    p_sale_id: saleId, p_amount_centavos: 1000000, p_payer_name: "ZZ-TEST Payer",
   });
   check("payment re-recorded after the void", !error, error?.message);
   check("balance back down to â‚±17,000", (await balanceOf(A.client, saleId)) === 1700000);
@@ -258,7 +275,7 @@ console.log("\nReconciliation (agreed âˆ’ down âˆ’ Î£ approved = balan
 console.log("\nSettlement at zero:");
 {
   const { error } = await A.client.rpc("fn_record_utang_payment", {
-    p_sale_id: saleId, p_amount_centavos: 1700000,
+    p_sale_id: saleId, p_amount_centavos: 1700000, p_payer_name: "ZZ-TEST Payer",
   });
   check("final payment recorded", !error, error?.message);
   check("balance = 0", (await balanceOf(A.client, saleId)) === 0);
@@ -267,7 +284,7 @@ console.log("\nSettlement at zero:");
 }
 {
   const { error } = await A.client.rpc("fn_record_utang_payment", {
-    p_sale_id: saleId, p_amount_centavos: 100,
+    p_sale_id: saleId, p_amount_centavos: 100, p_payer_name: "ZZ-TEST Payer",
   });
   check("no further payment accepted once settled", !!error && /exceeds/i.test(error.message), error?.message);
 }

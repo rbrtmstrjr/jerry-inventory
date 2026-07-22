@@ -8,7 +8,7 @@ import { ScanLine, Search } from "lucide-react";
 import { formatCentavos } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { EngineLife, JournalRow } from "./types";
@@ -128,16 +128,14 @@ export function EngineHistoryView({
       ) : (
         <>
           <Card>
-            <CardHeader className="flex-row items-start justify-between gap-4">
-              <div>
-                <CardTitle className="font-mono text-base">{life.serial_number}</CardTitle>
-                <CardDescription>
-                  {life.brand} {life.model}
-                  {life.horsepower != null && ` · ${life.horsepower}HP`}
-                  {" · "}cost {formatCentavos(life.cost_centavos)}
-                </CardDescription>
-              </div>
-              <div className="text-right">
+            <CardHeader>
+              <CardTitle className="font-mono text-base">{life.serial_number}</CardTitle>
+              <CardDescription>
+                {life.brand} {life.model}
+                {life.horsepower != null && ` · ${life.horsepower}HP`}
+                {" · "}cost {formatCentavos(life.cost_centavos)}
+              </CardDescription>
+              <CardAction className="text-right">
                 <Badge variant={state!.variant}>{state!.label}</Badge>
                 {life.status === "delivered" && life.shop_name && (
                   <p className="mt-1 text-xs text-muted-foreground">{life.shop_name}</p>
@@ -145,7 +143,7 @@ export function EngineHistoryView({
                 {life.status === "sold" && life.customer_name && (
                   <p className="mt-1 text-xs text-muted-foreground">{life.customer_name}</p>
                 )}
-              </div>
+              </CardAction>
             </CardHeader>
           </Card>
 
@@ -163,7 +161,7 @@ export function EngineHistoryView({
                   const s = stepFor(m);
                   return (
                     <li key={m.id} className="relative pb-6 last:pb-0">
-                      <span className="absolute -left-[1.6rem] top-1 size-2.5 rounded-full bg-primary ring-4 ring-background" />
+                      <span className="absolute -left-[1.8125rem] top-1 size-2.5 rounded-full bg-primary ring-4 ring-background" />
                       <div className="flex flex-wrap items-baseline justify-between gap-x-4">
                         <p className="font-medium">{s.title}</p>
                         <p className="text-xs text-muted-foreground">{phDateTime(m.created_at)}</p>
@@ -185,7 +183,7 @@ export function EngineHistoryView({
 
                 {life.warranty && (
                   <li className="relative pb-6 last:pb-0">
-                    <span className="absolute -left-[1.6rem] top-1 size-2.5 rounded-full bg-chart-2 ring-4 ring-background" />
+                    <span className="absolute -left-[1.8125rem] top-1 size-2.5 rounded-full bg-chart-2 ring-4 ring-background" />
                     <div className="flex flex-wrap items-baseline justify-between gap-x-4">
                       <p className="font-medium">
                         Warranty issued — {life.warranty.months} months
@@ -207,7 +205,7 @@ export function EngineHistoryView({
 
                 {life.warranty?.claims.map((c) => (
                   <li key={c.id} className="relative pb-6 last:pb-0">
-                    <span className="absolute -left-[1.6rem] top-1 size-2.5 rounded-full bg-destructive ring-4 ring-background" />
+                    <span className="absolute -left-[1.8125rem] top-1 size-2.5 rounded-full bg-destructive ring-4 ring-background" />
                     <div className="flex flex-wrap items-baseline justify-between gap-x-4">
                       <p className="font-medium">Warranty claim — {c.status}</p>
                       <p className="text-xs text-muted-foreground">{phDate(c.claim_date)}</p>

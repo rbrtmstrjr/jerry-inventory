@@ -6,12 +6,16 @@ import { format } from "date-fns";
 import {
   AlertTriangle,
   CheckCircle2,
+  ImagePlus,
   Loader2,
   PackageCheck,
+  Printer,
   Truck,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ShopBadge } from "@/components/shop-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +28,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
+import { createClient } from "@/lib/supabase/client";
+import { processProductImage, type ProcessedImage } from "@/lib/product-image";
+import { RECEIPTS_BUCKET } from "@/components/receipt-image";
 import { confirmDelivery } from "../actions";
 
 export interface IncomingDelivery {
@@ -37,6 +45,9 @@ export interface IncomingDelivery {
   line_count: number;
   qty_sent: number;
   qty_outstanding: number;
+  // set when this is a shop-to-shop transfer (null = a master delivery)
+  from_shop_id: string | null;
+  from_shop_name: string | null;
 }
 
 export interface IncomingLine {
@@ -62,6 +73,56 @@ const STATUS: Record<
   discrepancy: { label: "Discrepancy — with Admin", variant: "destructive" },
   resolved: { label: "Resolved by Admin", variant: "outline" },
 };
+
+/** Where a delivery came from: a source shop (transfer) or Admin / Master. */
+function SourceLabel({ delivery }: { delivery: IncomingDelivery }) {
+  if (delivery.from_shop_id) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        from{" "}
+        <ShopBadge
+          shop={{
+            name: delivery.from_shop_name ?? "another shop",
+            color_key: null,
+          }}
+        />
+      </span>
+    );
+  }
+  return <span className="text-muted-foreground">from Admin / Master</span>;
+}
+
+/** A transfer travels with a printable slip; a master delivery does not. */
+function SlipLink({ delivery }: { delivery: IncomingDelivery }) {
+  if (!delivery.from_shop_id) return null;
+  return (
+    <Button variant="outline" size="sm" asChild>
+      <a
+        href={`/transfer/${delivery.id}/slip`}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <Printer className="size-4" /> Print slip
+      </a>
+    </Button>
+  );
+}
+
+/** The shop's copy of the delivery note (master deliveries; transfers use the slip). */
+function NoteLink({ delivery }: { delivery: IncomingDelivery }) {
+  if (delivery.from_shop_id) return null;
+  return (
+    <Button variant="outline" size="sm" asChild>
+      <a
+        href={`/shop/deliveries/${delivery.id}/note`}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <Printer className="size-4" /> Delivery note
+      </a>
+    </Button>
+  );
+}
 
 export function ShopDeliveriesView({
   deliveries,
@@ -93,9 +154,9 @@ export function ShopDeliveriesView({
       <Tabs defaultValue="incoming">
         <TabsList>
           <TabsTrigger value="incoming">
-            To confirm ({incoming.length})
+            To confirm<TabCountBadge count={incoming.length} />
           </TabsTrigger>
-          <TabsTrigger value="history">History ({history.length})</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
 
         <TabsContent value="incoming" className="flex flex-col gap-3 pt-2">
@@ -124,7 +185,11 @@ export function ShopDeliveriesView({
   );
 }
 
-/** The shop's only actions: enter counts, add notes, confirm. */
+/**
+ * The shop's only actions: enter counts (good / damaged), note + photo the
+ * damage, confirm. It still only RECORDS — good lands, damaged & missing go to
+ * Admin to decide. Missing is computed (sent − good − damaged).
+ */
 function ConfirmCard({
   delivery,
   lines,
@@ -134,44 +199,87 @@ function ConfirmCard({
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
-  // prefilled to what was sent — the common case is "everything arrived"
-  const [counts, setCounts] = React.useState<Record<string, string>>(() =>
+  // good prefilled to what was sent — the common case is "everything arrived"
+  const [good, setGood] = React.useState<Record<string, string>>(() =>
     Object.fromEntries(lines.map((l) => [l.id, String(l.qty_sent)]))
   );
+  const [damaged, setDamaged] = React.useState<Record<string, string>>({});
   const [notes, setNotes] = React.useState<Record<string, string>>({});
+  const [photos, setPhotos] = React.useState<Record<string, ProcessedImage>>({});
 
-  const parsed = lines.map((l) => ({
-    line: l,
-    got: Math.max(0, parseInt(counts[l.id] || "0", 10) || 0),
-  }));
-  const short = parsed.reduce((s, p) => s + (p.line.qty_sent - p.got), 0);
-  const over = parsed.some((p) => p.got > p.line.qty_sent);
+  const parsed = lines.map((l) => {
+    const g = Math.max(0, parseInt(good[l.id] || "0", 10) || 0);
+    const d = Math.max(0, parseInt(damaged[l.id] || "0", 10) || 0);
+    return { line: l, good: g, damaged: d, missing: l.qty_sent - g - d, over: g + d > l.qty_sent };
+  });
+  const totalDamaged = parsed.reduce((s, p) => s + p.damaged, 0);
+  const totalMissing = parsed.reduce((s, p) => s + Math.max(0, p.missing), 0);
+  const over = parsed.some((p) => p.over);
+
+  async function setPhoto(lineId: string, file: File | undefined | null) {
+    if (!file) return;
+    try {
+      const img = await processProductImage(file);
+      setPhotos((p) => ({ ...p, [lineId]: img }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't process that photo.");
+    }
+  }
 
   async function onConfirm() {
     if (over) {
-      toast.error("You can't receive more than was sent");
+      toast.error("Good + damaged can't be more than was sent");
       return;
     }
     setBusy(true);
+    // upload damage photos first (own shop prefix) — track them so we can clean
+    // up orphans if the confirm RPC fails.
+    const supabase = createClient();
+    const uploaded: string[] = [];
+    const photoPathByLine: Record<string, string> = {};
+    try {
+      for (const p of parsed) {
+        const img = photos[p.line.id];
+        if (p.damaged > 0 && img) {
+          const path = `shop-${delivery.shop_id}/delivery-${p.line.id}/${crypto.randomUUID()}.webp`;
+          const { error } = await supabase.storage
+            .from(RECEIPTS_BUCKET)
+            .upload(path, img.blob, { contentType: "image/webp" });
+          if (error) throw new Error(`Photo upload failed: ${error.message}`);
+          uploaded.push(path);
+          photoPathByLine[p.line.id] = path;
+        }
+      }
+    } catch (e) {
+      if (uploaded.length) await supabase.storage.from(RECEIPTS_BUCKET).remove(uploaded);
+      setBusy(false);
+      toast.error(e instanceof Error ? e.message : "Photo upload failed.");
+      return;
+    }
+
     const res = await confirmDelivery({
       delivery_id: delivery.id,
       lines: parsed.map((p) => ({
         line_id: p.line.id,
-        qty_received: p.got,
+        qty_received: p.good,
+        qty_damaged: p.damaged,
         shop_note: notes[p.line.id]?.trim() || null,
+        damage_photo_path: photoPathByLine[p.line.id] ?? null,
       })),
     });
     setBusy(false);
     if (res.ok) {
       if (res.short > 0) {
         toast.success(
-          `Confirmed ${res.landed}. ${res.short} reported to Admin for review.`
+          `${res.landed} good · ${res.damaged} damaged · ${res.missing} missing — Admin will review the damaged & missing.`
         );
       } else {
         toast.success("Received in full — stock is now in your shop");
       }
       router.refresh();
     } else {
+      // the RPC rejected — drop the just-uploaded photos so nothing is orphaned
+      if (uploaded.length) await supabase.storage.from(RECEIPTS_BUCKET).remove(uploaded);
       toast.error(res.error);
     }
   }
@@ -188,103 +296,181 @@ function ConfirmCard({
             {STATUS[delivery.status].label}
           </Badge>
         </div>
-        <CardDescription>
-          Sent {format(new Date(delivery.delivered_at), "MMM d, yyyy h:mm a")}
+        <CardDescription className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+          <SourceLabel delivery={delivery} /> · Sent{" "}
+          {format(new Date(delivery.delivered_at), "MMM d, yyyy h:mm a")}
           {delivery.note && ` · ${delivery.note}`}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="flex flex-col gap-2">
-          {lines.map((l) => {
-            const got = parseInt(counts[l.id] || "0", 10) || 0;
-            const lineShort = l.qty_sent - got;
-            const tooMany = got > l.qty_sent;
-            return (
-              <div key={l.id} className="flex flex-col gap-1.5 rounded-md border px-3 py-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      {l.engine_id && (
-                        <Badge variant="secondary" className="mr-1">
-                          Engine
-                        </Badge>
-                      )}
-                      {l.name}
-                    </div>
-                    {l.serial_number && (
-                      <div className="font-mono text-xs text-muted-foreground">
-                        SN {l.serial_number}
-                      </div>
+          {parsed.map(({ line: l, damaged: d, missing, over: lineOver }) => (
+            <div key={l.id} className="flex flex-col gap-2 rounded-md border px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">
+                    {l.engine_id && (
+                      <Badge variant="secondary" className="mr-1">
+                        Engine
+                      </Badge>
                     )}
+                    {l.name}
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    sent{" "}
-                    <span className="font-semibold text-foreground tabular-nums">
-                      {l.qty_sent} {l.unit}
-                    </span>
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <Label htmlFor={`got-${l.id}`} className="text-xs">
-                      Received
-                    </Label>
-                    <Input
-                      id={`got-${l.id}`}
-                      inputMode="numeric"
-                      value={counts[l.id] ?? ""}
-                      onChange={(e) =>
-                        setCounts((c) => ({
-                          ...c,
-                          [l.id]: e.target.value.replace(/\D/g, ""),
-                        }))
-                      }
-                      className={`w-20 tabular-nums ${tooMany ? "border-destructive" : ""}`}
-                    />
-                  </div>
+                  {l.serial_number && (
+                    <div className="font-mono text-xs text-muted-foreground">
+                      SN {l.serial_number}
+                    </div>
+                  )}
                 </div>
-                {tooMany && (
-                  <p className="text-xs font-medium text-destructive">
-                    Only {l.qty_sent} was sent.
-                  </p>
-                )}
-                {lineShort > 0 && !tooMany && (
+                <span className="text-xs text-muted-foreground">
+                  sent{" "}
+                  <span className="font-semibold text-foreground tabular-nums">
+                    {l.qty_sent} {l.unit}
+                  </span>
+                </span>
+                <div className="flex items-center gap-1">
+                  <Label htmlFor={`good-${l.id}`} className="text-xs">Good</Label>
+                  <Input
+                    id={`good-${l.id}`}
+                    inputMode="numeric"
+                    value={good[l.id] ?? ""}
+                    onChange={(e) =>
+                      setGood((c) => ({ ...c, [l.id]: e.target.value.replace(/\D/g, "") }))
+                    }
+                    className={`w-16 tabular-nums ${lineOver ? "border-destructive" : ""}`}
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  <Label htmlFor={`dmg-${l.id}`} className="text-xs">Damaged</Label>
+                  <Input
+                    id={`dmg-${l.id}`}
+                    inputMode="numeric"
+                    value={damaged[l.id] ?? ""}
+                    onChange={(e) =>
+                      setDamaged((c) => ({ ...c, [l.id]: e.target.value.replace(/\D/g, "") }))
+                    }
+                    placeholder="0"
+                    className={`w-16 tabular-nums ${d > 0 ? "border-warning" : ""} ${lineOver ? "border-destructive" : ""}`}
+                  />
+                </div>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  Missing{" "}
+                  <span className={missing > 0 ? "font-semibold text-warning-foreground" : ""}>
+                    {Math.max(0, missing)}
+                  </span>
+                </span>
+              </div>
+
+              {lineOver && (
+                <p className="text-xs font-medium text-destructive">
+                  Good + damaged is more than the {l.qty_sent} sent.
+                </p>
+              )}
+
+              {/* Damage evidence: note + photo, only when something's damaged */}
+              {d > 0 && (
+                <div className="flex flex-col gap-2 rounded-md bg-warning/5 p-2">
                   <Input
                     value={notes[l.id] ?? ""}
-                    onChange={(e) =>
-                      setNotes((n) => ({ ...n, [l.id]: e.target.value }))
-                    }
-                    placeholder={`${lineShort} short — what happened? (e.g. 1 box basa/sira)`}
+                    onChange={(e) => setNotes((n) => ({ ...n, [l.id]: e.target.value }))}
+                    placeholder="What's the damage? (e.g. 1 box basa, casing cracked)"
                     className="text-xs"
-                    aria-label={`Note for ${l.name}`}
+                    aria-label={`Damage note for ${l.name}`}
                   />
-                )}
-              </div>
-            );
-          })}
+                  <DamagePhoto
+                    lineId={l.id}
+                    image={photos[l.id] ?? null}
+                    onPick={(f) => setPhoto(l.id, f)}
+                    onClear={() =>
+                      setPhotos((p) => {
+                        const next = { ...p };
+                        delete next[l.id];
+                        return next;
+                      })
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          ))}
         </div>
 
-        {short > 0 && !over && (
+        {(totalDamaged > 0 || totalMissing > 0) && !over && (
           <div className="flex items-start gap-2 rounded-md bg-warning/10 p-3">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
             <p className="text-xs text-warning-foreground">
               <span className="font-medium">
-                {short} item{short === 1 ? "" : "s"} unaccounted for.
+                {totalDamaged} damaged · {totalMissing} missing.
               </span>{" "}
-              This will be reported to Admin for review — please contact them to
-              clarify. You don&apos;t need to do anything else.
+              Good stock joins your shop now; Admin reviews the damaged & missing.
+              You don&apos;t need to do anything else.
             </p>
           </div>
         )}
 
-        <Button onClick={onConfirm} disabled={busy || over} className="self-end">
-          {busy ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <PackageCheck className="size-4" />
-          )}
-          Confirm what arrived
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <SlipLink delivery={delivery} />
+          <NoteLink delivery={delivery} />
+          <Button onClick={onConfirm} disabled={busy || over}>
+            {busy ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <PackageCheck className="size-4" />
+            )}
+            Confirm what arrived
+          </Button>
+        </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** A compact damage-photo picker: choose → preview thumbnail → remove. */
+function DamagePhoto({
+  lineId,
+  image,
+  onPick,
+  onClear,
+}: {
+  lineId: string;
+  image: ProcessedImage | null;
+  onPick: (file: File | undefined | null) => void;
+  onClear: () => void;
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex items-center gap-2">
+      {image ? (
+        <div className="relative size-14 overflow-hidden rounded-md border">
+          {/* local object URL — plain img is correct */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={image.previewUrl} alt="Damage" className="size-full object-cover" />
+          <button
+            type="button"
+            onClick={onClear}
+            aria-label="Remove photo"
+            className="absolute right-0 top-0 rounded-bl bg-background/80 p-0.5 text-destructive"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ) : (
+        <Button type="button" variant="outline" size="sm" onClick={() => inputRef.current?.click()}>
+          <ImagePlus className="size-4" /> Add photo
+        </Button>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        aria-label={`Damage photo for line ${lineId}`}
+        onChange={(e) => {
+          onPick(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+    </div>
   );
 }
 
@@ -313,8 +499,9 @@ function HistoryCard({
             {STATUS[delivery.status].label}
           </Badge>
         </div>
-        <CardDescription>
-          Sent {format(new Date(delivery.delivered_at), "MMM d, yyyy")}
+        <CardDescription className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+          <SourceLabel delivery={delivery} /> · Sent{" "}
+          {format(new Date(delivery.delivered_at), "MMM d, yyyy")}
           {delivery.confirmed_at &&
             ` · confirmed ${format(new Date(delivery.confirmed_at), "MMM d, h:mm a")}`}
         </CardDescription>
@@ -344,6 +531,10 @@ function HistoryCard({
             {short === 1 ? "" : "s"}. Nothing more for you to do here.
           </p>
         )}
+        <div className="mt-2 flex justify-end">
+          <SlipLink delivery={delivery} />
+          <NoteLink delivery={delivery} />
+        </div>
       </CardContent>
     </Card>
   );

@@ -1,6 +1,6 @@
 @AGENTS.md
 
-# Jerry's Marine — Inventory & Sales-Approval System
+# Gerwin Trading — Inventory & Sales-Approval System
 
 A centralized, web-based inventory + sales-approval platform for a Philippine
 marine store (outboard engines, parts, fisherman goods) supplying multiple
@@ -108,12 +108,13 @@ meta-refresh — `?view=<id>` passes through).
 ### Owner — Suppliers (1)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/suppliers` | Suppliers | Four tabs (`?tab=`) — **order it · receive it · owe it · compare it**: **Directory** (supplier records, credit limits, terms, outstanding inline) · **Receiving** (moved unchanged from /master-inventory/receiving — **the single entry point for stock**: supplier required with live outstanding/utilisation, lines existing-or-inline-new (bulk grid, serial per engine, last-paid context), payment paid/partial/unpaid with due-date presets where the picked date is stored, atomic `fn_receive_stock`, post-save print-labels; `?view=<id>` deep-links a receiving's detail) · **Payables** (what Admin owes: aging buckets, per-receiving balances, Record Payment targeted/FIFO, private receipts) · **Price Comparison** (per product × supplier, always-visible side-by-side, cheapest-first; last-PAID + owner-entered quotes, every price carries source + date — never a bare number; stale flagged; "Preferred is ₱X more" badge; **comparable-only by default** (2+ suppliers, "Show all" reveals the rest); a same-SKU/name **duplicate nudge** opens the merge dialog prefilled. Merged duplicates roll up to one product via 0052) |
+| `/suppliers` | Suppliers | Four tabs (`?tab=`) — **order it · receive it · owe it · compare it**: **Directory** (supplier records, credit limits, terms, outstanding inline) · **Receiving** (moved unchanged from /master-inventory/receiving — **the single entry point for stock**: supplier required with live outstanding/utilisation, lines existing-or-inline-new (bulk grid, serial per engine, last-paid context), payment paid/partial/unpaid with due-date presets where the picked date is stored, atomic `fn_receive_stock`, post-save print-labels; `?view=<id>` deep-links a receiving's detail) · **Payables** (what Admin owes: aging buckets, per-receiving balances, Record Payment targeted/FIFO, private receipts) · **Price Comparison** (per product × supplier, always-visible side-by-side, cheapest-first. **Automatic-only** — prices come from receivings (last-PAID); the owner-entered **quote UI was removed** (Record-quote button, per-product quote buttons, Has-quotes/Stale-only filters all gone) at the owner's request: a product appears here purely once it's been RECEIVED from 2+ suppliers, compared by what was actually paid. Every price still carries source + date; **comparable-only always** (2+ suppliers — single-supplier products are never shown, since a real catalog could be thousands); newest product first (by catalog creation ts); "Preferred is ₱X more" badge; **★ Make preferred** per row; a same-SKU/name **duplicate nudge** opens the merge dialog prefilled. NOTE: the `supplier_quotes` table + `recordSupplierQuote` action + quote arm of `supplier_price_comparison` still exist in the DB/backend — only the UI was dropped, so re-enabling is UI-only. Merged duplicates roll up to one product via 0052) |
 
 ### Owner — Master Inventory (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/master-inventory` | Products | **View + edit only** — the catalog you look at; products land here because a supplier delivered them. Browse (cards/table, photos, filters), edit existing (selling price, engine margins, reorder, category, photo, notes), per-product **Suppliers & Prices** (provenance-labelled, cheapest marked, preferred changeable inline), reference-data maintenance (rename/retire engine models & categories — type definitions, not stock), and **Merge duplicates** (0052: fold same-SKU/name parts into one survivor — catalog-identity only, refused while the duplicate holds stock/transit/open lines). **No Add Part / Add Engine** — empty states link to Suppliers → Receiving |
+| `/master-inventory` | Products | **View + edit only** — the catalog you look at; products land here because a supplier delivered them. Browse (cards/table, photos, filters), edit existing (selling price, engine margins, reorder, category, photo, notes), per-product **Suppliers & Prices** (provenance-labelled, cheapest marked, preferred changeable inline), reference-data maintenance (rename/retire engine models from the Engines view — type definitions, not stock; **product categories moved to their own Category tab**, 0059-era), and **Merge duplicates** (0052: fold same-SKU/name parts into one survivor — catalog-identity only, refused while the duplicate holds stock/transit/open lines). **Add product / Add engine** (0059): custom catalog + opening stock (qty 0 allowed) with owner cost + selling price (> cost), category, and a **supplier dropdown incl. "No supplier"** (attribution → preferred supplier only, never debt). Both go through `fn_receive_stock` with `p_supplier_id = NULL` (0049 lockdown intact — no direct INSERT); real purchases-with-debt still use Suppliers → Receiving |
+| `/master-inventory/categories` | Category | Manage **product** categories (0059-era) — create (the piece the old rename/retire modal lacked), rename, retire, with a live-usage count per category. Owner-only writes (`createCategory`/`updateCategory`/`softDeleteCategory`, re-checked via `getProfile`; case-insensitive dedupe — an active match is refused, a retired one is restored). A new category flows to every product picker/filter via revalidation. Tab order: Products · Category · Labels. Engine-model reference data stays on the Engines view |
 | `/master-inventory/labels` | Print Labels | Generate/print Code128 barcode labels (`?ids=` preselects, e.g. straight from a receiving's new products) |
 
 **Receiving is the single stock entry point** — a product enters the system
@@ -133,18 +134,20 @@ session is refused). Test fixtures seed catalog rows via the service role.
 ### Owner — Deliveries (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/deliveries` | Deliveries & Returns | One page, four tabs: **New Delivery** (into transit) · **New Return** · **In transit** (+ the **discrepancy queue** → return to master or transit write-off) · **Requests** (shops' stock requests, badge = open count; Convert pre-fills the New Delivery tab and links the request on save; Dismiss with a reason). `?tab=` deep-links a tab; `?request=<id>` pre-fills the delivery form |
-| `/deliveries/[id]/note` | Delivery Note | Printable delivery note document |
+| `/deliveries` | Deliveries & Returns | One page, three tabs: **New Delivery** (into transit) · **In Transit** (+ the **discrepancy queue** → return to master or transit write-off) · **Transfers & Returns** (0054/0065: shop-to-shop transfer requests AND shop→master **return requests** — Approve/Reject with note; the New Return tab was retired, returns are now shop-initiated + admin-approved. Also the transfer in-transit list + discrepancy queue offering **Return to source shop** / write-off; Print slip). Shop stock-requests moved to **Stock Alerts** (a request is a stock-alert signal, not a movement); `?request=<id>` still pre-fills the New Delivery form — that's how "Convert to delivery" from Stock Alerts lands here. `?tab=` deep-links a tab |
+| `/deliveries/[id]/note` | Delivery Note | Printable delivery note document — also the **outgoing** (admin→shop) document for a fulfilled stock request. Prints per-line **cost + selling price** and **Total at cost / at selling** (0064), read LIVE from master. Qty reflects what LANDED once confirmed (`qty_received`), the sent qty before that. The SHOP has its own copy at `/shop/deliveries/[id]/note` (reads the shop-safe views incl. cost/price — 0064 widened the delivery-lines view, extending the 0053 cost narrowing) with a "Delivery note" button on each incoming-delivery card; transfers keep their Stock Transfer Slip instead |
 
 ### Owner — Stock Alerts (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/stock-alerts` | Stock Alerts | Master low stock (→ buy from supplier) · all shops' low stock (→ deliver) · reorder levels + per-shop overrides |
-| `/stock-alerts/purchase-list` | Purchase List | Printable supplier order sheet, grouped by supplier, with suggested order qty |
+| `/stock-alerts` | Stock Alerts | Four tabs: Master low stock (→ buy from supplier) · All-shops low stock (→ deliver) · **Requests** (shops' stock requests, moved here from Deliveries — badge = open count; **Print request** → the ingoing receipt; **Convert to delivery** navigates to `/deliveries?request=<id>`, which auto-fills EVERY requested line (parts + engines) split two ways per section — **Available in master** (editable, qty capped to on-hand, with a "requested N, only M available" caption) on top, **No master stock** (disabled, informational — never enters the deliver payload) below; Deliver is disabled when nothing is available. The split is a pure `lib/request-fulfillment.ts#classifyRequestLines` (unit-tested); **Dismiss** with a reason) · Reorder levels + per-shop overrides. `?tab=requests` deep-links (delivery-request notifications point here) |
+| `/stock-alerts/request/[id]/receipt` | Stock Request Receipt | Printable **ingoing** (shop→admin) document — the full itemized list of a shop's requested stock (parts + engines, qty each) with signature lines, for the admin's records. Owner route (reads owner-only `parts`/`engine_models`). The outgoing counterpart is the Delivery Note |
+| `/stock-alerts/purchase-list` | Purchase List | Printable supplier order sheet, grouped by supplier, with suggested order qty. A **supplier dropdown** on the Stock Alerts → Master tab (beside the search, default "All suppliers") filters that list AND drives the Print link's `?supplier=<id>`, so the sheet narrows to one supplier (letterhead + sign-off intact) and each supplier gets its own order; "All" prints the combined sheet |
 
-`/delivery-requests` is now a **redirect** to `/deliveries?tab=requests` (kept so
-old bookmarks don't 404) — delivery requests live as a tab on Deliveries, since
-converting one only ever pre-filled that page's form.
+`/delivery-requests` is now a **redirect** to `/stock-alerts?tab=requests` (kept
+so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alerts**
+(a request is a stock-alert signal); converting one navigates to
+`/deliveries?request=<id>` which pre-fills the New Delivery form.
 
 
 ### Owner — Monthly Count (3)
@@ -160,18 +163,20 @@ converting one only ever pre-filled that page's form.
 | `/movements` | Movements | The `stock_movements` ledger as a **book**, three tabs (`?tab=`): **Journal** (every movement, filtered by location/type/product/actor/date/search, server-side paginated, each row deep-linked to its source document) · **Stock Card** (`?tab=ledger`) per product × location with Opening → running → Closing balance · **Engine History** (`?tab=engines`) scan-a-serial chain of custody |
 | `/movements/stock-card/print` | Stock Card | Printable bin card (params: `part`, `shop`, `from`, `to`) with the Settings letterhead + signature line |
 
-### Owner — Sales & Service (4)
+### Owner — Sales & Service (6)
 | Route | Page | Purpose |
 |-------|------|---------|
 | `/approvals` | Approval Queue | **(a)** Pending: review shop submission batches (sales + losses), one-click Approve-all + per-item actions, live updates. **(b)** Reviewed History: every decided sale/loss/utang payment, filterable (shop · type · status · date · search) with server-side pagination; click a row for a deep-linked slide-over detail (`?item=<type>:<id>`) |
 | `/receivables` | Receivables | All unpaid balances across shops — totals per shop/customer, filters, CSV export, per-sale payment history (incl. voided) |
 | `/warranties` | Warranties & Serials | Engine serial registry + warranty tracking across all shops; shop filter + selling-shop column; claims |
 | `/warranties/[id]/certificate` | Warranty Certificate | Printable warranty certificate |
+| `/suki-cards` | Suki Cards | Loyalty discount cards (0072): issue per customer (existing or inline-new), deactivate/reactivate, reissue (new `SC` number), per-card usage (uses + Σ program discount). Rates shown from the Settings dials |
+| `/suki-cards/[id]/print` | Suki Card (print) | The physical card — CR80 85.6×54 mm via a route-scoped `@page`, Code128 of the card no (shops' scanners read it), customer name + live terms. Print on cardstock, laminate |
 
 ### Owner — Shops & Employees (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/shops` | Shops & Employees | Purely operational since the IA reorg: manage shops (map pins, credentials, close-shop), 2-col cards. Per-branch profitability lives at `/reports?tab=shops`. Shop **color picker** (0050): palette swatches previewing the actual badge, taken colors disabled with the owning shop named, live preview; the shop's color drives its card tile, map pin, chart series, and every `<ShopBadge>` across the app |
+| `/shops` | Shops & Employees | Purely operational since the IA reorg: manage shops (map pins, credentials, close-shop), 2-col cards. Per-branch profitability lives at `/reports?tab=shops`. Shop **color picker** (0050): palette swatches previewing the actual badge, taken colors disabled with the owning shop named, live preview; the shop's color drives its card tile, map pin, chart series, and every `<ShopBadge>` across the app. Shop **logo** (0057): optional per-branch image (reuses the product-image upload pipeline → `product-images` bucket) printed on that branch's receipts + warranty certificates in place of the anchor |
 | `/shops/[id]/stock` | Shop Stock | View a single shop's on-hand stock |
 
 ### Owner — Payroll (6)
@@ -181,6 +186,7 @@ converting one only ever pre-filled that page's form.
 | `/payroll/[id]` | Pay Period | Detail of one pay period and its entries |
 | `/payroll/staff` | Staff | Manage staff records (people, not app logins) |
 | `/payroll/positions` | Positions | Job positions / rates |
+| `/payroll/advances` | Advances | Vale / cash-advance ledger (0071): give a vale, per-staffer outstanding balances, history + void. Deducted per-period on the pay-period detail |
 | `/payroll/reports` | Payroll Reports | Payroll summaries with export |
 | `/payroll/payslip/[entryId]` | Payslip | Printable individual payslip |
 
@@ -200,20 +206,24 @@ converting one only ever pre-filled that page's form.
 | Route | Page | Purpose |
 |-------|------|---------|
 | `/shop` | My Shop Stock | Shop's on-hand stock + today's sales KPIs; edit own product photos |
-| `/shop/warranties` | Warranties | **Read-only** — warranties for engines THIS shop sold; serial lookup (scan-friendly), status + near-expiry highlighting. No edit/void/extend/claim |
+| `/shop/warranties` | Warranties | Warranties for engines THIS shop sold; serial lookup (scan-friendly), status + near-expiry highlighting. **File a warranty claim** (0070): repair / replace (pick an on-hand engine) / refund → `fn_request_warranty_claim`, waits for Admin approval; a **My claims** list shows status + Cancel while requested. No edit/void/extend |
 | `/shop/warranties/[id]/certificate` | Warranty Certificate | Same document as the owner's, reprintable; ownership re-checked server-side |
+| `/shop/warranty-preview/[saleId]` | Warranty Certificate (point-of-sale) | 0055: the **customer's** warranty copy, printable the moment an engine sale is recorded — **before** Admin approval (the official warranty row only exists post-approval). One full-page certificate per engine on the sale, rendered by the guarded definer `fn_shop_warranty_preview` (terms via engine → model → settings fallback, `sold_on` = sale date). NOT thermal — a separate coupon-printer document. Never auto-prints (only the thermal receipt does); reached from the Submissions row. 404s for a cancelled sale, so it voids with the receipt |
 | `/shop/deliveries` | Incoming Deliveries | Count + confirm what actually arrived (no reject/return — a shortfall goes to Admin); history |
 | `/shop/low-stock` | Low Stock | This shop's items at/below their effective threshold → Request delivery from Admin; own request history |
-| `/shop/record-sale` | Record Sale | Scan/browse cart, cash/change helper; since 0053 EVERY line (part + engine) shows its own-shop **cost** (read-only, the tawad floor) and an editable selling price defaulting to catalog — server rejects any price at/below cost; partial payment (customer required); saves as `recorded` |
+| `/shop/record-sale` | Record Sale | Scan/browse cart, cash/change helper; since 0053 EVERY line (part + engine) shows its own-shop **cost** (read-only, the tawad floor) and an editable selling price defaulting to catalog — server rejects any price at/below cost; partial payment (customer required); a **payment-method** picker (cash/gcash/bank/other, 0061 — the change helper shows only for cash) saved on the sale; saves as `recorded`. A **"Print receipt on save"** checkbox (default ON, sticky per-browser via `localStorage jm-sale-autoprint`) prints the 58mm receipt **in-place** on save — an off-screen iframe loads `/receipt/[id]` and fires its own print dialog, so the cashier never leaves the page (with a kiosk-printing default printer it prints with no dialog). Unchecked = no auto-print; reprint any sale from its Submissions row |
 | `/shop/record-loss` | Record Loss | Reason-tagged write-off request; saves as `recorded` |
 | `/shop/receivables` | Receivables (Utang) | This shop's outstanding balances + Record Payment (posts immediately) + payment history with void |
 | `/shop/expenses` | Expenses | Record this shop's expenses (category or propose-new, optional receipt photo) — saves as `recorded`, rides the submission batch, **counts only when approved**; list shows own submissions with statuses + Admin-recorded entries for this shop; company expenses invisible |
-| `/shop/submissions` | Submissions | Current report (unsent) → Submit batch to Admin; Submitted / Reviewed tabs |
+| `/shop/transfers` | Transfers | Three tabs: **Send stock** to another branch (0054: destination + lines from own stock → `fn_request_transfer`) · **Return to Admin** (0065: shop→master **return request** — reason + parts good/damaged + engine condition → `fn_request_return`; own-returns list with status + Cancel while requested + Admin's reject note) · **Sent** (outgoing transfers, Admin note on reject, Cancel while Requested, Print slip once approved). Incoming transfers appear on `/shop/deliveries` (labelled with the source) |
+| `/shop/submissions` | Submissions | Current report (unsent) → Submit batch to Admin; Submitted / Reviewed tabs. Every sale row carries a **print-receipt** action (→ `/receipt/[id]`) — the reprint path when Record Sale's auto-print is off, across Current/Submitted/Reviewed. An engine sale row also gets a **Print warranty** action (→ `/shop/warranty-preview/[saleId]`, the full-page **coupon-printer** certificate, never thermal) that appears **the moment the sale is recorded — no Admin approval needed** (it's a customer document, not the control record). Both documents **void with the sale**: cancelling it (`cancelSale`) makes the receipt AND the warranty route 404, since both read the sale with `deleted_at is null`. This is the shop's first place to reach the warranty; the read-only `/shop/warranties` page (populated only on approval) is the second |
 
-### Shared document (1)
+### Shared documents (3)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/receipt/[saleId]` | Receipt | Printable sale receipt (buyer's copy + owner's digital copy), rendered from the recorded sale — same numbers by construction. RLS-scoped to owner + selling shop. |
+| `/receipt/[saleId]` | Receipt | Printable sale receipt, rendered from the recorded sale — same numbers by construction. RLS-scoped to owner + selling shop. **58mm thermal layout** (single column, monochrome text letterhead, dashed rules) via a **route-scoped** `@page { size: 58mm auto }` + CSS in an inline `<style>` — must stay on this route only (never in globals.css/theme.css) so it can't leak into the other full-page printables; the doc HTTP suite asserts the `58mm` marker is present here and absent everywhere else. Below the business letterhead (same for all branches) it prints the **branch line** — `Branch: <shop>` + the shop's `location` (0056) — so a customer can tell which branch issued it. Above the letterhead it shows the branch **logo** (`shops.logo_path`, 0057), falling back to the anchor icon. Prints the **payment method** (0061) as `Paid via <method>` (`Downpayment via <method>` when partial). |
+| `/transfer/[id]/slip` | Stock Transfer Slip | Printable slip that travels with a shop-to-shop transfer (0054), signed on both ends. Party-scoped via `transfer_slip` — readable by owner, source, and destination; a non-party gets `notFound()`. Shows From → To, lines (+ engine serials), and received qty + shortfall after confirmation. |
+| `/return/[id]/slip` | Return Slip | Printable slip that travels with a shop→master return (0066), signed on both ends. Party-scoped via `return_slip` — readable by owner + the returning shop only; a non-party (or anon) gets `notFound()`. Shows Returned by → Admin/Master, lines split **Good / Damaged** (+ engine serials), reason, status, and the Admin note when rejected. "Print slip" sits on every return card (shop side, from `requested` onward; owner side, on each pending request). No cost columns. |
 
 **Feature summary for billing:** ~15 functional modules — Auth (+ password
 recovery), Dashboard, Reports (+ consolidated P&L / Net Income), Master
@@ -353,6 +363,15 @@ write-off** (lost between master and shop).
 > the shop can only enter counts and notes. Confirmation is one-shot and can
 > never exceed the sent quantity.
 
+Since 0058 the shop records good / **damaged** / missing per line (damaged as a
+distinct outcome, with an optional photo under its own `shop-<id>/` prefix).
+Damaged units do NOT land in sellable stock — they stay in `qty_outstanding`
+alongside missing (damage is a confirm-time annotation, not a change to the
+generated formula) until the OWNER resolves them through the same discrepancy
+queue, reason-tagged `damaged` (→ write-off shrinkage / return-to-master → the
+supplier) vs `lost_in_transit`. Damage on arrival is business-level shrinkage,
+not the receiving shop's fault — same treatment as any transit write-off.
+
 Reconciliation invariant (asserted in `test-delivery-confirm.mjs` after every
 step): `sum(stock_levels.qty) + sum(stock_in_transit.qty) = total owned`. Only
 a transit write-off may reduce total owned. `stock_in_transit` is a **view**
@@ -360,6 +379,33 @@ over `delivery_lines.qty_outstanding` (generated column), so the bucket can
 never drift from the line it came from. Reports keep **transit write-offs**
 (`movement_type='transit_writeoff'`) separate from **shop losses** (`losses`
 table) and **returns** (`return`) — three different things.
+
+### Shop-to-shop transfers — a delivery whose source is a shop (0054)
+A **transfer** reuses this exact model: `deliveries.from_shop_id` (NULL =
+master, non-null = source shop) generalizes the delivery. The flow: source shop
+**requests** (`fn_request_transfer` → status `requested`, no stock moves — shops
+record, never move stock) → owner **approves** on the Deliveries → Transfers tab
+(`fn_approve_transfer` re-checks the source still holds every line and RAISES
+the whole request if it was sold since — same preventive guard as sale approval;
+debits source into transit) or **rejects** (note required) → destination
+**confirms** arrival with the SAME `fn_confirm_delivery` (count-only; it already
+scopes to the destination `shop_id` and needed no change) → owner resolves any
+shortfall with `fn_resolve_delivery_discrepancy`, now offering
+**returned_to_source** (back to the source shelf) alongside written_off. The
+source can `fn_cancel_transfer` only while `requested`. The invariant survives
+by construction: the write-off is booked at `shop_id = source`, and the journal
+already relocates `transit_writeoff` to the synthetic `transit` location
+**shop-agnostically** (0045) while the stock card excludes it by type — so the
+source shop's ledger reconciles to its shelf exactly as master does. A transfer
+write-off is business-level shrinkage in the P&L (the shrinkage query filters
+only on `movement_type`, so it counts write-offs at any `shop_id`) and never
+touches a shop's Net Contribution. Shop-facing views: `shop_incoming_deliveries`
+(destination, now labelled with the source; hides pre-approval transfers),
+`shop_outgoing_transfers` (source tracks what it sent), and party-scoped
+`transfer_slip`/`_lines` backing the printable **Stock Transfer Slip**
+(`/transfer/[id]/slip`, outside every role group — readable by owner, source,
+and destination; a non-party gets no row → `notFound()`). New notification
+types: `transfer_requested`/`transfer_approved`/`transfer_rejected`.
 
 ### The ledger has no transit location — read before touching `/movements`
 `stock_movements.shop_id IS NULL` means **master** everywhere in this schema.
@@ -517,7 +563,7 @@ never a stored flag. Receivable balances are
 mutable running total; `sales.balance_due_centavos` stays the at-sale snapshot
 the printed receipt shows.
 
-### Migrations (`supabase/migrations/`, 0001–0053)
+### Migrations (`supabase/migrations/`, 0001–0072)
 `0001` schema · `0002` RLS + safe views · `0003` seed · `0004` receiving fns ·
 `0005` delivery fns · `0006` record (sale/loss) fns · `0007` line descriptions ·
 `0008` approval engine + realtime · `0009` count fns · `0010`/`0011` product &
@@ -560,7 +606,8 @@ payables RPCs (`fn_supplier_outstanding`, `fn_supplier_limit_check`,
 `fn_check_supplier_limit_alerts`, `fn_receive_stock` rewritten with payment/due/
 override, `fn_record_supplier_payment` FIFO, `fn_check_supplier_overdue`) ·
 `0035` pg_cron schedule for the daily overdue sweep · `0036` owner referred to
-as "Admin" (business name stays "Jerry's Marine" in `settings.business_name`;
+as "Admin" (business name is "Gerwin Trading" in `settings.business_name`,
+renamed from "Jerry's Marine" in 0060;
 redefines the 3 functions that bake the name into notification text + rewrites
 already-sent rows) · `0037` shop profitability (expense `scope` default
 `shop`→`company` — the old default violated its own CHECK when `shop_id` was
@@ -603,7 +650,7 @@ functions that shipped after 0042 unguarded (`fn_supplier_outstanding`,
 IS NULL` so the JWT-less pg_cron sweeps keep working) · `0048` receiving as the
 single entry point (`fn_receive_stock` accepts `new_part` on a part line and
 `new_model` on an engine line — inline creation + stocking + debt in one
-transaction; JM barcode minting; live (brand, model) reuse; friendly
+transaction; JM barcode minting (GT since 0062); live (brand, model) reuse; friendly
 unique-violation errors; payment/limit/due-date behavior byte-identical to
 0034. Bulk Add retired → redirect stub) · `0049` catalog INSERT lockdown
 (revokes INSERT on `parts`/`engines`/`engine_models` from app roles — creation
@@ -652,7 +699,221 @@ the server-read cost (at-cost rejected, +1 centavo OK); the legacy
 `p_engine_ids` param is dropped. `fn_receive_stock` drops the engine margin
 params and validates a provided selling price > cost. NO hard price>cost table
 CHECK (would reject existing at/under-cost rows) — enforced in the RPC + edit
-actions).
+actions) · `0054` shop-to-shop transfers (generalizes `deliveries` with
+`from_shop_id` (NULL = master → every existing delivery unchanged), statuses
+`requested`/`rejected`/`cancelled`, `requested_by`/`approved_by`/`approved_at`/
+`review_note`; `fn_request_transfer` (source records, no movement) +
+`fn_approve_transfer` (owner debits source into transit, re-checks stock) +
+`fn_cancel_transfer`; `fn_resolve_delivery_discrepancy` extended with
+`returned_to_source` and books the write-off at the delivery's `from_shop_id`;
+`shop_incoming_deliveries`/`_lines` gain a source label + hide pre-approval
+transfers; new `shop_outgoing_transfers`/`_lines` and party-scoped
+`transfer_slip`/`_lines`; `fn_stock_card` delivery particular made sign-based
+(names the real source/dest); transfer notification types. Reuses `delivery`/
+`transit_return`/`transit_writeoff` — NO new movement types; the invariant holds
+by construction. See "Shop-to-shop transfers" above) · `0055` point-of-sale
+warranty certificate (`fn_shop_warranty_preview` — a guarded, **read-only**
+SECURITY DEFINER function returning per-engine certificate data computed from a
+sale for the shop to print at the counter BEFORE approval; writes nothing,
+creates no warranty row. It exists because `engines` and the
+`default_warranty_months` dial are owner-only, so a shop can't assemble the
+certificate itself. Terms mirror `fn_approve_sale`'s fallback with `sold_on` =
+the sale's business_date; returns zero rows for a deleted sale so the
+certificate voids with the receipt. Backs `/shop/warranty-preview/[saleId]`; the
+official warranty record is still born only on approval — unchanged) · `0056`
+branch identity on customer documents (the business letterhead is one name for
+all branches, but a receipt/warranty should say WHICH branch issued it). Adds
+the selling shop's `location` to the two shop-facing warranty sources —
+`shop_warranties` (append-only column) and `fn_shop_warranty_preview`
+(drop+recreate to widen the return) — so the certificate names branch + address
+self-contained (like `transfer_slip`'s from/to locations). The Sale Receipt
+already fetched `shops(name, location)`; it now PRINTS the branch line. Owner
+cert page just embeds `shops.location`. Nothing sensitive — a shop already reads
+its own shop row via `shops_select`) · `0057` per-branch logo (`shops.logo_path`
+— the owner uploads a logo when creating/editing a shop; it replaces the anchor
+on the two customer documents the shop hands out: the **sale receipt** and the
+**warranty certificate**. No logo → the anchor stays. Stored in the existing
+public `product-images` bucket (`shop-logos/<id>-<ts>.webp`; owner-only writes,
+public read — no new bucket/policy). Threaded onto `shop_warranties` +
+`fn_shop_warranty_preview` as `shop_logo_path` (like the location), embedded
+directly by the owner cert page and the receipt. Scope was a deliberate choice:
+the delivery note + transfer slip keep the anchor — they're owner/multi-party
+documents with no single issuing shop) · `0058` damage & loss on receipt
+(`delivery_lines`/`return_lines` gain `qty_damaged` + `damage_photo_path`,
+default 0/NULL so live rows are untouched). **Delivery confirm** (shop) now
+records good / **damaged** / missing per line + an optional damage photo:
+`fn_confirm_delivery` takes `{qty_received, qty_damaged, damage_photo_path}`,
+lands only the GOOD (damaged does NOT land — it stays in `qty_outstanding` with
+the missing, since the generated formula is untouched; `qty_damaged` is an
+annotation), flips to `discrepancy`, notifies the owner with the good/damaged/
+missing split. The photo must sit under the confirming shop's own `shop-<id>/`
+prefix (matches the receipts bucket policy). **Returns** (owner) are now
+inspected: `fn_return_stock` takes parts `{qty_good, qty_damaged}` + engines
+`{engine_id, condition}` — good → master (existing return legs), **damaged →
+an owner-created *approved* loss at the shop, valued at cost** (movement `loss`;
+engine soft-deleted) — the existing shrinkage path, never master sellable stock.
+NO new movement types: a damaged delivery unit resolves through the existing
+discrepancy queue as `transit_writeoff` (shrinkage) or `transit_return` (back to
+master → supplier), reason-tagged `damaged`/`lost_in_transit` (the UI passes it;
+`fn_resolve_delivery_discrepancy` was already reason-aware — unchanged). P&L
+totals unchanged: damaged-on-arrival (transit_writeoff) and damaged-on-return
+(loss) are both already business-level shrinkage and both already excluded from
+any shop's Net Contribution. Transfers benefit automatically (they share
+`fn_confirm_delivery`). Both RPCs redefined backward-compatibly — `qty_damaged`
+coalesces to 0, parts accept the legacy `{part_id, qty}` — so existing callers
+keep working. `test-receipt-damage.mjs` proves the whole path incl. reconciliation
+after every step) · `0059` optional supplier on receiving (brings back **Add
+product / Add engine** in Master Inventory WITHOUT reversing the 0049 lockdown:
+creation still only inside `fn_receive_stock`, no INSERT grant. `p_supplier_id
+NULL` → a supplier-less, no-debt receiving: skip all credit/payable/alert logic,
+header is settled & zero-value (`total_amount 0`, `payment_status 'paid'`),
+catalog created/reused inline + stock + `received` movement as usual (invariant
+holds). Supplier present → UNCHANGED (Suppliers → Receiving debt flow untouched).
+`preferred_supplier_id` in `new_part`/`new_model` stamps the product's preferred
+supplier (attribution only — never a payable; reuse doesn't overwrite) — this was
+already in the function. Opening **qty 0** allowed (registers the catalog row, no
+stock/line/movement; negative still rejected). is_owner() guard + price>cost kept.
+`test-custom-product.mjs` (no-debt, qty 0, attribution, engine, reconciliation) +
+extended `test-catalog-lock.mjs` (direct INSERT still fails; supplier-less create
+via the RPC works); `test-supplier-payables` stays green — no phantom debt) ·
+`0060` business rename **Jerry's Marine → Gerwin Trading** (`settings.business_name`
++ the notification-text functions rewritten, same pattern as 0036; historical
+data/labels untouched) · `0061` sale payment method (`sales.payment_method`
+`cash`|`gcash`|`bank`|`other`, default `cash` backfills every existing sale;
+`fn_record_sale` gains `p_payment_method`, validated + stored — this is HOW the
+money was tendered, orthogonal to `payment_type` which is HOW MUCH. For a partial
+sale it describes the downpayment. Same value set as a shop expense's method, so
+the vocabulary is one set app-wide. Prints on the receipt (`Paid via …` /
+`Downpayment via …`) and shows on the Approval Queue + reviewed detail;
+`test-pricing` extended) · `0062` internal barcode prefix **JM → GT** (Gerwin
+Trading): `fn_generate_internal_barcode` + `fn_receive_stock` re-emit
+`GT########`. NO backfill — already-printed `JM…` labels stay valid, and GT/JM
+share `internal_barcode_seq` so a new GT code can never collide with an old JM
+one. UI labels + `test-receiving`/`-inline`/`-custom-product` updated) · `0063`
+payment method + reference on the AT-RECEIVING payment (`receivings.payment_method`
+`cash`|`bank`|`gcash`|`check`|`other` + `reference_no`, both nullable; same enum as
+`supplier_payments.method`. `fn_receive_stock` gains `p_payment_method`/
+`p_reference_no`, stored only when money actually moved (v_paid > 0) — the
+supplier-less "Add product" path and unpaid-on-credit leave them null.
+DESCRIPTIVE ONLY: the balance stays `total − amount_paid − Σ(supplier_payments)`,
+untouched; no backfill. Form shows the two fields only for Paid/Partial; the
+receiving detail dialog prints `Paid via <method> · <ref>`. `test-receiving`
+extended) · `0064` delivery-note prices (adds `cost_centavos` + `price_centavos`
+to the `shop_incoming_delivery_lines` safe view so the SHOP's delivery note can
+print per-line cost + selling + totals, matching the owner's. Read LIVE from
+master — no capture at delivery. A deliberate WIDENING of the 0053 cost
+narrowing: the shop already saw its own on-hand cost via `shop_stock`/
+`shop_engines`; now it also sees the cost of stock being delivered to it, at the
+owner's request. Owner's note reads `parts`/`engines` directly. `test-rls`
+doesn't guard this view, so unaffected) · `0065` shop-initiated returns with
+admin approval (returns become a REQUEST → APPROVE flow, mirroring transfers
+0054 — the SHOP initiates a return of its own stock under **/shop/transfers →
+"Return to Admin"** (status `requested`, NO stock moves), the OWNER approves or
+rejects in **Deliveries & Returns → "Transfers & Returns"** (the New Return tab
+is RETIRED; `fn_return_stock` kept for back-compat/tests but no longer called
+from a screen). `returns` gains `status`/`requested_by`/`approved_by`/
+`approved_at`/`review_note` (existing rows backfilled `approved`). RPCs:
+`fn_request_return` (shop, own shop, validates on-hand), `fn_approve_return`
+(owner — good → master, damaged → approved loss @cost, re-checks the shop still
+holds each line; NO transit step, owner is the receiver), `fn_reject_return`
+(note required), `fn_cancel_return` (shop, while requested). Shop-safe views
+`shop_returns`/`shop_return_lines`. The owner Deliveries sidebar badge now also
+counts `returns.status='requested'`. Reason + damaged chosen by the shop at
+request time) · `0066` printable **Return Slip** (the document a shop→master
+return travels with, mirroring the Stock Transfer Slip 0054). Party-scoped views
+`return_slip`/`return_slip_lines` (readable by owner + the returning shop only —
+a return has one non-owner party, no destination shop) back `/return/[id]/slip`
+(outside every role group, like `/receipt` + the transfer slip — the view is the
+gate, a non-party/anon reads no row → `notFound()`). Shows Returned by →
+Admin/Master, lines split Good/Damaged (+ serials), reason, status, Admin note
+when rejected; signature lines. No cost columns. "Print slip" on every shop
+return card (`requested` onward) + each pending owner request) · `0067` shop
+transfer destinations (BUGFIX: the shop "Send stock" picker read `shops`
+directly, but `shops_select` (0002) scopes an employee to its OWN shop row, so
+the destination list was always empty — "no other shops to transfer to", broken
+since 0054. The transfer RPC always worked (SECURITY DEFINER, takes a shop id);
+only the picker was starved. Fix = safe view `shop_transfer_destinations`
+(security_barrier, identity-only: id/name/color_key of active live shops,
+granted to authenticated) — nothing more than the transfer slip already shows a
+party. `/shop/transfers` reads it instead of `shops`) · `0068` payer details on
+an utang payment (`utang_payments` gains `method` `cash`|`gcash`|`bank`|`other`
+(default `cash` backfills existing rows), `payer_name`, `payer_contact`.
+`fn_record_utang_payment` gains `p_method`/`p_payer_name`/`p_payer_contact` —
+**payer_name is REQUIRED** (raises otherwise), method validated against the same
+four-value set as sales/expenses. DESCRIPTIVE ONLY: balance math unchanged
+(`total − amount_paid − Σ approved payments`), no view changes — the shop +
+owner Receivables read the columns straight off `utang_payments` for the payment
+history. The shop Record-payment dialog gains a method picker + Paid-by name
+(required, prefilled from the debtor) + contact; both histories print
+"Paid by <name> · <contact> · via <method>". `test-receivables` extended;
+all utang callers (`test-e2e`/`-pnl`/`-reviewed-history`) pass `p_payer_name`) ·
+`0069` enum values for warranty claims (`engine_status += 'defective'`,
+`loss_reason += 'warranty'`; standalone because an enum value can't be added and
+used in one txn — see 0027) · `0070` shop-initiated **warranty-claim
+resolution** with admin approval (mirrors returns 0065 — the SHOP that sold the
+engine files a claim + proposed resolution, the OWNER approves/rejects, effects
+run on approval). `warranty_claims` gains `status`/`resolution`
+(`repair`|`replace`|`refund`)/`shop_id`/`requested_by`/`approved_by`/
+`approved_at`/`review_note`/`replacement_engine_id`/`refund_centavos` (legacy
+owner-logged rows backfilled `approved`). Safe view `shop_warranty_claims`
+(scoped via warranty→sale→shop, like `shop_warranties`). RPCs
+`fn_request_warranty_claim` (shop; validates the warranty is its own + the
+replacement is on-hand), `fn_approve_warranty_claim` (owner), `fn_reject…`
+(note), `fn_cancel…` (shop, while requested). **On approval**: *replace* books
+the shop's on-hand replacement OUT as an approved **loss @cost** (reason
+`warranty`, shrinkage — a ₱0 replacement can't go through `fn_record_sale`),
+marks it sold to the customer, **repoints the warranty** to the new serial
+(`on conflict (engine_id)` upsert), and sends the defective unit to master as
+`status='defective'` (not sellable — supplier RMA out of band); *refund* books
+the amount as an approved **company expense** ("Warranty Refunds") + defective
+→ master; *repair* logs only; *reject* notes + nothing moves. No new movement
+type — reuses `loss`/`return`. New notification types
+`warranty_claim`/`_approved`/`_rejected`. The shop `/shop/warranties` gains a
+File-a-claim dialog + My-claims list; the owner `/warranties` gains a
+Claims-awaiting-approval section) · `0071` payroll **vale / cash-advance**
+deduction (a tracked ledger, separate from the gov contributions). `staff_
+advances` (owner-only) records money a staffer borrowed; `payroll_entries` gains
+`vale_centavos` (the amount deducted on that payslip, frozen); view
+`staff_advance_balances` computes `balance = Σ advances − Σ vale` per staffer.
+`fn_apply_entry_contributions` is rewritten (supersedes 0041) to subtract the
+vale in **every** path — `net = gross − Σ ee − vale`, with vale **capped to
+available net** (gross − ee) so the `net_pay >= 0` CHECK can never fire; the
+remainder **carries** to the next period. RPCs `fn_record_staff_advance`,
+`fn_void_staff_advance` (refuses once deducted against), `fn_save_payroll_vale`
+(owner; caps to available net + outstanding balance, then re-invokes the net
+writer). New **Payroll → Advances** tab (give a vale · outstanding balances ·
+history + void); the pay-period detail gains a **Vale** column + per-staffer
+deduct dialog; the payslip prints a "Less: cash advance (vale)" line so
+gross − contributions − vale = net ties out. A vale is a repayment, not a
+business cost — it does **not** touch the P&L) · `0072` **suki discount cards**
+(loyalty discount at POS. `discount_cards` (owner-only RLS): one ACTIVE card
+per customer (partial unique index), `card_no` minted `SC########` from its own
+sequence — a prefix distinct from `GT` product barcodes so a card scanned into
+the product field is unambiguous. Settings dials `suki_engine_discount_pct`
+(10) / `suki_part_discount_pct` (5) — rates are DATA, owner-editable from
+Settings → Alerts. `sales` gains `discount_card_id` + `card_discount_centavos`
+(program reporting only — the discount LIVES IN THE LINE PRICES, so revenue/
+COGS/P&L need no special case). RPCs: `fn_create_discount_card` /
+`fn_set_discount_card_status` (owner; reissue = deactivate + new number),
+`fn_lookup_discount_card` (shop-callable definer, the shop's ONLY window into
+cards: active card → customer + the two live percentages, NO cost, no
+browsing — the fn_shop_warranty_preview pattern). `fn_record_sale` gains
+`p_discount_card_id`: the card's customer IS the sale customer; per line the
+card price = `round(catalog × (1−pct/100))` **capped at cost+1** (the 0053
+strict floor survives thin margins) and the client's price is **clamped to ≤
+card price** — guaranteed minimum: the cashier may tawad LOWER, never charge a
+suki more; at/below cost still raises. Owner **/suki-cards** page (Sales &
+Service): issue (existing or inline-new customer), deactivate/reactivate,
+reissue, per-card usage (uses + Σ card_discount); **/suki-cards/[id]/print** —
+the physical card, CR80 85.6×54 mm via a ROUTE-SCOPED `@page` (same isolation
+rule as the 58 mm receipt), Code128 of the card_no (JSBarcode — the shops'
+existing scanners read it), customer name, live terms. Record Sale gains a
+suki field (scan or type; the product scan input routes `SC…` codes too):
+lookup → prices drop to the card price per line ("suki max" = the ceiling,
+input flags above-max), customer auto-filled + locked, Clear reverts to
+catalog. Receipt prints "Suki card discount −₱X"; Approval Queue + reviewed
+detail show the card no + program discount. `test-discount-cards.mjs` — the
+suite REFUSES to run (exit 2) until 0072 is applied).
 
 ### Cost visibility — narrowed, not opened (0053)
 "Cost is owner-only" (the discipline behind 0038 and the safe views) was
@@ -695,14 +956,16 @@ a survivor so pricing/comparison roll up. Resolution is always
 `fn_check_supplier_limit_alerts`, `fn_check_supplier_overdue` (daily via
 pg_cron `supplier-overdue-daily`, 01:15 UTC), `fn_contribution_basis`,
 `fn_resolve_contribution`, `fn_apply_entry_contributions`, `fn_remittance_totals`,
-`fn_cron_job_health`, `fn_stock_card`,
+`fn_cron_job_health`, `fn_stock_card`, `fn_shop_warranty_preview`,
 plus count + payroll functions.
 
-**Read-only by contract:** `fn_cron_job_health` and `fn_stock_card` write
-nothing — they are `SECURITY DEFINER` only because pg_cron and window functions
-are unreachable through PostgREST. Both re-check `is_owner()` for the reason
-0042 exists: a definer function without a role check is the hole RLS exists to
-close.
+**Read-only by contract:** `fn_cron_job_health`, `fn_stock_card` and
+`fn_shop_warranty_preview` write nothing — they are `SECURITY DEFINER` only
+because pg_cron, window functions, and owner-only source tables (`engines` +
+the `default_warranty_months` dial) are unreachable through a shop's PostgREST
+session. Each re-checks its caller (`is_owner()`, plus `auth_shop_id()` for the
+warranty preview's own-shop scope) for the reason 0042 exists: a definer
+function without a role check is the hole RLS exists to close.
 
 **Enforced now, not by memory (`test-definer-guards.mjs`).** Every definer
 function granted to `authenticated` must guard its caller in-body. This is a
@@ -733,7 +996,10 @@ app/
     suppliers/             4 tabs: directory · receiving · payables · comparison
     suppliers/payables/    What we owe suppliers (owner-only)
     deliveries/            + [id]/note (print); tabs: delivery · return ·
-                           transit-panel · requests-panel (+ request-actions)
+                           transit-panel · transfers-panel
+    stock-alerts/          + purchase-list (print) · request/[id]/receipt (print,
+                           ingoing) · requests-panel (+ request-actions, moved
+                           from deliveries)
     counts/                + [id]/ [id]/sheet (print)
     movements/             the ledger as a book; tabs: journal · ledger (stock
                            card) · engines (chain of custody)
@@ -753,12 +1019,45 @@ lib/
   business-identity.ts     getBusinessIdentity(supabase) — the letterhead for
                            all six documents, read from `public_settings`
 components/
-  shell/                   app-shell (sidebar/nav), approvals-badge, print-button, section-tabs
+  shell/                   app-shell (sidebar/nav), approvals-badge, nav-badges
+                           (live sidebar counts: Deliveries · Stock Alerts ·
+                           Receivables · Warranties), print-button, section-tabs
   ui/                      shadcn/ui primitives
   data-table/ image-upload-field · product-image · receipt-image · location-picker · date-picker · view-toggle · confirm-dialog
-supabase/migrations/       0001–0046 (schema, RLS, functions, features)
+supabase/migrations/       0001–0072 (schema, RLS, functions, features)
 scripts/                   test-*.mjs verification scripts (one per deliverable)
 ```
+
+### Sidebar count badges (owner nav)
+The Approval Queue's live count is generalized in `components/shell/nav-badges.tsx`
+to five more owner pages — each shows a "needs your attention" number, hidden at
+0. What each counts (deliberate, not obvious):
+- **Deliveries & Returns** — transit discrepancies + shop-to-shop transfers
+  awaiting approval (`deliveries.status in ('requested','discrepancy')` catches
+  transfer requests + every discrepancy; plain in-transit waits on the shop, so
+  it's excluded). Shop stock-requests moved to Stock Alerts.
+- **Stock Alerts** — every low-stock item (master + all shops:
+  `master_low_stock` + `shop_low_stock`) PLUS open shop stock-requests
+  (`delivery_requests` status `open`).
+- **Suppliers** — OVERDUE supplier debt (`receiving_balances` where `overdue`),
+  the same red rows the Payables tab flags. Overdue is a DATE-based state (no
+  table event fires when a due date passes at midnight), so this leans on the
+  focus/visibility refresh + the daily `fn_check_supplier_overdue` cron (which
+  raises a notification → realtime bump). The count is ALSO surfaced on the
+  Payables sub-tab itself (`supplier-tabs.tsx`, red destructive badge) since
+  that's where the Pay action lives. Overdue-only, not every open payable — a
+  badge that lit up for any credit purchase would be permanent noise.
+- **Receivables** — sales with a live balance (`receivables.balance_centavos > 0`).
+- **Warranties & Serials** — shop-filed **warranty claims awaiting approval**
+  (`warranty_claims.status='requested'`, 0070) — the one thing the owner acts on
+  here; clears as each is approved/rejected. NOT the serial registry or pending
+  engine sales (those live on the Approval Queue).
+
+Each keeps fresh via a realtime subscription on its feeder tables (sales,
+deliveries, delivery_requests, utang_payments, notifications are in the
+`supabase_realtime` publication) PLUS a reload on tab focus — the safety net for
+counts derived from tables NOT in the publication (stock levels feed Stock
+Alerts). All are owner-only; a shop session never renders them.
 
 ### Per-page code pattern
 Each route is a server component `page.tsx` (data fetch + metadata) that renders
@@ -828,9 +1127,33 @@ settle → low stock → request → pay supplier → profit reconciles) · `tes
 (the security backbone) · plus one per feature: receiving, receiving-inline
 (0048 single-entry: inline creation, atomicity, picked due date, limit
 override, RLS), catalog-lock (0049: direct catalog INSERT fails even for the
-owner; receiving still creates; UPDATE untouched), deliveries,
-delivery-confirm, counts, shop-recording, approvals, batch-submission,
-warranties, shop-warranties, receivables, pricing (0053: unified single price,
+owner; receiving still creates; UPDATE untouched; 0059: supplier-less create via
+the RPC works), custom-product (0059: supplier-less Add product/engine — no debt,
+opening qty 0, > cost, attribution sets preferred supplier, reconciliation),
+categories (0059-era: owner create/rename/retire, exact-dup refused, employee
+blocked by RLS, retire keeps the product's link), deliveries,
+delivery-confirm, receipt-damage (0058: delivery confirm records good/damaged/
+missing + photo prefix guard + reason-tagged resolve; return inspection good→
+master / damaged→approved loss @cost; reconciliation after every step),
+transfers (0054: request→approve→confirm→resolve, authority,
+reconciliation invariant, engine serial-integrity, view RLS + slip scoping),
+returns (0065/0066: shop request→approve/reject/cancel, good→master + damaged→
+approved loss @cost, damaged engine→soft-delete+loss, approve re-checks the shelf,
+reconciliation, shop_returns RLS + return_slip party-scoping),
+convert-request (pure classifier: available/partial-capped/no-stock for parts +
+engines, serials never reused), counts, shop-recording, approvals, batch-submission,
+warranties, shop-warranties, warranty-preview (0055: point-of-sale cert before
+approval, engine→model→settings term fallback, own-shop guard, voids with the
+sale; 0056/0057: branch location + logo path thread onto the cert),
+warranty-claims (0069/0070: shop files repair/replace/refund → owner approve/
+reject/cancel; replace books replacement-out loss @cost + warranty repoint +
+defective→master, refund→company expense, authority + third-shop RLS),
+receivables,
+discount-cards (0072: suki cards — owner-only issuing + one-active-per-customer,
+SC prefix, shop lookup returns customer+rates only, card price server-derived
+with cost+1 cap, client price clamped to the card price, inactive card dead,
+card-less sale unchanged; refuses to run until 0072 is applied),
+pricing (0053: unified single price,
 sale floor = cost strictly-greater for parts + engines, cost visible read-only
 to the shop, no tiers remain), stock-alerts,
 shop-colors (0050: CHECK, live-unique, release-on-close, RLS),
@@ -839,7 +1162,9 @@ propose/remap, receipts path isolation, reviewed history),
 part-merge (0052: owner-only, refuses stock/transit/open-lines, audit, no
 ledger write, invariant intact, one-hop, comparison rollup),
 reviewed-history, supplier-payables, shop-profitability, expenses, payroll,
-payroll-contributions, images, shop-images, admin, close-shop, reports,
+payroll-contributions, payroll-vale (0071: record advance→balance, deduct
+installment, cap to balance, cap to net + carry, void + refusal, no-advance,
+paid-immutable, authority), images, shop-images, admin, close-shop, reports,
 settings, settings-documents (HTTP), pnl, movements, supplier-comparison,
 ia-redirects (HTTP).
 

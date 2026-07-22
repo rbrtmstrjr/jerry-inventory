@@ -49,6 +49,8 @@ export default async function ShopWarrantyCertificatePage({
     customer_phone: w.customer_phone,
     customer_address: w.customer_address,
     shop_name: w.shop_name,
+    shop_location: w.shop_location ?? null,
+    shop_logo_path: w.shop_logo_path ?? null,
     sold_on: w.sold_on,
     months: w.months,
     expires_on: w.expires_on,

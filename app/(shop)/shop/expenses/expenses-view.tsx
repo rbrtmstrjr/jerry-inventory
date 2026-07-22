@@ -1,11 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 import {
   ArrowRight,
-  ChevronLeft,
-  ChevronRight,
   ImagePlus,
   Loader2,
   MessageCircleQuestion,
@@ -96,12 +94,6 @@ const METHOD_LABEL: Record<string, string> = {
 
 const PROPOSE_VALUE = "__propose__";
 
-function shiftMonth(month: string, delta: number): string {
-  const [y, m] = month.split("-").map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
 export function ShopExpensesView({
   expenses,
   categories,
@@ -111,13 +103,23 @@ export function ShopExpensesView({
   categories: CategoryOption[];
   shopId: string | null;
 }) {
-  const thisMonth = ph_today().slice(0, 7);
-  const [month, setMonth] = React.useState(thisMonth);
+  const today = ph_today();
+  // default to this month-to-date; presets / pickers override it
+  const [from, setFrom] = React.useState(`${today.slice(0, 7)}-01`);
+  const [to, setTo] = React.useState(today);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [viewingReceipt, setViewingReceipt] =
     React.useState<ShopExpenseRow | null>(null);
 
-  const shown = expenses.filter((e) => e.expense_date.startsWith(month));
+  function preset(days: number) {
+    setFrom(format(subDays(new Date(`${today}T00:00:00`), days - 1), "yyyy-MM-dd"));
+    setTo(today);
+  }
+
+  // expense_date is YYYY-MM-DD, so string compare is a correct date compare
+  const shown = expenses.filter(
+    (e) => (!from || e.expense_date >= from) && (!to || e.expense_date <= to)
+  );
   const approvedTotal = shown
     .filter((e) => e.status === "approved")
     .reduce((s, e) => s + e.amount, 0);
@@ -137,29 +139,31 @@ export function ShopExpensesView({
         </Button>
       </div>
 
-      {/* Period header — approved money only */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Previous month"
-            onClick={() => setMonth((m) => shiftMonth(m, -1))}
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-          <span className="min-w-32 text-center text-sm font-medium">
-            {format(new Date(month + "-01T00:00:00"), "MMMM yyyy")}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Next month"
-            disabled={month >= thisMonth}
-            onClick={() => setMonth((m) => shiftMonth(m, 1))}
-          >
-            <ChevronRight className="size-4" />
-          </Button>
+      {/* Period filter — date range + quick presets; approved money only */}
+      <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border px-4 py-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="grid gap-1">
+            <Label htmlFor="exp-from" className="text-xs">From</Label>
+            <DatePicker id="exp-from" value={from} onChange={setFrom} placeholder="Any" />
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="exp-to" className="text-xs">To</Label>
+            <DatePicker id="exp-to" value={to} onChange={setTo} placeholder="Any" />
+          </div>
+          <Button variant="outline" onClick={() => preset(1)}>Today</Button>
+          <Button variant="outline" onClick={() => preset(7)}>7d</Button>
+          <Button variant="outline" onClick={() => preset(30)}>30d</Button>
+          {(from || to) && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setFrom("");
+                setTo("");
+              }}
+            >
+              Clear
+            </Button>
+          )}
         </div>
         <div className="text-right">
           <div className="text-xs text-muted-foreground">Approved expenses</div>
@@ -172,7 +176,7 @@ export function ShopExpensesView({
       {/* This shop's expenses for the shown month */}
       {shown.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          No expenses in this month yet.
+          No expenses in this range yet.
         </p>
       ) : (
         <Card>

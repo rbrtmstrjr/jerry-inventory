@@ -22,7 +22,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
 import { DataTable, SortableHeader } from "@/components/data-table/data-table";
+import { RequestsPanel, type RequestRow } from "./requests-panel";
 import { removeShopOverride, setProductThreshold, setShopOverride } from "./actions";
 
 export interface ProductThresholdRow {
@@ -50,6 +52,8 @@ const KindBadge = ({ kind }: { kind: "part" | "engine_model" }) => (
   <Badge variant="secondary">{kind === "part" ? "Part" : "Engine"}</Badge>
 );
 
+const TAB_VALUES = ["master", "shops", "requests", "thresholds"];
+
 export function StockAlertsView({
   master,
   shopLow,
@@ -57,6 +61,8 @@ export function StockAlertsView({
   overrides,
   shops,
   suppliers,
+  requests,
+  initialTab,
 }: {
   master: MasterLowStockRow[];
   shopLow: ShopLowStockRow[];
@@ -64,12 +70,45 @@ export function StockAlertsView({
   overrides: OverrideRow[];
   shops: ShopOption[];
   suppliers: { id: string; name: string }[];
+  requests: RequestRow[];
+  /** Deep link (?tab=requests) — e.g. from a delivery-request notification. */
+  initialTab?: string;
 }) {
+  const router = useRouter();
   const [shopFilter, setShopFilter] = React.useState("all");
+  const [masterSupplier, setMasterSupplier] = React.useState("all");
   const colorByShopId = new Map(shops.map((s) => [s.id, s.color_key]));
+  const openRequests = requests.filter((r) => r.status === "open").length;
+  const defaultTab =
+    initialTab && TAB_VALUES.includes(initialTab) ? initialTab : "master";
+
+  // Converting a request happens on the Deliveries page (that's where stock
+  // moves) — jump there with the request pre-filled into the New Delivery form.
+  const convertRequest = (id: string) => router.push(`/deliveries?request=${id}`);
 
   const shopRows =
     shopFilter === "all" ? shopLow : shopLow.filter((r) => r.shop_id === shopFilter);
+
+  // Master tab: order/print one supplier at a time. Options come from the
+  // suppliers actually present in the low-stock list ("__none__" = unassigned).
+  const masterSuppliers = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of master) {
+      const key = r.supplier_id ?? "__none__";
+      if (!m.has(key)) m.set(key, r.supplier_name ?? "No supplier set");
+    }
+    return [...m.entries()].sort((a, b) =>
+      a[0] === "__none__" ? 1 : b[0] === "__none__" ? -1 : a[1].localeCompare(b[1])
+    );
+  }, [master]);
+  const masterRows =
+    masterSupplier === "all"
+      ? master
+      : master.filter((r) => (r.supplier_id ?? "__none__") === masterSupplier);
+  const purchaseHref =
+    masterSupplier === "all"
+      ? "/stock-alerts/purchase-list"
+      : `/stock-alerts/purchase-list?supplier=${encodeURIComponent(masterSupplier)}`;
 
   const masterColumns: ColumnDef<MasterLowStockRow>[] = [
     {
@@ -206,10 +245,18 @@ export function StockAlertsView({
         </Card>
       </div>
 
-      <Tabs defaultValue="master">
+      <Tabs defaultValue={defaultTab}>
         <TabsList>
-          <TabsTrigger value="master">Master ({master.length})</TabsTrigger>
-          <TabsTrigger value="shops">All shops ({shopLow.length})</TabsTrigger>
+          <TabsTrigger value="master">
+            Master<TabCountBadge count={master.length} />
+          </TabsTrigger>
+          <TabsTrigger value="shops">
+            All shops<TabCountBadge count={shopLow.length} />
+          </TabsTrigger>
+          <TabsTrigger value="requests">
+            Requests
+            <TabCountBadge count={openRequests} />
+          </TabsTrigger>
           <TabsTrigger value="thresholds">Reorder levels</TabsTrigger>
         </TabsList>
 
@@ -217,13 +264,30 @@ export function StockAlertsView({
         <TabsContent value="master" className="pt-2">
           <DataTable
             columns={masterColumns}
-            data={master}
+            data={masterRows}
             searchPlaceholder="Search product or supplier…"
             emptyMessage="Master stock is healthy — nothing to buy."
+            filters={
+              masterSuppliers.length > 1 ? (
+                <Select value={masterSupplier} onValueChange={setMasterSupplier}>
+                  <SelectTrigger className="w-56">
+                    <SelectValue placeholder="All suppliers" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All suppliers</SelectItem>
+                    {masterSuppliers.map(([key, name]) => (
+                      <SelectItem key={key} value={key}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null
+            }
             toolbar={
-              master.length > 0 ? (
+              masterRows.length > 0 ? (
                 <Button asChild>
-                  <Link href="/stock-alerts/purchase-list" target="_blank">
+                  <Link href={purchaseHref} target="_blank">
                     <Printer className="size-4" /> Print purchase list
                   </Link>
                 </Button>
@@ -255,6 +319,11 @@ export function StockAlertsView({
               </Select>
             }
           />
+        </TabsContent>
+
+        {/* REQUESTS → shops asking for stock; Convert jumps to Deliveries */}
+        <TabsContent value="requests" className="pt-2">
+          <RequestsPanel requests={requests} onConvert={convertRequest} />
         </TabsContent>
 
         {/* THRESHOLDS */}

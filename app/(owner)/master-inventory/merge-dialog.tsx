@@ -4,6 +4,8 @@ import * as React from "react";
 import { AlertTriangle, GitMerge, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -29,6 +31,9 @@ export interface MergePart {
   id: string;
   name: string;
   sku: string | null;
+  /** on-hand across ALL locations (master + shops) — a merge blocks on any stock */
+  stock_qty: number;
+  unit: string;
 }
 
 type Eligibility = { ok: true } | { ok: false; reason: string } | undefined;
@@ -91,10 +96,13 @@ export function MergeDuplicatesDialog({
     });
   }
 
+  // stock is a definite blocker (a merge moves no stock), known upfront — no
+  // need to wait for the async eligibility probe.
+  const hasStock = (id: string) => (byId.get(id)?.stock_qty ?? 0) > 0;
   const selected = [...sourceIds].filter((id) => id !== targetId);
-  const blocked = selected.filter((id) => elig[id] && elig[id]!.ok === false);
+  const blocked = selected.filter((id) => hasStock(id) || (elig[id] && elig[id]!.ok === false));
   const ready = !!targetId && selected.length > 0 && blocked.length === 0
-    && selected.every((id) => elig[id]?.ok === true);
+    && selected.every((id) => !hasStock(id) && elig[id]?.ok === true);
 
   async function run() {
     if (!ready) return;
@@ -136,7 +144,7 @@ export function MergeDuplicatesDialog({
                 {parts.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.name}
-                    {p.sku ? ` · ${p.sku}` : ""}
+                    {p.sku ? ` · ${p.sku}` : ""} · {p.stock_qty} {p.unit}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -152,11 +160,12 @@ export function MergeDuplicatesDialog({
                   .map((p) => {
                     const on = sourceIds.has(p.id);
                     const e = elig[p.id];
-                    const isBlocked = on && e && e.ok === false;
+                    const inStock = p.stock_qty > 0;
+                    const asyncBlocked = on && e && e.ok === false;
                     return (
                       <label
                         key={p.id}
-                        className="flex items-start gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/50"
+                        className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/50"
                       >
                         <Checkbox
                           className="mt-0.5"
@@ -164,21 +173,38 @@ export function MergeDuplicatesDialog({
                           onCheckedChange={(v) => toggleSource(p.id, v === true)}
                         />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate">
-                            {p.name}
-                            {p.sku && (
-                              <span className="text-muted-foreground"> · {p.sku}</span>
-                            )}
+                          <span className="flex items-center gap-2">
+                            <span className="min-w-0 truncate">
+                              {p.name}
+                              {p.sku && (
+                                <span className="text-muted-foreground"> · {p.sku}</span>
+                              )}
+                            </span>
+                            <Badge
+                              variant={inStock ? "outline" : "secondary"}
+                              className={cn(
+                                "shrink-0 tabular-nums",
+                                inStock && "border-warning text-warning-foreground"
+                              )}
+                            >
+                              {p.stock_qty} {p.unit}
+                            </Badge>
                           </span>
-                          {on && e === undefined && (
+                          {/* precise async reason (names the shop) wins; else a
+                              generic in-stock hint from the total-stock badge */}
+                          {on && e === undefined ? (
                             <span className="text-xs text-muted-foreground">checking…</span>
-                          )}
-                          {isBlocked && (
+                          ) : asyncBlocked ? (
                             <span className="flex items-center gap-1 text-xs text-destructive">
                               <AlertTriangle className="size-3 shrink-0" />
                               {(e as { reason: string }).reason}
                             </span>
-                          )}
+                          ) : inStock ? (
+                            <span className="flex items-center gap-1 text-xs text-warning-foreground">
+                              <AlertTriangle className="size-3 shrink-0" />
+                              Has stock — sell, return, or count to zero first
+                            </span>
+                          ) : null}
                         </span>
                       </label>
                     );
@@ -186,8 +212,9 @@ export function MergeDuplicatesDialog({
               </div>
               {blocked.length > 0 && (
                 <p className="text-xs text-destructive">
-                  {blocked.length} selected duplicate{blocked.length === 1 ? "" : "s"} can&apos;t
-                  be merged yet — clear the blocker above or unselect them.
+                  {blocked.length} selected duplicate{blocked.length === 1 ? "" : "s"}{" "}
+                  can&apos;t be merged yet — clear the blocker above or unselect{" "}
+                  {blocked.length === 1 ? "it" : "them"}.
                 </p>
               )}
             </div>

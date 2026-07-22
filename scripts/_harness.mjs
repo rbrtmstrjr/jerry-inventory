@@ -351,6 +351,7 @@ export async function cleanup() {
 
   // payroll
   await inShops("payroll_entries");
+  await inShops("staff_advances"); // FK on staff — must go before staff
   await inShops("staff");
   await del("pay_periods").like("label", `%${RUN}%`);
   await del("positions").like("title", `%${RUN}%`);

@@ -2,6 +2,7 @@ import { format } from "date-fns";
 import { Anchor, ShieldCheck } from "lucide-react";
 
 import type { BusinessIdentity } from "@/lib/db-types";
+import { productImageUrl } from "@/lib/product-image";
 import { PrintButton } from "@/components/shell/print-button";
 
 /**
@@ -28,6 +29,8 @@ export interface WarrantyCertificateData {
   customer_phone: string | null;
   customer_address: string | null;
   shop_name: string | null;
+  shop_location: string | null;
+  shop_logo_path: string | null;
   sold_on: string;
   months: number;
   expires_on: string;
@@ -41,6 +44,7 @@ export function WarrantyCertificate({
   business: BusinessIdentity;
 }) {
   const certNo = `WC-${data.id.slice(0, 8).toUpperCase()}`;
+  const logoUrl = productImageUrl(data.shop_logo_path);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -52,9 +56,18 @@ export function WarrantyCertificate({
         {/* Header */}
         <div className="flex items-start justify-between border-b-2 pb-4">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-md bg-primary text-primary-foreground print:border print:bg-transparent print:text-foreground">
-              <Anchor className="size-5" />
-            </div>
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={logoUrl}
+                alt=""
+                className="size-10 shrink-0 rounded-md object-cover print:border"
+              />
+            ) : (
+              <div className="flex size-10 items-center justify-center rounded-md bg-primary text-primary-foreground print:border print:bg-transparent print:text-foreground">
+                <Anchor className="size-5" />
+              </div>
+            )}
             <div>
               <div className="text-lg font-bold">{business.business_name}</div>
               {business.address && (
@@ -105,7 +118,12 @@ export function WarrantyCertificate({
               <div className="text-muted-foreground">{data.customer_address}</div>
             )}
             {data.shop_name && (
-              <div className="mt-1 text-muted-foreground">Sold at: {data.shop_name}</div>
+              <div className="mt-1 text-muted-foreground">
+                Sold at: {data.shop_name}
+                {data.shop_location && (
+                  <span className="block">{data.shop_location}</span>
+                )}
+              </div>
             )}
           </div>
           <div className="text-right">

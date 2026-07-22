@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
 import type { EntryContribution, RemittanceTotal } from "@/lib/db-types";
 import {
   AGENCY_LABEL,
@@ -27,6 +27,15 @@ import { Badge } from "@/components/ui/badge";
 import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -47,6 +56,7 @@ import {
   approvePayPeriod,
   markPayrollPaid,
   savePayrollDays,
+  savePayrollVale,
   setPayPeriodStatus,
 } from "../actions";
 
@@ -75,6 +85,10 @@ export interface EntryRow {
   contributions_enabled: boolean;
   /** Frozen snapshot rows — one per agency, or empty when not enrolled. */
   contributions: EntryContribution[];
+  /** Cash-advance (vale) deducted on this payslip (frozen). */
+  vale_centavos: number;
+  /** Staffer's outstanding advance balance (Σ advances − Σ vale). */
+  advance_balance: number;
   status: "draft" | "approved" | "paid";
   date_paid: string | null;
 }
@@ -106,6 +120,7 @@ export function PeriodDetail({
   );
   const [busy, setBusy] = React.useState<string | null>(null);
   const [confirmFinalize, setConfirmFinalize] = React.useState(false);
+  const [valeFor, setValeFor] = React.useState<EntryRow | null>(null);
 
   const visible =
     shopFilter === "all"
@@ -114,6 +129,7 @@ export function PeriodDetail({
 
   const totalGross = entries.reduce((s, e) => s + e.gross_pay, 0);
   const totalNet = entries.reduce((s, e) => s + e.net_pay, 0);
+  const totalVale = entries.reduce((s, e) => s + e.vale_centavos, 0);
   // Summing frozen snapshots — not recomputing anything from the rate book.
   const totalEE = remittance.reduce((s, r) => s + r.ee_total_centavos, 0);
   const totalER = remittance.reduce((s, r) => s + r.er_total_centavos, 0);
@@ -297,6 +313,12 @@ export function PeriodDetail({
                 Employee share — deducted
               </TableHead>
               <TableHead rowSpan={2} className="text-right">
+                Vale
+                <div className="text-[10px] font-normal normal-case text-muted-foreground">
+                  cash advance
+                </div>
+              </TableHead>
+              <TableHead rowSpan={2} className="text-right">
                 Net pay
               </TableHead>
               <TableHead rowSpan={2} className="border-l text-right">
@@ -383,6 +405,30 @@ export function PeriodDetail({
                       </TableCell>
                     );
                   })}
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {e.vale_centavos > 0 ? (
+                      <span className="text-warning-foreground">
+                        −{formatCentavos(e.vale_centavos)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                    {!locked && e.status !== "paid" &&
+                      (e.advance_balance > 0 || e.vale_centavos > 0) && (
+                        <button
+                          type="button"
+                          className="block w-full text-right text-[11px] text-primary underline-offset-2 hover:underline"
+                          onClick={() => setValeFor(e)}
+                        >
+                          {e.vale_centavos > 0 ? "Edit" : "Deduct"}
+                        </button>
+                      )}
+                    {e.advance_balance > 0 && (
+                      <div className="text-[10px] text-muted-foreground">
+                        {formatCentavos(e.advance_balance)} left
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums font-medium">
                     {formatCentavos(e.net_pay)}
                     {!e.contributions_enabled && (
@@ -450,7 +496,7 @@ export function PeriodDetail({
           </p>
         </div>
 
-        <div className="grid gap-4 p-4 sm:grid-cols-3">
+        <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <div className="text-xs uppercase text-muted-foreground">Gross</div>
             <div className="text-lg font-semibold tabular-nums">
@@ -463,6 +509,14 @@ export function PeriodDetail({
             </div>
             <div className="text-lg font-semibold tabular-nums">
               −{formatCentavos(totalEE)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs uppercase text-muted-foreground">
+              Vale (advances)
+            </div>
+            <div className="text-lg font-semibold tabular-nums">
+              {totalVale > 0 ? `−${formatCentavos(totalVale)}` : "—"}
             </div>
           </div>
           <div>
@@ -542,6 +596,94 @@ export function PeriodDetail({
         confirmLabel="Finalize"
         onConfirm={onToggleLock}
       />
+
+      <ValeDialog
+        entry={valeFor}
+        periodId={period.id}
+        onClose={() => setValeFor(null)}
+      />
     </div>
+  );
+}
+
+/** Set how much of a staffer's outstanding vale to deduct on this payslip.
+ *  The server caps it to available net + the balance and returns what applied. */
+function ValeDialog({
+  entry,
+  periodId,
+  onClose,
+}: {
+  entry: EntryRow | null;
+  periodId: string;
+  onClose: () => void;
+}) {
+  const [amount, setAmount] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (entry) {
+      setAmount(entry.vale_centavos > 0 ? (entry.vale_centavos / 100).toFixed(2) : "");
+    }
+  }, [entry]);
+
+  const requested = parsePesosToCentavos(amount || "0") ?? 0;
+
+  async function onSave() {
+    if (!entry) return;
+    setBusy(true);
+    const res = await savePayrollVale(entry.id, periodId, requested);
+    setBusy(false);
+    if (res.ok) {
+      const applied = res.count ?? 0;
+      toast.success(
+        applied < requested
+          ? `Deducted ${formatCentavos(applied)} — capped to available net / balance`
+          : `Vale deduction set to ${formatCentavos(applied)}`
+      );
+      onClose();
+    } else toast.error(res.error);
+  }
+
+  return (
+    <Dialog open={entry !== null} onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Vale deduction — {entry?.staff_name}</DialogTitle>
+          <DialogDescription>
+            Outstanding balance {formatCentavos(entry?.advance_balance ?? 0)}.
+            Deducted from this payslip; anything over the available net carries to
+            the next period.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-1.5">
+          <Label htmlFor="vale-amt">Deduct this period ₱</Label>
+          <Input
+            id="vale-amt"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
+            placeholder="0.00"
+            className="tabular-nums"
+            autoFocus
+          />
+          <button
+            type="button"
+            className="self-start text-xs text-primary underline-offset-2 hover:underline"
+            onClick={() => setAmount(((entry?.advance_balance ?? 0) / 100).toFixed(2))}
+          >
+            Full balance ({formatCentavos(entry?.advance_balance ?? 0)})
+          </button>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={busy}>
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

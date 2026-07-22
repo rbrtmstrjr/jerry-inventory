@@ -6,13 +6,19 @@ import {
   type ProductThresholdRow,
   type OverrideRow,
 } from "./stock-alerts-view";
+import type { RequestRow } from "./requests-panel";
 
 export const metadata: Metadata = { title: "Stock Alerts" };
 
-export default async function StockAlertsPage() {
+export default async function StockAlertsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab } = await searchParams;
   const supabase = await createClient();
 
-  const [masterRes, shopRes, partsRes, modelsRes, overridesRes, shopsRes, suppliersRes] =
+  const [masterRes, shopRes, partsRes, modelsRes, overridesRes, shopsRes, suppliersRes, requestsRes] =
     await Promise.all([
       supabase.from("master_low_stock").select("*"),
       supabase.from("shop_low_stock").select("*"),
@@ -34,6 +40,19 @@ export default async function StockAlertsPage() {
         .is("deleted_at", null),
       supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
       supabase.from("suppliers").select("id, name").is("deleted_at", null).order("name"),
+      // Shops asking for stock — moved here from Deliveries (a request is a
+      // stock-alert signal, not a movement). Convert jumps to the delivery form.
+      supabase
+        .from("delivery_requests")
+        .select(
+          `id, shop_id, status, note, owner_note, created_at, fulfilled_at, fulfilled_delivery_id,
+           shops(name, color_key),
+           profiles!delivery_requests_requested_by_fkey(full_name),
+           delivery_request_lines(qty_requested, note, parts(name, unit), engine_models(brand, model))`
+        )
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(100),
     ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -71,6 +90,29 @@ export default async function StockAlertsPage() {
       ? (o.parts?.reorder_level ?? 0)
       : (o.engine_models?.reorder_level ?? 0),
   }));
+
+  const requests: RequestRow[] = (requestsRes.data ?? []).map((r: any) => ({
+    id: r.id,
+    shop_id: r.shop_id,
+    shop_name: r.shops?.name ?? "?",
+    shop_color_key: r.shops?.color_key ?? null,
+    employee: r.profiles?.full_name ?? "?",
+    status: r.status,
+    note: r.note,
+    owner_note: r.owner_note,
+    created_at: r.created_at,
+    fulfilled_at: r.fulfilled_at,
+    fulfilled_delivery_id: r.fulfilled_delivery_id,
+    items: (r.delivery_request_lines ?? []).map((l: any) => ({
+      qty: l.qty_requested,
+      note: l.note,
+      name:
+        l.parts?.name ??
+        `${l.engine_models?.brand ?? ""} ${l.engine_models?.model ?? ""}`.trim(),
+      unit: l.parts?.unit ?? "unit",
+      is_engine: !l.parts,
+    })),
+  }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return (
@@ -81,6 +123,8 @@ export default async function StockAlertsPage() {
       overrides={overrides}
       shops={shopsRes.data ?? []}
       suppliers={suppliersRes.data ?? []}
+      requests={requests}
+      initialTab={tab}
     />
   );
 }

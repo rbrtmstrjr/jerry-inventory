@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   Bell,
   CalendarClock,
   CheckCheck,
@@ -15,6 +16,7 @@ import {
   Store,
   Truck,
   Undo2,
+  Wrench,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -43,7 +45,13 @@ interface Notification {
     | "warranty_expiring"
     | "supplier_limit_warning"
     | "supplier_limit_reached"
-    | "supplier_payment_overdue";
+    | "supplier_payment_overdue"
+    | "transfer_requested"
+    | "transfer_approved"
+    | "transfer_rejected"
+    | "warranty_claim"
+    | "warranty_claim_approved"
+    | "warranty_claim_rejected";
   title: string;
   body: string | null;
   ref_table: string | null;
@@ -56,7 +64,7 @@ interface Notification {
 const LINK: Record<Notification["type"], (v: "owner" | "employee") => string> = {
   master_low_stock: () => "/stock-alerts",
   shop_low_stock: (v) => (v === "owner" ? "/stock-alerts" : "/shop/low-stock"),
-  delivery_request: () => "/deliveries?tab=requests",
+  delivery_request: () => "/stock-alerts?tab=requests",
   delivery_request_fulfilled: () => "/shop/low-stock",
   delivery_request_dismissed: () => "/shop/low-stock",
   utang_payment: (v) => (v === "owner" ? "/receivables" : "/shop/receivables"),
@@ -68,6 +76,12 @@ const LINK: Record<Notification["type"], (v: "owner" | "employee") => string> = 
   supplier_limit_warning: () => "/suppliers?tab=payables",
   supplier_limit_reached: () => "/suppliers?tab=payables",
   supplier_payment_overdue: () => "/suppliers?tab=payables",
+  transfer_requested: () => "/deliveries?tab=transfers",
+  transfer_approved: () => "/shop/transfers",
+  transfer_rejected: () => "/shop/transfers",
+  warranty_claim: () => "/warranties",
+  warranty_claim_approved: () => "/shop/warranties",
+  warranty_claim_rejected: () => "/shop/warranties",
 };
 
 const ICON: Record<Notification["type"], React.ComponentType<{ className?: string }>> = {
@@ -85,6 +99,12 @@ const ICON: Record<Notification["type"], React.ComponentType<{ className?: strin
   supplier_limit_warning: AlertTriangle,
   supplier_limit_reached: AlertTriangle,
   supplier_payment_overdue: CalendarClock,
+  transfer_requested: ArrowLeftRight,
+  transfer_approved: ArrowLeftRight,
+  transfer_rejected: ArrowLeftRight,
+  warranty_claim: Wrench,
+  warranty_claim_approved: Wrench,
+  warranty_claim_rejected: Wrench,
 };
 
 export function NotificationBell({ variant }: { variant: "owner" | "employee" }) {

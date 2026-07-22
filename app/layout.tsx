@@ -16,11 +16,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Jerry's Marine",
-    template: "%s · Jerry's Marine",
+    default: "Gerwin Trading",
+    template: "%s · Gerwin Trading",
   },
   description:
-    "Multi-shop inventory and sales-approval system for Jerry's Marine.",
+    "Multi-shop inventory and sales-approval system for Gerwin Trading.",
 };
 
 export default function RootLayout({

@@ -13,6 +13,7 @@ function revalidate() {
   revalidatePath("/payroll/staff");
   revalidatePath("/payroll/positions");
   revalidatePath("/payroll/reports");
+  revalidatePath("/payroll/advances");
 }
 
 // ---------------------------------------------------------------------------
@@ -212,4 +213,60 @@ export async function setPayPeriodStatus(
   revalidatePath(`/payroll/${periodId}`);
   revalidate();
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Vale / cash advances
+// ---------------------------------------------------------------------------
+const advanceSchema = z.object({
+  staff_id: z.uuid(),
+  amount_centavos: z.number().int().positive("Enter an amount"),
+  note: z.string().trim().max(2000).optional().nullable(),
+  advance_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+});
+
+/** Record a cash advance (vale) a staffer took — builds their running balance. */
+export async function recordStaffAdvance(input: unknown): Promise<ActionResult> {
+  const parsed = advanceSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_record_staff_advance", {
+    p_staff_id: parsed.data.staff_id,
+    p_amount_centavos: parsed.data.amount_centavos,
+    p_note: parsed.data.note || null,
+    p_date: parsed.data.advance_date || null,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidate();
+  return { ok: true };
+}
+
+export async function voidStaffAdvance(id: string): Promise<ActionResult> {
+  if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid advance" };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_void_staff_advance", { p_id: id });
+  if (error) return { ok: false, error: error.message };
+  revalidate();
+  return { ok: true };
+}
+
+/** Set the vale deducted on one payslip. Server caps it to available net + the
+ *  outstanding balance and returns the amount actually applied. */
+export async function savePayrollVale(
+  entryId: string,
+  periodId: string,
+  requestedCentavos: number
+): Promise<ActionResult> {
+  if (!z.uuid().safeParse(entryId).success) return { ok: false, error: "Invalid entry" };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("fn_save_payroll_vale", {
+    p_entry_id: entryId,
+    p_requested_centavos: Math.max(0, Math.round(requestedCentavos)),
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/payroll/${periodId}`);
+  revalidate();
+  return { ok: true, count: data as number };
 }

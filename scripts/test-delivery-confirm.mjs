@@ -200,7 +200,7 @@ const { data: line2 } = await A.client
   const { error } = await A.client.rpc("fn_confirm_delivery", {
     p_delivery_id: del2, p_lines: [{ line_id: line2.id, qty_received: 5, shop_note: null }],
   });
-  check("cannot receive MORE than was sent", !!error && /more than was sent/i.test(error.message), error?.message);
+  check("cannot receive MORE than was sent", !!error && /exceed what was sent/i.test(error.message), error?.message);
 }
 
 // Ã¢â€â‚¬Ã¢â€â‚¬ Engines confirm per serial Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬

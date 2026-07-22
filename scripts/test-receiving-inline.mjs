@@ -53,7 +53,7 @@ section("Inline new part");
   check("catalog cost = first purchase cost", part?.cost_centavos === 5000);
   check("selling price stored", part?.price_centavos === 9000);
   check("reorder level stored", part?.reorder_level === 3);
-  check("generated barcode is JM-sequence", /^JM\d{8}$/.test(part?.barcode ?? ""));
+  check("generated barcode is GT-sequence", /^GT\d{8}$/.test(part?.barcode ?? ""));
   check(
     "preferred supplier defaults to the receiving's supplier",
     part?.preferred_supplier_id === supplier.id

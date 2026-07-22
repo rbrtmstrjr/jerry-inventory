@@ -93,7 +93,7 @@ const PARTS = [
   ["Cotton Rags (per kg)",                       "Consumables", "kg",    60, 110, 10,  20, null, "hardware"],
 ];
 
-// Items Jerry repacks himself â€” get internal JM barcodes
+// Items repacked in-house — get internal GT barcodes
 const REPACKED = [
   "Starter Rope 5mm (per meter)",
   "Fish Hooks Mustad #7 (per 100)",

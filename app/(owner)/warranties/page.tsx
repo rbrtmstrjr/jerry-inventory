@@ -5,6 +5,7 @@ import {
   WarrantiesView,
   type WarrantyRow,
   type SerialRow,
+  type PendingClaimRow,
 } from "./warranties-view";
 
 export const metadata: Metadata = { title: "Warranties & Serials" };
@@ -12,7 +13,7 @@ export const metadata: Metadata = { title: "Warranties & Serials" };
 export default async function WarrantiesPage() {
   const supabase = await createClient();
 
-  const [warrantiesRes, enginesRes, shopsRes] = await Promise.all([
+  const [warrantiesRes, enginesRes, shopsRes, pendingClaimsRes] = await Promise.all([
     supabase
       .from("warranties")
       .select(
@@ -32,6 +33,19 @@ export default async function WarrantiesPage() {
       )
       .order("created_at", { ascending: false }),
     supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
+    // shop-filed claims awaiting the owner's decision (0070)
+    supabase
+      .from("warranty_claims")
+      .select(
+        `id, status, resolution, issue, refund_centavos, created_at, shop_id,
+         shops(name, color_key),
+         warranties(engines(serial_number, engine_models(brand, model, horsepower)),
+                    customers(name, phone)),
+         replacement:engines!warranty_claims_replacement_engine_id_fkey(serial_number)`
+      )
+      .eq("status", "requested")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true }),
   ]);
 
   const today = ph_today();
@@ -73,6 +87,21 @@ export default async function WarrantiesPage() {
     customer_phone: e.customers?.phone ?? null,
     sold_at: e.sold_at,
   }));
+  const pendingClaims: PendingClaimRow[] = (pendingClaimsRes.data ?? []).map(
+    (c: any) => ({
+      id: c.id,
+      resolution: c.resolution,
+      issue: c.issue,
+      refund_centavos: c.refund_centavos,
+      created_at: c.created_at,
+      shop: c.shops?.name ?? "?",
+      shop_color_key: c.shops?.color_key ?? null,
+      serial_number: c.warranties?.engines?.serial_number ?? "?",
+      model: `${c.warranties?.engines?.engine_models?.brand ?? ""} ${c.warranties?.engines?.engine_models?.model ?? ""}`.trim(),
+      customer: c.warranties?.customers?.name ?? null,
+      replacement_serial: c.replacement?.serial_number ?? null,
+    })
+  );
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return (
@@ -81,6 +110,7 @@ export default async function WarrantiesPage() {
       serials={serials}
       today={today}
       shops={shopsRes.data ?? []}
+      pendingClaims={pendingClaims}
     />
   );
 }

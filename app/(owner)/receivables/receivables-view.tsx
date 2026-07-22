@@ -37,11 +37,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
+
+const METHOD_LABEL: Record<string, string> = {
+  cash: "Cash",
+  gcash: "GCash",
+  bank: "Bank",
+  other: "Other",
+};
 
 export interface PaymentHistoryRow {
   id: string;
   sale_id: string;
   amount_centavos: number;
+  method: string;
+  payer_name: string | null;
+  payer_contact: string | null;
   created_at: string;
   /** soft-deleted = voided by the shop/owner; kept for the audit trail */
   voided: boolean;
@@ -250,27 +261,10 @@ export function OwnerReceivablesView({
         </div>
       </div>
 
-      {/* Per-shop rollup */}
-      {byShop.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {byShop.map((s) => (
-            <div
-              key={s.name}
-              className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-            >
-              <ShopBadge shop={s} variant="text" className="min-w-0 text-muted-foreground" />
-              <span className="font-semibold tabular-nums">
-                {formatCentavos(s.total)}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
       <Tabs defaultValue="open">
         <TabsList>
-          <TabsTrigger value="open">Open ({open.length})</TabsTrigger>
-          <TabsTrigger value="settled">Fully paid ({settled.length})</TabsTrigger>
+          <TabsTrigger value="open">Open<TabCountBadge count={open.length} /></TabsTrigger>
+          <TabsTrigger value="settled">Fully paid</TabsTrigger>
         </TabsList>
 
         <TabsContent value="open" className="flex flex-col gap-3 pt-2">
@@ -400,12 +394,22 @@ function ReceivableCard({
         {open && history.length > 0 && (
           <div className="flex flex-col gap-1 rounded-md border p-2 text-xs">
             {history.map((h) => (
-              <div key={h.id} className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate text-muted-foreground">
-                  {format(new Date(h.created_at), "MMM d, yyyy h:mm a")} ·{" "}
-                  {h.recorded_by}
-                  {h.voided && h.owner_note && ` · ${h.owner_note}`}
-                </span>
+              <div key={h.id} className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate">
+                    {h.payer_name ? `Paid by ${h.payer_name}` : "Payment"}
+                    {h.payer_contact ? ` · ${h.payer_contact}` : ""}
+                    <span className="text-muted-foreground">
+                      {" · via "}
+                      {METHOD_LABEL[h.method] ?? h.method}
+                    </span>
+                  </div>
+                  <div className="truncate text-muted-foreground">
+                    {format(new Date(h.created_at), "MMM d, yyyy h:mm a")} ·{" "}
+                    {h.recorded_by}
+                    {h.voided && h.owner_note && ` · ${h.owner_note}`}
+                  </div>
+                </div>
                 <span className="flex shrink-0 items-center gap-2">
                   <span
                     className={`tabular-nums font-medium ${

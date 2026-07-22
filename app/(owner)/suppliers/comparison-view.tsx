@@ -1,25 +1,21 @@
 "use client";
 
 import * as React from "react";
-import { Plus, TriangleAlert } from "lucide-react";
+import { Star, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
-import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
+import { formatCentavos } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { DatePicker } from "@/components/date-picker";
 import { MergeDuplicatesDialog, type MergePart } from "../master-inventory/merge-dialog";
-import { recordSupplierQuote, setPreferredSupplier } from "./actions";
+import { setPreferredSupplier } from "./actions";
 import type { ComparisonRow } from "./types";
 
 const phShort = (iso: string) =>
@@ -71,28 +67,18 @@ interface ProductGroup {
 const norm = (s: string | null) => (s ?? "").trim().toLowerCase();
 
 export function ComparisonView({
-  rows, suppliers, parts, engineModels, categories, today,
+  rows, parts, categories, createdAtByProduct = {},
 }: {
   rows: ComparisonRow[];
-  suppliers: { id: string; name: string }[];
   parts: MergePart[];
-  engineModels: { id: string; name: string }[];
   categories: string[];
-  today: string;
+  /** product_id → catalog creation timestamp, for newest-first ordering */
+  createdAtByProduct?: Record<string, string>;
 }) {
   const [q, setQ] = React.useState("");
   const [category, setCategory] = React.useState("all");
   const [kind, setKind] = React.useState("all");
   const [onlyDearPreferred, setOnlyDearPreferred] = React.useState(false);
-  const [onlyQuoted, setOnlyQuoted] = React.useState(false);
-  const [onlyStale, setOnlyStale] = React.useState(false);
-  const [showAll, setShowAll] = React.useState(false);
-  const [dialog, setDialog] = React.useState<{
-    kind: "part" | "engine_model";
-    productId: string;
-    productName: string;
-    supplierId?: string;
-  } | null>(null);
   const [mergeOpen, setMergeOpen] = React.useState(false);
   const [mergePrefill, setMergePrefill] =
     React.useState<{ targetId: string; sourceIds: string[] } | null>(null);
@@ -132,21 +118,29 @@ export function ComparisonView({
         supplierCount: first.supplier_count,
       });
     }
-    return out.sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows]);
+    // newest product first: sort by the catalog creation timestamp (finer than
+    // the date-level price), then most-recent price activity, then name.
+    const latestPriceOf = (g: ProductGroup) =>
+      g.rows.reduce((m, r) => (r.effective_as_of > m ? r.effective_as_of : m), "");
+    return out.sort(
+      (a, b) =>
+        (createdAtByProduct[b.key] ?? "").localeCompare(createdAtByProduct[a.key] ?? "") ||
+        latestPriceOf(b).localeCompare(latestPriceOf(a)) ||
+        a.name.localeCompare(b.name)
+    );
+  }, [rows, createdAtByProduct]);
 
   const matched = groups.filter((g) => {
     if (q && !`${g.name} ${g.sku ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
     if (category !== "all" && g.category !== category) return false;
     if (kind !== "all" && g.kind !== kind) return false;
     if (onlyDearPreferred && !(g.preferredDelta !== null && g.preferredDelta > 0)) return false;
-    if (onlyQuoted && !g.hasQuotes) return false;
-    if (onlyStale && !g.hasStale) return false;
     return true;
   });
-  // Comparable-only by default: a single paid supplier + a quote from a
-  // different one is 2, which is exactly the point.
-  const filtered = matched.filter((g) => showAll || g.supplierCount >= 2);
+  // Comparable-only, always: a product needs 2+ suppliers to compare (a single
+  // paid supplier + a quote from a different one is 2 — exactly the point). A
+  // full catalog could be thousands of rows, so single-supplier items are out.
+  const filtered = matched.filter((g) => g.supplierCount >= 2);
 
   // Duplicate nudge: among VISIBLE distinct parts, cluster those sharing a
   // normalised SKU OR an exact (case-insensitive) name via union-find. Engines
@@ -195,8 +189,8 @@ export function ComparisonView({
   const emptyMsg =
     rows.length === 0
       ? "No price data yet — it builds itself from receivings; add quotes for the rest."
-      : !showAll && matched.length > 0
-        ? "No products with 2+ suppliers yet — record a quote or receive from another supplier, or Show all."
+      : matched.length > 0
+        ? "No products with 2+ suppliers yet — receive the same product from another supplier to compare."
         : "Nothing matches these filters.";
 
   return (
@@ -235,26 +229,6 @@ export function ComparisonView({
             <Checkbox checked={onlyDearPreferred} onCheckedChange={(v) => setOnlyDearPreferred(!!v)} />
             Preferred isn&apos;t cheapest
           </label>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={onlyQuoted} onCheckedChange={(v) => setOnlyQuoted(!!v)} />
-            Has quotes
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={onlyStale} onCheckedChange={(v) => setOnlyStale(!!v)} />
-            Stale only
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={showAll} onCheckedChange={(v) => setShowAll(!!v)} />
-            Show all (incl. single-supplier)
-          </label>
-          <div className="ml-auto">
-            <Button
-              size="sm"
-              onClick={() => setDialog({ kind: "part", productId: "", productName: "" })}
-            >
-              <Plus className="size-4" /> Record quote
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
@@ -301,23 +275,13 @@ export function ComparisonView({
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      {/* The insight this tab exists for. */}
-                      {g.preferredDelta !== null && g.preferredDelta > 0 && (
-                        <Badge variant="destructive" className="gap-1">
-                          <TriangleAlert className="size-3" />
-                          Preferred is {formatCentavos(g.preferredDelta)} more
-                        </Badge>
-                      )}
-                      <Button
-                        variant="outline" size="sm"
-                        onClick={() =>
-                          setDialog({ kind: g.kind, productId: g.key, productName: g.name })
-                        }
-                      >
-                        <Plus className="size-3.5" /> Quote
-                      </Button>
-                    </div>
+                    {/* The insight this tab exists for. */}
+                    {g.preferredDelta !== null && g.preferredDelta > 0 && (
+                      <Badge variant="destructive" className="gap-1">
+                        <TriangleAlert className="size-3" />
+                        Preferred is {formatCentavos(g.preferredDelta)} more
+                      </Badge>
+                    )}
                   </div>
 
                   {/* suppliers — always visible, side by side, cheapest first */}
@@ -352,7 +316,7 @@ export function ComparisonView({
                             <div className="flex items-center gap-1 whitespace-nowrap">
                               {!r.is_preferred && (
                                 <Button
-                                  variant="ghost" size="sm"
+                                  variant="outline" size="sm"
                                   onClick={async () => {
                                     const res = await setPreferredSupplier({
                                       kind: g.kind,
@@ -363,22 +327,9 @@ export function ComparisonView({
                                     else toast.error(res.error);
                                   }}
                                 >
-                                  Make preferred
+                                  <Star className="size-3.5" /> Make preferred
                                 </Button>
                               )}
-                              <Button
-                                variant="ghost" size="sm"
-                                onClick={() =>
-                                  setDialog({
-                                    kind: g.kind,
-                                    productId: g.key,
-                                    productName: g.name,
-                                    supplierId: r.supplier_id,
-                                  })
-                                }
-                              >
-                                <Plus className="size-3.5" /> Quote
-                              </Button>
                             </div>
                           </div>
                         </div>
@@ -393,10 +344,9 @@ export function ComparisonView({
       )}
 
       <p className="text-xs text-muted-foreground">
-        Paid prices come from receivings automatically. Quotes are claims you
-        record; a quote past its valid-until date or older than the staleness
-        window (Settings → Alerts) is flagged and stops being the compare
-        price — it falls back to what was last actually paid.
+        Prices come from your receivings automatically — a product appears here
+        once you&apos;ve received it from two or more suppliers, compared by what
+        you actually paid.
       </p>
 
       <MergeDuplicatesDialog
@@ -405,146 +355,6 @@ export function ComparisonView({
         prefill={mergePrefill}
         onClose={() => setMergeOpen(false)}
       />
-
-      {dialog && (
-        <QuoteDialog
-          fixed={dialog}
-          suppliers={suppliers}
-          parts={parts}
-          engineModels={engineModels}
-          today={today}
-          onClose={() => setDialog(null)}
-        />
-      )}
     </div>
-  );
-}
-
-/** Mounted per open, so it seeds from props with no reset effect. */
-function QuoteDialog({
-  fixed, suppliers, parts, engineModels, today, onClose,
-}: {
-  fixed: { kind: "part" | "engine_model"; productId: string; productName: string; supplierId?: string };
-  suppliers: { id: string; name: string }[];
-  parts: { id: string; name: string; sku: string | null }[];
-  engineModels: { id: string; name: string }[];
-  today: string;
-  onClose: () => void;
-}) {
-  const [kind, setKind] = React.useState(fixed.kind);
-  const [productId, setProductId] = React.useState(fixed.productId);
-  const [supplierId, setSupplierId] = React.useState(fixed.supplierId ?? "");
-  const [pesos, setPesos] = React.useState("");
-  const [quotedAt, setQuotedAt] = React.useState(today);
-  const [validUntil, setValidUntil] = React.useState("");
-  const [note, setNote] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
-
-  const productFixed = !!fixed.productId;
-
-  async function onSave() {
-    const centavos = parsePesosToCentavos(pesos);
-    if (centavos === null || centavos <= 0) {
-      toast.error("Enter a price in pesos, e.g. 1,250.50");
-      return;
-    }
-    if (!productId) { toast.error("Pick a product"); return; }
-    if (!supplierId) { toast.error("Pick a supplier"); return; }
-
-    setBusy(true);
-    const res = await recordSupplierQuote({
-      supplier_id: supplierId,
-      part_id: kind === "part" ? productId : null,
-      engine_model_id: kind === "engine_model" ? productId : null,
-      unit_cost_centavos: centavos,
-      quoted_at: quotedAt,
-      valid_until: validUntil || null,
-      note: note || null,
-    });
-    setBusy(false);
-    if (res.ok) {
-      toast.success("Quote recorded");
-      onClose();
-    } else toast.error(res.error);
-  }
-
-  return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            Record quote{fixed.productName ? ` — ${fixed.productName}` : ""}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-4">
-          {!productFixed && (
-            <>
-              <div className="grid gap-1">
-                <Label className="text-xs">Type</Label>
-                <Select value={kind} onValueChange={(v) => { setKind(v as typeof kind); setProductId(""); }}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="part">Part</SelectItem>
-                    <SelectItem value="engine_model">Engine model</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-1">
-                <Label className="text-xs">Product</Label>
-                <Select value={productId} onValueChange={setProductId}>
-                  <SelectTrigger><SelectValue placeholder="Pick a product" /></SelectTrigger>
-                  <SelectContent>
-                    {(kind === "part" ? parts : engineModels).map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {"name" in p ? p.name : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
-          )}
-          <div className="grid gap-1">
-            <Label className="text-xs">Supplier</Label>
-            <Select value={supplierId} onValueChange={setSupplierId} disabled={!!fixed.supplierId}>
-              <SelectTrigger><SelectValue placeholder="Pick a supplier" /></SelectTrigger>
-              <SelectContent>
-                {suppliers.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1">
-            <Label htmlFor="q-price" className="text-xs">Quoted unit price (₱)</Label>
-            <Input
-              id="q-price" inputMode="decimal" value={pesos}
-              onChange={(e) => setPesos(e.target.value)} placeholder="e.g. 1,250.50"
-            />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="grid gap-1">
-              <Label htmlFor="q-date" className="text-xs">Quoted on</Label>
-              <DatePicker id="q-date" value={quotedAt} onChange={setQuotedAt} />
-            </div>
-            <div className="grid gap-1">
-              <Label htmlFor="q-until" className="text-xs">Valid until (optional)</Label>
-              <DatePicker id="q-until" value={validUntil} onChange={setValidUntil} />
-            </div>
-          </div>
-          <div className="grid gap-1">
-            <Label htmlFor="q-note" className="text-xs">Note (optional)</Label>
-            <Input
-              id="q-note" value={note} onChange={(e) => setNote(e.target.value)}
-              placeholder="e.g. min. order 10 pcs"
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={onSave} disabled={busy}>Save quote</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

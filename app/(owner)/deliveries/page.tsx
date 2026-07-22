@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
+import { classifyRequestLines, type ClassifiedRequest } from "@/lib/request-fulfillment";
 import { DeliveriesView } from "./deliveries-view";
-import type { RequestRow } from "./requests-panel";
 
 export const metadata: Metadata = { title: "Deliveries & Returns" };
 
@@ -35,6 +35,10 @@ export interface DiscrepancyRow {
   qty_received: number | null;
   qty_outstanding: number;
   shop_note: string | null;
+  // how much of the outstanding the shop flagged DAMAGED (rest = missing),
+  // + a signed URL to the shop's damage photo (private receipts bucket).
+  qty_damaged: number;
+  damage_photo_url: string | null;
 }
 
 export interface MasterPartOption {
@@ -61,16 +65,46 @@ export interface EngineOption {
   shop_id: string | null; // null = in master
 }
 
-/** Pre-fill for "Convert to delivery" coming from a shop's delivery request. */
-export interface DeliveryPrefill {
+/** One line of a shop-to-shop transfer. */
+export interface TransferLineRow {
+  /** delivery_line_id — the target for resolveDeliveryDiscrepancy */
+  id: string;
+  is_engine: boolean;
+  name: string;
+  sku: string | null;
+  unit: string;
+  serial_number: string | null;
+  qty: number;
+  qty_received: number | null;
+  qty_outstanding: number;
+}
+
+/** A shop-to-shop transfer awaiting owner review, confirmation, or resolution. */
+export interface TransferRow {
+  id: string;
+  status: "requested" | "in_transit" | "discrepancy";
+  requested_at: string;
+  approved_at: string | null;
+  note: string | null;
+  review_note: string | null;
+  from_shop_name: string;
+  from_shop_color_key: string | null;
+  to_shop_name: string;
+  to_shop_color_key: string | null;
+  requested_by: string | null;
+  lines: TransferLineRow[];
+}
+
+/**
+ * Pre-fill for "Convert to delivery" coming from a shop's delivery request.
+ * Every requested line is carried and classified into available (deliverable,
+ * capped to master) vs no-stock (shown disabled) — see classifyRequestLines.
+ */
+export type DeliveryPrefill = {
   requestId: string;
   shopId: string;
   note: string;
-  partLines: { part_id: string; qty: string }[];
-  engineIds: string[];
-  /** requested engine units we couldn't auto-pick a serial for */
-  unmatchedEngines: { name: string; short: number }[];
-}
+} & ClassifiedRequest;
 
 export default async function DeliveriesPage({
   searchParams,
@@ -83,12 +117,12 @@ export default async function DeliveriesPage({
   const [
     shopsRes,
     masterStockRes,
-    shopStockRes,
     enginesRes,
     deliveriesRes,
     returnsRes,
     transitRes,
-    requestsRes,
+    transfersRes,
+    pendingReturnsRes,
   ] = await Promise.all([
       supabase
         .from("shops")
@@ -102,11 +136,6 @@ export default async function DeliveriesPage({
         .is("shop_id", null)
         .gt("qty", 0),
       supabase
-        .from("stock_levels")
-        .select("part_id, shop_id, qty, parts!inner(name, unit, deleted_at)")
-        .not("shop_id", "is", null)
-        .gt("qty", 0),
-      supabase
         .from("engines")
         .select(
           "id, serial_number, status, shop_id, engine_model_id, engine_models(brand, model, horsepower)"
@@ -117,14 +146,18 @@ export default async function DeliveriesPage({
       supabase
         .from("deliveries")
         .select(
-          "id, delivered_at, note, status, shops(name, color_key), delivery_lines(part_id, engine_id, qty, qty_outstanding)"
+          "id, delivered_at, note, status, shops!deliveries_shop_id_fkey(name, color_key), delivery_lines(part_id, engine_id, qty, qty_outstanding)"
         )
+        // master→shop deliveries only — shop→shop transfers (from_shop_id set)
+        // live in the Transfers tab and carry statuses this History can't render
+        .is("from_shop_id", null)
         .is("deleted_at", null)
         .order("delivered_at", { ascending: false })
         .limit(100),
       supabase
         .from("returns")
         .select("id, returned_at, reason, shops(name, color_key), return_lines(part_id, engine_id, qty)")
+        .eq("status", "approved")
         .is("deleted_at", null)
         .order("returned_at", { ascending: false })
         .limit(100),
@@ -133,13 +166,33 @@ export default async function DeliveriesPage({
         .select("*")
         .order("delivered_at", { ascending: true }),
       supabase
-        .from("delivery_requests")
+        .from("deliveries")
         .select(
-          `id, shop_id, status, note, owner_note, created_at, fulfilled_at, fulfilled_delivery_id,
-           shops(name, color_key),
-           profiles!delivery_requests_requested_by_fkey(full_name),
-           delivery_request_lines(qty_requested, note, parts(name, unit), engine_models(brand, model))`
+          `id, created_at, approved_at, status, note, review_note,
+           to_shop:shops!deliveries_shop_id_fkey(name, color_key),
+           from_shop:shops!deliveries_from_shop_id_fkey(name, color_key),
+           requester:profiles!deliveries_requested_by_fkey(full_name),
+           delivery_lines(id, part_id, engine_id, qty, qty_received, qty_outstanding,
+             parts(name, sku, unit),
+             engines(serial_number, engine_models(brand, model)))`
         )
+        .not("from_shop_id", "is", null)
+        .in("status", ["requested", "in_transit", "discrepancy"])
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(100),
+      // shop-requested returns awaiting approval (0065)
+      supabase
+        .from("returns")
+        .select(
+          `id, created_at, reason,
+           shops(name, color_key),
+           requester:profiles!returns_requested_by_fkey(full_name),
+           return_lines(id, part_id, engine_id, qty, qty_damaged,
+             parts(name, unit),
+             engines(serial_number, engine_models(brand, model)))`
+        )
+        .eq("status", "requested")
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(100),
@@ -158,17 +211,6 @@ export default async function DeliveriesPage({
     }))
     .sort((a: MasterPartOption, b: MasterPartOption) => a.name.localeCompare(b.name));
 
-  const shopParts: ShopPartStock[] = (shopStockRes.data ?? [])
-    .filter((s: any) => !s.parts.deleted_at)
-    .map((s: any) => ({
-      part_id: s.part_id,
-      shop_id: s.shop_id,
-      name: s.parts.name,
-      unit: s.parts.unit,
-      qty: s.qty,
-    }))
-    .sort((a: ShopPartStock, b: ShopPartStock) => a.name.localeCompare(b.name));
-
   const engines: EngineOption[] = (enginesRes.data ?? []).map((e: any) => ({
     id: e.id,
     serial_number: e.serial_number,
@@ -186,7 +228,9 @@ export default async function DeliveriesPage({
     const { data: req } = await supabase
       .from("delivery_requests")
       .select(
-        "id, shop_id, status, note, delivery_request_lines(part_id, engine_model_id, qty_requested, engine_models(brand, model))"
+        // parts(name, sku, unit) so an out-of-stock requested part still shows
+        // its name in the disabled "No master stock" block.
+        "id, shop_id, status, note, delivery_request_lines(part_id, engine_model_id, qty_requested, parts(name, sku, unit), engine_models(brand, model))"
       )
       .eq("id", requestId)
       .is("deleted_at", null)
@@ -194,41 +238,30 @@ export default async function DeliveriesPage({
 
     if (req && (req as any).status === "open") {
       const r = req as any;
-      const inMaster = (enginesRes.data ?? []).filter(
-        (e: any) => e.status === "in_master"
-      );
-      const taken = new Set<string>();
-      const engineIds: string[] = [];
-      const unmatchedEngines: { name: string; short: number }[] = [];
+      const inMaster = (enginesRes.data ?? [])
+        .filter((e: any) => e.status === "in_master")
+        .map((e: any) => ({ id: e.id, engine_model_id: e.engine_model_id }));
 
-      for (const l of r.delivery_request_lines ?? []) {
-        if (!l.engine_model_id) continue;
-        const pool = inMaster.filter(
-          (e: any) => e.engine_model_id === l.engine_model_id && !taken.has(e.id)
-        );
-        const picked = pool.slice(0, l.qty_requested);
-        picked.forEach((e: any) => {
-          taken.add(e.id);
-          engineIds.push(e.id);
-        });
-        const short = l.qty_requested - picked.length;
-        if (short > 0) {
-          unmatchedEngines.push({
-            name: `${l.engine_models?.brand ?? ""} ${l.engine_models?.model ?? ""}`.trim(),
-            short,
-          });
-        }
-      }
+      const classified = classifyRequestLines(
+        (r.delivery_request_lines ?? []).map((l: any) => ({
+          part_id: l.part_id,
+          engine_model_id: l.engine_model_id,
+          qty_requested: l.qty_requested,
+          part_name: l.parts?.name ?? null,
+          part_sku: l.parts?.sku ?? null,
+          model_name: l.engine_models
+            ? `${l.engine_models.brand ?? ""} ${l.engine_models.model ?? ""}`.trim()
+            : null,
+        })),
+        masterParts.map((m) => ({ part_id: m.part_id, master_qty: m.master_qty })),
+        inMaster
+      );
 
       prefill = {
         requestId: r.id,
         shopId: r.shop_id,
         note: r.note ? `Request: ${r.note}` : "From delivery request",
-        partLines: (r.delivery_request_lines ?? [])
-          .filter((l: any) => l.part_id)
-          .map((l: any) => ({ part_id: l.part_id, qty: String(l.qty_requested) })),
-        engineIds,
-        unmatchedEngines,
+        ...classified,
       };
     }
   }
@@ -283,28 +316,80 @@ export default async function DeliveriesPage({
     qty_received: t.qty_received,
     qty_outstanding: t.qty,
     shop_note: t.shop_note,
+    qty_damaged: 0,
+    damage_photo_url: null,
   }));
 
-  const requests: RequestRow[] = (requestsRes.data ?? []).map((r: any) => ({
-    id: r.id,
-    shop_id: r.shop_id,
-    shop_name: r.shops?.name ?? "?",
-    shop_color_key: r.shops?.color_key ?? null,
-    employee: r.profiles?.full_name ?? "?",
-    status: r.status,
-    note: r.note,
-    owner_note: r.owner_note,
-    created_at: r.created_at,
-    fulfilled_at: r.fulfilled_at,
-    fulfilled_delivery_id: r.fulfilled_delivery_id,
-    items: (r.delivery_request_lines ?? []).map((l: any) => ({
-      qty: l.qty_requested,
-      note: l.note,
+  // Enrich discrepancy lines with the shop's damaged count + a signed photo URL
+  // (owner reads the base table + the private receipts bucket).
+  const shortLineIds = transit
+    .filter((t) => t.status === "discrepancy")
+    .map((t) => t.delivery_line_id);
+  if (shortLineIds.length > 0) {
+    const { data: dmg } = await supabase
+      .from("delivery_lines")
+      .select("id, qty_damaged, damage_photo_path")
+      .in("id", shortLineIds);
+    const byId = new Map((dmg ?? []).map((d: any) => [d.id, d]));
+    await Promise.all(
+      transit.map(async (t) => {
+        const d = byId.get(t.delivery_line_id);
+        if (!d) return;
+        t.qty_damaged = d.qty_damaged ?? 0;
+        if (d.damage_photo_path) {
+          const { data: signed } = await supabase.storage
+            .from("receipts")
+            .createSignedUrl(d.damage_photo_path, 3600);
+          t.damage_photo_url = signed?.signedUrl ?? null;
+        }
+      })
+    );
+  }
+
+  const transfers: TransferRow[] = (transfersRes.data ?? []).map((d: any) => ({
+    id: d.id,
+    status: d.status,
+    requested_at: d.created_at,
+    approved_at: d.approved_at,
+    note: d.note,
+    review_note: d.review_note,
+    from_shop_name: d.from_shop?.name ?? "?",
+    from_shop_color_key: d.from_shop?.color_key ?? null,
+    to_shop_name: d.to_shop?.name ?? "?",
+    to_shop_color_key: d.to_shop?.color_key ?? null,
+    requested_by: d.requester?.full_name ?? null,
+    lines: (d.delivery_lines ?? []).map((l: any) => ({
+      id: l.id,
+      is_engine: !!l.engine_id,
       name:
         l.parts?.name ??
-        `${l.engine_models?.brand ?? ""} ${l.engine_models?.model ?? ""}`.trim(),
+        `${l.engines?.engine_models?.brand ?? ""} ${l.engines?.engine_models?.model ?? ""}`.trim(),
+      sku: l.parts?.sku ?? null,
       unit: l.parts?.unit ?? "unit",
-      is_engine: !l.parts,
+      serial_number: l.engines?.serial_number ?? null,
+      qty: l.qty,
+      qty_received: l.qty_received,
+      qty_outstanding: l.qty_outstanding ?? 0,
+    })),
+  }));
+
+  const pendingReturns = (pendingReturnsRes.data ?? []).map((r: any) => ({
+    id: r.id,
+    shop_name: r.shops?.name ?? "?",
+    shop_color_key: r.shops?.color_key ?? null,
+    reason: r.reason ?? null,
+    requested_by: r.requester?.full_name ?? null,
+    created_at: r.created_at,
+    lines: (r.return_lines ?? []).map((l: any) => ({
+      id: l.id,
+      is_engine: !!l.engine_id,
+      name:
+        l.parts?.name ??
+        `${l.engines?.engine_models?.brand ?? ""} ${l.engines?.engine_models?.model ?? ""}`.trim(),
+      unit: l.parts?.unit ?? "unit",
+      serial_number: l.engines?.serial_number ?? null,
+      qty: l.qty,
+      qty_damaged: l.qty_damaged ?? 0,
     })),
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -313,12 +398,12 @@ export default async function DeliveriesPage({
     <DeliveriesView
       shops={shopsRes.data ?? []}
       masterParts={masterParts}
-      shopParts={shopParts}
       engines={engines}
       history={history}
       transit={transit}
       prefill={prefill}
-      requests={requests}
+      transfers={transfers}
+      returns={pendingReturns}
       initialTab={tab}
     />
   );

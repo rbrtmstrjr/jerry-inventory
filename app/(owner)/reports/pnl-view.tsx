@@ -77,20 +77,6 @@ function PesoTooltip({ active, payload, label }: any) {
   );
 }
 
-function PctTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md">
-      <div className="mb-1 font-medium">{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center justify-between gap-4">
-          <span className="text-muted-foreground">{p.name}</span>
-          <span className="tabular-nums">{p.value}%</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function PnlView({ data }: { data: PnlViewData }) {
@@ -255,14 +241,14 @@ export function PnlView({ data }: { data: PnlViewData }) {
             />
           </div>
           <div className="flex flex-wrap gap-1">
-            <Button variant="outline" size="sm" onClick={thisMonth}>This month</Button>
-            <Button variant="outline" size="sm" onClick={lastMonth}>Last month</Button>
-            <Button variant="outline" size="sm" onClick={thisQuarter}>This quarter</Button>
-            <Button variant="outline" size="sm" onClick={thisYear}>This year</Button>
+            <Button variant="outline" onClick={thisMonth}>This month</Button>
+            <Button variant="outline" onClick={lastMonth}>Last month</Button>
+            <Button variant="outline" onClick={thisQuarter}>This quarter</Button>
+            <Button variant="outline" onClick={thisYear}>This year</Button>
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={exportCsv}>
+          <Button variant="outline" onClick={exportCsv}>
             <Download className="size-4" /> Export CSV
           </Button>
           <PrintButton label="Print / Save as PDF" />
@@ -583,25 +569,6 @@ export function PnlView({ data }: { data: PnlViewData }) {
           </Card>
         )}
 
-        {data.perShop.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Gross margin by shop</CardTitle>
-              <CardDescription>Which branch protects its margin best.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={data.perShop}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="shop" fontSize={12} />
-                  <YAxis fontSize={12} tickFormatter={(v) => `${v}%`} />
-                  <Tooltip content={<PctTooltip />} cursor={{ fill: "var(--muted)" }} />
-                  <Bar dataKey="gross_margin_pct" name="Gross margin %" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        )}
       </div>
 
       {/* Per-shop reconciliation */}

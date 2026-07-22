@@ -335,6 +335,11 @@ function SaleBody({ d }: { d: Extract<ReviewedDetail, { type: "sale" }> }) {
           <Field label="Payment">
             {isPartial ? "Partial (utang)" : "Paid in full"}
           </Field>
+          <Field label="Method">
+            {d.payment_method
+              ? METHOD_LABEL[d.payment_method] ?? d.payment_method
+              : "Cash"}
+          </Field>
           {isPartial && (
             <>
               <Field label="Downpayment">
@@ -365,6 +370,18 @@ function SaleBody({ d }: { d: Extract<ReviewedDetail, { type: "sale" }> }) {
           <Field label="Receipt no">
             <span className="font-mono">{d.receipt_no ?? "—"}</span>
           </Field>
+          {d.suki_card_no && (
+            <Field label="Suki card">
+              <span className="flex items-center gap-1.5">
+                <span className="font-mono">{d.suki_card_no}</span>
+                {d.card_discount_centavos > 0 && (
+                  <span className="tabular-nums text-muted-foreground">
+                    −{formatCentavos(d.card_discount_centavos)}
+                  </span>
+                )}
+              </span>
+            </Field>
+          )}
         </div>
       </Section>
 

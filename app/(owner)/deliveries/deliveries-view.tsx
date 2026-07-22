@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
@@ -19,6 +18,7 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -57,15 +57,17 @@ import type {
   DiscrepancyRow,
   EngineOption,
   MasterPartOption,
-  ShopPartStock,
   TransferHistoryRow,
+  TransferRow,
 } from "./page";
 import { deliverStock, returnStock } from "./actions";
 import { TransitBanner, TransitPanel } from "./transit-panel";
-import { fulfillDeliveryRequest } from "./request-actions";
-import { RequestsPanel, type RequestRow } from "./requests-panel";
+// Delivery requests moved to Stock Alerts; fulfilling one still creates a
+// delivery here, so the action stays reachable.
+import { fulfillDeliveryRequest } from "../stock-alerts/request-actions";
+import { TransfersPanel, type ReturnRequestRow } from "./transfers-panel";
 
-const TAB_VALUES = ["delivery", "return", "transit", "requests"] as const;
+const TAB_VALUES = ["delivery", "transit", "transfers"] as const;
 type TabValue = (typeof TAB_VALUES)[number];
 
 const DELIVERY_STATUS: Record<
@@ -81,6 +83,8 @@ const DELIVERY_STATUS: Record<
 interface PartLine {
   part_id: string;
   qty: string;
+  // return mode only: how many of the returned units are damaged (written off)
+  damaged?: string;
 }
 
 interface ItemOption {
@@ -223,7 +227,7 @@ function TransferForm({
   const [shopId, setShopId] = React.useState(prefill?.shopId ?? "");
   const [note, setNote] = React.useState(prefill?.note ?? "");
   const [partLines, setPartLines] = React.useState<PartLine[]>(
-    prefill?.partLines ?? []
+    prefill?.availableParts.map((p) => ({ part_id: p.part_id, qty: p.qty })) ?? []
   );
   const [engineIds, setEngineIds] = React.useState<Set<string>>(
     () => new Set(prefill?.engineIds ?? [])
@@ -232,6 +236,12 @@ function TransferForm({
 
   const partOptions = shopId ? partOptionsForShop(shopId) : [];
   const engineOptions = shopId ? engineOptionsForShop(shopId) : [];
+  // when converting a request, is there anything master can actually fulfill?
+  const nothingToDeliver =
+    kind === "delivery" && partLines.length === 0 && engineIds.size === 0;
+  const cappedParts = (prefill?.availableParts ?? []).filter(
+    (p) => p.available < p.requested
+  );
 
   function updateLine(i: number, patch: Partial<PartLine>) {
     setPartLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -242,45 +252,55 @@ function TransferForm({
       toast.error("Pick a shop first");
       return;
     }
-    const parts = [];
-    for (const [i, l] of partLines.entries()) {
-      if (!l.part_id) {
-        toast.error(`Line ${i + 1}: pick an item`);
-        return;
-      }
-      const qty = parseInt(l.qty || "0", 10);
-      const opt = partOptions.find((o) => o.part_id === l.part_id);
-      if (isNaN(qty) || qty <= 0) {
-        toast.error(`Line ${i + 1}: qty must be positive`);
-        return;
-      }
-      if (opt && qty > opt.available) {
-        toast.error(`Line ${i + 1}: only ${opt.available} ${opt.unit} available`);
-        return;
-      }
-      parts.push({ part_id: l.part_id, qty });
-    }
-    if (parts.length + engineIds.size === 0) {
-      toast.error("Add at least one line");
-      return;
-    }
 
     setSubmitting(true);
-    const action = kind === "delivery" ? deliverStock : returnStock;
-    const res = await action({
-      shop_id: shopId,
-      note: note || null,
-      parts,
-      engine_ids: [...engineIds],
-    });
+    let res;
+    if (kind === "delivery") {
+      const parts = [];
+      for (const [i, l] of partLines.entries()) {
+        if (!l.part_id) { toast.error(`Line ${i + 1}: pick an item`); setSubmitting(false); return; }
+        const qty = parseInt(l.qty || "0", 10);
+        const opt = partOptions.find((o) => o.part_id === l.part_id);
+        if (isNaN(qty) || qty <= 0) { toast.error(`Line ${i + 1}: qty must be positive`); setSubmitting(false); return; }
+        if (opt && qty > opt.available) {
+          toast.error(`Line ${i + 1}: only ${opt.available} ${opt.unit} available`); setSubmitting(false); return;
+        }
+        parts.push({ part_id: l.part_id, qty });
+      }
+      if (parts.length + engineIds.size === 0) { toast.error("Add at least one line"); setSubmitting(false); return; }
+      res = await deliverStock({ shop_id: shopId, note: note || null, parts, engine_ids: [...engineIds] });
+    } else {
+      // return: each part splits good vs damaged; good + damaged ≤ on-hand
+      const parts = [];
+      for (const [i, l] of partLines.entries()) {
+        if (!l.part_id) { toast.error(`Line ${i + 1}: pick an item`); setSubmitting(false); return; }
+        const good = parseInt(l.qty || "0", 10) || 0;
+        const damaged = parseInt(l.damaged || "0", 10) || 0;
+        const opt = partOptions.find((o) => o.part_id === l.part_id);
+        if (good + damaged <= 0) { toast.error(`Line ${i + 1}: enter a good or damaged qty`); setSubmitting(false); return; }
+        if (opt && good + damaged > opt.available) {
+          toast.error(`Line ${i + 1}: only ${opt.available} ${opt.unit} on hand`); setSubmitting(false); return;
+        }
+        parts.push({ part_id: l.part_id, qty_good: good, qty_damaged: damaged });
+      }
+      const engines = [...engineIds].map((id) => ({ engine_id: id, condition: "good" as const }));
+      if (parts.length + engines.length === 0) { toast.error("Add at least one line"); setSubmitting(false); return; }
+      res = await returnStock({ shop_id: shopId, note: note || null, parts, engines });
+    }
     setSubmitting(false);
 
     if (res.ok) {
-      toast.success(
-        kind === "delivery"
-          ? "Sent — in transit until the shop confirms what arrived"
-          : "Returned — stock is back in master"
-      );
+      if (kind === "delivery") {
+        toast.success("Sent — in transit until the shop confirms what arrived");
+      } else {
+        const g = partLines.reduce((s, l) => s + (parseInt(l.qty || "0", 10) || 0), 0);
+        const d = partLines.reduce((s, l) => s + (parseInt(l.damaged || "0", 10) || 0), 0);
+        toast.success(
+          d > 0
+            ? `${g} good back in master · ${d} damaged written off`
+            : "Returned — stock is back in master"
+        );
+      }
       // Converting a request: link it to this delivery and close it out. The
       // stock itself moved through the normal delivery flow above.
       if (kind === "delivery" && prefill?.requestId && res.id) {
@@ -373,9 +393,21 @@ function TransferForm({
               </p>
             ) : (
               <div className="thin-scrollbar overflow-x-auto p-4">
-                <div className="grid min-w-[32rem] grid-cols-[minmax(14rem,1fr)_6rem_7rem_2.25rem] items-center gap-x-2 gap-y-2">
+                <div
+                  className={cn(
+                    "grid min-w-[32rem] items-center gap-x-2 gap-y-2",
+                    kind === "return"
+                      ? "grid-cols-[minmax(12rem,1fr)_5rem_5rem_6rem_2.25rem]"
+                      : "grid-cols-[minmax(14rem,1fr)_6rem_7rem_2.25rem]"
+                  )}
+                >
                   <span className="text-xs font-medium text-muted-foreground">Item</span>
-                  <span className="text-xs font-medium text-muted-foreground">Qty</span>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {kind === "return" ? "Good" : "Qty"}
+                  </span>
+                  {kind === "return" && (
+                    <span className="text-xs font-medium text-muted-foreground">Damaged</span>
+                  )}
                   <span className="text-xs font-medium text-muted-foreground">Available</span>
                   <span />
                   {partLines.map((l, i) => {
@@ -421,10 +453,28 @@ function TransferForm({
                           }}
                           onBlur={() => {
                             const n = parseInt(l.qty || "0", 10);
-                            if (isNaN(n) || n < 1) updateLine(i, { qty: "1" });
+                            if (isNaN(n) || n < 0) updateLine(i, { qty: "0" });
                           }}
-                          aria-label="Quantity"
+                          aria-label={kind === "return" ? "Good qty" : "Quantity"}
                         />
+                        {kind === "return" && (
+                          <Input
+                            inputMode="numeric"
+                            value={l.damaged ?? ""}
+                            placeholder="0"
+                            onChange={(e) => {
+                              const raw = e.target.value.replace(/\D/g, "");
+                              let n = parseInt(raw || "0", 10) || 0;
+                              if (opt && n > opt.available) n = opt.available;
+                              updateLine(i, { damaged: raw === "" ? "" : String(n) });
+                            }}
+                            aria-label="Damaged qty"
+                            className={cn(
+                              "tabular-nums",
+                              (parseInt(l.damaged || "0", 10) || 0) > 0 && "border-warning"
+                            )}
+                          />
+                        )}
                         <span className="text-sm text-muted-foreground tabular-nums">
                           {opt ? `${opt.available} ${opt.unit}` : "—"}
                         </span>
@@ -443,6 +493,52 @@ function TransferForm({
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* Converting a request: what master can't fulfill right now */}
+            {prefill && cappedParts.length > 0 && (
+              <p className="border-t px-4 py-2 text-xs text-warning-foreground">
+                Capped to master stock:{" "}
+                {cappedParts
+                  .map((p) => {
+                    const opt = partOptions.find((o) => o.part_id === p.part_id);
+                    return `${opt?.name ?? "item"} (requested ${p.requested}, only ${p.available} available)`;
+                  })
+                  .join(", ")}
+                .
+              </p>
+            )}
+            {prefill && prefill.noStockParts.length > 0 && (
+              <div className="border-t px-4 py-3">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  No master stock — buy from a supplier first
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {prefill.noStockParts.map((p) => (
+                    <div
+                      key={p.part_id}
+                      className="flex items-center justify-between gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-2 text-sm opacity-70"
+                    >
+                      <span className="truncate">
+                        {p.name}
+                        {p.sku && (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            SKU {p.sku}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        requested {p.qty_requested}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <Button asChild variant="link" size="sm" className="mt-1 h-auto px-0">
+                  <Link href="/stock-alerts/purchase-list" target="_blank">
+                    Open purchase list →
+                  </Link>
+                </Button>
               </div>
             )}
           </div>
@@ -507,12 +603,48 @@ function TransferForm({
                 })}
               </div>
             )}
+
+            {/* Converting a request: engine models master can't fulfill yet */}
+            {prefill && prefill.shortEngines.length > 0 && (
+              <p className="border-t px-4 py-2 text-xs text-warning-foreground">
+                {prefill.shortEngines
+                  .map((e) => `${e.name}: only ${e.matched} of ${e.requested} in master`)
+                  .join(", ")}
+                .
+              </p>
+            )}
+            {prefill && prefill.noStockEngines.length > 0 && (
+              <div className="border-t px-4 py-3">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  No master stock
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {prefill.noStockEngines.map((e, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-2 text-sm opacity-70"
+                    >
+                      <span className="truncate">{e.name} — none in master</span>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        requested {e.qty_requested}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
+          {prefill && nothingToDeliver && (
+            <p className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+              Nothing in master to deliver yet — these items must be bought from a
+              supplier first. Once master is restocked, the shop can re-request.
+            </p>
+          )}
           <div className="flex justify-end">
-            <Button onClick={onSubmit} disabled={submitting}>
+            <Button onClick={onSubmit} disabled={submitting || nothingToDeliver}>
               {submitting && <Loader2 className="size-4 animate-spin" />}
-              {kind === "delivery" ? "Deliver (auto-lands)" : "Process return"}
+              {kind === "delivery" ? "Deliver (into transit)" : "Process return"}
             </Button>
           </div>
         </>
@@ -524,29 +656,32 @@ function TransferForm({
 export function DeliveriesView({
   shops,
   masterParts,
-  shopParts,
   engines,
   history,
   transit = [],
   prefill = null,
-  requests = [],
+  transfers = [],
+  returns = [],
   initialTab,
 }: {
   shops: { id: string; name: string }[];
   masterParts: MasterPartOption[];
-  shopParts: ShopPartStock[];
   engines: EngineOption[];
   history: TransferHistoryRow[];
   transit?: DiscrepancyRow[];
   prefill?: DeliveryPrefill | null;
-  requests?: RequestRow[];
-  /** Deep link (?tab=requests) — e.g. from a delivery-request notification. */
+  transfers?: TransferRow[];
+  /** Shop-requested returns awaiting approval (0065) */
+  returns?: ReturnRequestRow[];
+  /** Deep link (?tab=transfers|transit) */
   initialTab?: string;
 }) {
-  const router = useRouter();
-  const openRequests = requests.filter((r) => r.status === "open").length;
+  const pendingTransfers = transfers.filter((t) => t.status === "requested").length;
+  const pendingReturns = returns;
 
   const [tab, setTab] = React.useState<TabValue>(() => {
+    // A request is converted on Stock Alerts by pushing here with ?request=<id>;
+    // the server returns the prefill, and we land on New Delivery.
     if (prefill) return "delivery";
     if (initialTab && TAB_VALUES.includes(initialTab as TabValue)) {
       return initialTab as TabValue;
@@ -554,14 +689,6 @@ export function DeliveriesView({
     if (transit.some((t) => t.status === "discrepancy")) return "transit";
     return "delivery";
   });
-
-  // "Convert to delivery" switches tabs here and pushes ?request=<id>; the
-  // server sends the prefill back on the re-render. Landing on that URL
-  // directly (bookmark, old link) is covered by the initializer above.
-  function convertRequest(id: string) {
-    setTab("delivery");
-    router.push(`/deliveries?request=${id}`);
-  }
 
   const sortedHistory = [...history].sort(
     (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
@@ -626,12 +753,11 @@ export function DeliveriesView({
       header: "Status",
       cell: ({ row }) => {
         const s = row.original.status;
-        if (!s) return <span className="text-xs text-muted-foreground">—</span>;
+        const meta = s ? DELIVERY_STATUS[s] : null;
+        if (!meta) return <span className="text-xs text-muted-foreground">—</span>;
         return (
           <span className="flex items-center gap-1.5">
-            <Badge variant={DELIVERY_STATUS[s].variant}>
-              {DELIVERY_STATUS[s].label}
-            </Badge>
+            <Badge variant={meta.variant}>{meta.label}</Badge>
             {row.original.qty_outstanding > 0 && (
               <span className="text-xs font-medium text-warning-foreground tabular-nums">
                 {row.original.qty_outstanding} out
@@ -681,24 +807,20 @@ export function DeliveriesView({
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)}>
         <TabsList>
           <TabsTrigger value="delivery">New Delivery</TabsTrigger>
-          <TabsTrigger value="return">New Return</TabsTrigger>
           <TabsTrigger value="transit">
-            In transit ({transit.length})
+            In Transit
+            <TabCountBadge count={transit.length} />
           </TabsTrigger>
-          <TabsTrigger value="requests">
-            Requests
-            {openRequests > 0 && (
-              <Badge className="ml-1.5 h-5 min-w-5 justify-center px-1 tabular-nums">
-                {openRequests}
-              </Badge>
-            )}
+          <TabsTrigger value="transfers">
+            Transfers &amp; Returns
+            <TabCountBadge count={pendingTransfers + pendingReturns.length} />
           </TabsTrigger>
         </TabsList>
         <TabsContent value="transit" className="pt-2">
           <TransitPanel transit={transit} />
         </TabsContent>
-        <TabsContent value="requests" className="pt-2">
-          <RequestsPanel requests={requests} onConvert={convertRequest} />
+        <TabsContent value="transfers" className="pt-2">
+          <TransfersPanel transfers={transfers} returns={pendingReturns} />
         </TabsContent>
         <TabsContent value="delivery" className="pt-2">
           {prefill && (
@@ -707,16 +829,15 @@ export function DeliveriesView({
                 Filled in from a shop&apos;s delivery request
               </p>
               <p className="text-xs text-muted-foreground">
-                Check the quantities, then deliver as normal — the request is
-                marked fulfilled automatically.
+                Every requested item is listed below — deliverable rows on top,
+                anything with no master stock shown disabled. Check the
+                quantities, then deliver; the request is marked fulfilled
+                automatically.
               </p>
-              {prefill.unmatchedEngines.length > 0 && (
+              {prefill.noStockParts.length + prefill.noStockEngines.length > 0 && (
                 <p className="mt-1 text-xs font-medium text-warning-foreground">
-                  Not enough engines in master for:{" "}
-                  {prefill.unmatchedEngines
-                    .map((u) => `${u.name} (${u.short} short)`)
-                    .join(", ")}
-                  .
+                  {prefill.noStockParts.length + prefill.noStockEngines.length} requested
+                  item(s) have no master stock yet — buy from a supplier first.
                 </p>
               )}
             </div>
@@ -748,37 +869,6 @@ export function DeliveriesView({
                 onDone={(id) => {
                   if (id) window.open(`/deliveries/${id}/note`, "_blank");
                 }}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="return" className="pt-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Shop → Admin</CardTitle>
-              <CardDescription>
-                Take stock back into master — slow-movers, redistribution, or
-                damaged-for-return.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <TransferForm
-                kind="return"
-                shops={shops}
-                partOptionsForShop={(shopId) =>
-                  shopParts
-                    .filter((s) => s.shop_id === shopId)
-                    .map((s) => ({
-                      part_id: s.part_id,
-                      name: s.name,
-                      unit: s.unit,
-                      available: s.qty,
-                    }))
-                }
-                engineOptionsForShop={(shopId) =>
-                  engines.filter((e) => e.shop_id === shopId)
-                }
-                onDone={() => {}}
               />
             </CardContent>
           </Card>

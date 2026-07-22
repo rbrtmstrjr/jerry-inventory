@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  BadgePercent,
   Barcode,
   Loader2,
   Minus,
@@ -14,6 +14,7 @@ import {
   Send,
   ShoppingCart,
   Trash2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,7 +23,8 @@ import { cn } from "@/lib/utils";
 import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ProductThumb } from "@/components/product-image";
+import { ProductThumb, ProductCardImage } from "@/components/product-image";
+import { ViewToggle, usePersistedView } from "@/components/view-toggle";
 import {
   Card,
   CardContent,
@@ -32,7 +34,8 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { recordSale } from "../actions";
+import { Checkbox } from "@/components/ui/checkbox";
+import { lookupDiscountCard, recordSale, type SukiCardInfo } from "../actions";
 
 interface CartPart {
   kind: "part";
@@ -59,6 +62,53 @@ type CartLine = CartPart | CartEngine;
 const partPrice = (l: CartPart) => parsePesosToCentavos(l.priceRaw) ?? 0;
 const engineAgreed = (l: CartEngine) => parsePesosToCentavos(l.agreedRaw) ?? 0;
 
+/** Suki card price — mirrors the server exactly: pct off the catalog price,
+    never at/below cost (capped at cost + 1). The server re-derives and clamps,
+    so this is only the preview/UX. */
+const sukiPrice = (catalog: number, cost: number, pct: number) =>
+  Math.max(Math.round((catalog * (100 - pct)) / 100), cost + 1);
+
+/** Card numbers are 'SC' + digits (distinct from GT product barcodes), so a
+    card scanned into the product field is recognisable. */
+const isCardNo = (code: string) => /^sc\d+$/i.test(code.trim());
+
+// How the customer paid — same four values as a shop expense's method.
+type PaymentMethod = "cash" | "gcash" | "bank" | "other";
+const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
+  { value: "cash", label: "Cash" },
+  { value: "gcash", label: "GCash" },
+  { value: "bank", label: "Bank" },
+  { value: "other", label: "Other" },
+];
+
+const AUTO_PRINT_KEY = "jm-sale-autoprint";
+
+/**
+ * Print the 58mm receipt without leaving Record Sale: load `/receipt/[id]` into
+ * an off-screen iframe and fire its own print dialog. Same origin, so the
+ * receipt's route-scoped `@page { size: 58mm }` governs the job. With the
+ * thermal printer set as default + kiosk printing on, it prints with no dialog.
+ */
+function printReceiptInPlace(id: string) {
+  document.getElementById("jm-receipt-print-frame")?.remove();
+  const iframe = document.createElement("iframe");
+  iframe.id = "jm-receipt-print-frame";
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.cssText =
+    "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  iframe.src = `/receipt/${id}`;
+  iframe.onload = () => {
+    const win = iframe.contentWindow;
+    if (!win) return;
+    const remove = () => setTimeout(() => iframe.remove(), 500);
+    win.addEventListener("afterprint", remove);
+    win.focus();
+    win.print();
+    setTimeout(() => iframe.remove(), 60_000); // fallback if afterprint never fires
+  };
+  document.body.appendChild(iframe);
+}
+
 export function RecordSaleForm({
   stock,
   engines,
@@ -73,18 +123,45 @@ export function RecordSaleForm({
   const scanRef = React.useRef<HTMLInputElement>(null);
   const [scan, setScan] = React.useState("");
   const [search, setSearch] = React.useState("");
+  // list ⇄ card-grid; card view shows images so staff can recognise by photo
+  const [view, setView] = usePersistedView("jm-record-sale-view");
   const [cart, setCart] = React.useState<CartLine[]>([]);
   const [custName, setCustName] = React.useState("");
   const [custPhone, setCustPhone] = React.useState("");
   const [tendered, setTendered] = React.useState("");
   const [paymentType, setPaymentType] = React.useState<"full" | "partial">("full");
+  const [paymentMethod, setPaymentMethod] =
+    React.useState<PaymentMethod>("cash");
   const [downpayment, setDownpayment] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
-  const [lastReceiptId, setLastReceiptId] = React.useState<string | null>(null);
+  // "Print receipt on save" — defaults ON, remembers the cashier's last choice.
+  // Starts true on both server + first client render (no hydration flip); the
+  // stored preference is applied in the effect below.
+  const [autoPrint, setAutoPrint] = React.useState(true);
+  // Suki card (0072) — once applied, every line's price drops to the card
+  // price (its max); the cashier can still go LOWER, never higher.
+  const [suki, setSuki] = React.useState<SukiCardInfo | null>(null);
+  const [sukiInput, setSukiInput] = React.useState("");
+  const [sukiBusy, setSukiBusy] = React.useState(false);
 
   React.useEffect(() => {
     scanRef.current?.focus();
+    try {
+      const stored = localStorage.getItem(AUTO_PRINT_KEY);
+      if (stored !== null) setAutoPrint(stored === "1");
+    } catch {
+      /* storage blocked — keep the default */
+    }
   }, []);
+
+  function setAutoPrintPersisted(next: boolean) {
+    setAutoPrint(next);
+    try {
+      localStorage.setItem(AUTO_PRINT_KEY, next ? "1" : "0");
+    } catch {
+      /* storage blocked — non-fatal */
+    }
+  }
 
   // Draft survives a refresh or brief WiFi drop — restore once on mount.
   // v3: every line now carries cost + an editable per-unit price (old drafts ignored).
@@ -137,15 +214,98 @@ export function RecordSaleForm({
     l.kind === "part" ? partPrice(l) <= l.cost_centavos : engineAgreed(l) <= l.cost_centavos
   );
 
+  // per-line suki maximum (null when no card) — the guaranteed-minimum rule
+  const sukiMaxOf = (l: CartLine): number | null =>
+    suki === null
+      ? null
+      : sukiPrice(
+          l.price_centavos,
+          l.cost_centavos,
+          l.kind === "part" ? suki.part_pct : suki.engine_pct
+        );
+  // a price above the card price would silently be clamped by the server —
+  // surface it instead so the cashier fixes it consciously.
+  const overSuki = cart.some((l) => {
+    const max = sukiMaxOf(l);
+    return max !== null && (l.kind === "part" ? partPrice(l) : engineAgreed(l)) > max;
+  });
+
+  async function applySukiCard(code: string) {
+    setSukiBusy(true);
+    const res = await lookupDiscountCard(code);
+    setSukiBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    const card = res.card;
+    setSuki(card);
+    setSukiInput("");
+    // the card IS the customer (the server forces this too)
+    setCustName(card.customer_name);
+    setCustPhone(card.customer_phone ?? "");
+    // The % comes off the price ON the line — tawad first, then the card's cut
+    // on top (₱2,000 tawad − 5% = ₱1,900). Floored above cost, and never above
+    // the catalog-based suki ceiling (which is also what the server enforces).
+    const applyPct = (currentRaw: string, catalog: number, cost: number, pct: number) => {
+      const ceiling = sukiPrice(catalog, cost, pct);
+      const current = parsePesosToCentavos(currentRaw);
+      const base =
+        current !== null && current > 0 ? Math.min(current, catalog) : catalog;
+      const discounted = Math.max(Math.round((base * (100 - pct)) / 100), cost + 1);
+      return (Math.min(discounted, ceiling) / 100).toFixed(2);
+    };
+    setCart((c) =>
+      c.map((l) =>
+        l.kind === "part"
+          ? {
+              ...l,
+              priceRaw: applyPct(l.priceRaw, l.price_centavos, l.cost_centavos, card.part_pct),
+            }
+          : {
+              ...l,
+              agreedRaw: applyPct(l.agreedRaw, l.price_centavos, l.cost_centavos, card.engine_pct),
+            }
+      )
+    );
+    toast.success(
+      `Suki: ${card.customer_name} — ${card.engine_pct}% off engines, ${card.part_pct}% off parts`
+    );
+  }
+
+  function clearSuki() {
+    setSuki(null);
+    setCustName("");
+    setCustPhone("");
+    // back to catalog prices
+    setCart((c) =>
+      c.map((l) =>
+        l.kind === "part"
+          ? { ...l, priceRaw: (l.price_centavos / 100).toFixed(2) }
+          : { ...l, agreedRaw: (l.price_centavos / 100).toFixed(2) }
+      )
+    );
+  }
+
+  // how many of a part are already in the cart (0 if none)
+  const cartQtyOf = (partId: string) =>
+    cart.find((l): l is CartPart => l.kind === "part" && l.part_id === partId)?.qty ?? 0;
+
   function addPart(p: ShopStockRow) {
-    setLastReceiptId(null);
+    // never let the cart exceed what's on hand — the owner would reject it anyway
+    if (cartQtyOf(p.part_id) >= p.qty) {
+      toast.error(`Only ${p.qty} ${p.unit} of ${p.name} on hand`);
+      return;
+    }
     setCart((c) => {
       const existing = c.find(
         (l): l is CartPart => l.kind === "part" && l.part_id === p.part_id
       );
       if (existing) {
         return c.map((l) =>
-          l.kind === "part" && l.part_id === p.part_id ? { ...l, qty: l.qty + 1 } : l
+          l.kind === "part" && l.part_id === p.part_id
+            ? { ...l, qty: Math.min(l.qty + 1, l.available) }
+            : l
         );
       }
       return [
@@ -157,16 +317,20 @@ export function RecordSaleForm({
           unit: p.unit,
           cost_centavos: p.cost_centavos,
           price_centavos: p.price_centavos,
-          priceRaw: (p.price_centavos / 100).toFixed(2),
+          priceRaw: (
+            (suki
+              ? sukiPrice(p.price_centavos, p.cost_centavos, suki.part_pct)
+              : p.price_centavos) / 100
+          ).toFixed(2),
           available: p.qty,
           qty: 1,
         },
       ];
     });
+    toast.success(`${p.name} added`);
   }
 
   function addEngine(e: ShopEngineRow) {
-    setLastReceiptId(null);
     setCart((c) => {
       if (c.some((l) => l.kind === "engine" && l.engine_id === e.engine_id)) {
         toast.info("That engine is already in the sale");
@@ -181,8 +345,13 @@ export function RecordSaleForm({
           label: `${e.brand} ${e.model}${e.horsepower != null ? ` ${e.horsepower}HP` : ""}`,
           cost_centavos: e.cost_centavos,
           price_centavos: e.price_centavos,
-          // default the agreed price to the catalog selling price
-          agreedRaw: (e.price_centavos / 100).toFixed(2),
+          // default the agreed price to the catalog selling price (suki price
+          // when a card is applied)
+          agreedRaw: (
+            (suki
+              ? sukiPrice(e.price_centavos, e.cost_centavos, suki.engine_pct)
+              : e.price_centavos) / 100
+          ).toFixed(2),
         },
       ];
     });
@@ -212,12 +381,17 @@ export function RecordSaleForm({
     setScan("");
     if (!code) return;
 
+    // a suki card scanned into the product field still works
+    if (isCardNo(code)) {
+      void applySukiCard(code);
+      return;
+    }
+
     const part = stock.find(
       (p) => p.barcode?.toLowerCase() === code.toLowerCase()
     );
     if (part) {
-      addPart(part);
-      toast.success(`${part.name} added`);
+      addPart(part); // shows its own toast (added, or capped at on-hand)
       return;
     }
     const engine = engines.find(
@@ -237,20 +411,26 @@ export function RecordSaleForm({
       return;
     }
     setCart((c) =>
-      c.map((l) => (l.kind === "part" && l.part_id === partId ? { ...l, qty } : l))
+      c.map((l) =>
+        l.kind === "part" && l.part_id === partId
+          ? { ...l, qty: Math.min(qty, l.available) }
+          : l
+      )
     );
   }
 
   const q = search.trim().toLowerCase();
+  // only sellable stock is browsable — a 0-on-hand item can't be sold
+  const inStock = stock.filter((p) => p.qty > 0);
   const matches = q
-    ? stock.filter(
+    ? inStock.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
           (p.sku ?? "").toLowerCase().includes(q) ||
           (p.barcode ?? "").toLowerCase().includes(q) ||
           (p.category ?? "").toLowerCase().includes(q)
       )
-    : stock;
+    : inStock;
   const engineMatches = q
     ? engines.filter(
         (en) =>
@@ -273,29 +453,29 @@ export function RecordSaleForm({
       return;
     }
     for (const l of cart) {
-      if (l.kind === "part") {
-        if (l.qty > l.available) {
-          toast.error(`${l.name}: only ${l.available} ${l.unit} on hand`);
-          return;
-        }
-        if (partPrice(l) <= l.cost_centavos) {
-          toast.error(
-            `${l.name}: can't sell at or below cost ${formatCentavos(l.cost_centavos)}`
-          );
-          return;
-        }
-      } else {
-        const agreed = engineAgreed(l);
-        if (agreed <= 0) {
-          toast.error(`${l.label}: enter a price`);
-          return;
-        }
-        if (agreed <= l.cost_centavos) {
-          toast.error(
-            `${l.label}: can't sell at or below cost ${formatCentavos(l.cost_centavos)}`
-          );
-          return;
-        }
+      const label = l.kind === "part" ? l.name : l.label;
+      const price = l.kind === "part" ? partPrice(l) : engineAgreed(l);
+      const max = sukiMaxOf(l);
+      if (l.kind === "part" && l.qty > l.available) {
+        toast.error(`${l.name}: only ${l.available} ${l.unit} on hand`);
+        return;
+      }
+      if (l.kind === "engine" && price <= 0) {
+        toast.error(`${l.label}: enter a price`);
+        return;
+      }
+      if (price <= l.cost_centavos) {
+        toast.error(
+          `${label}: can't sell at or below cost ${formatCentavos(l.cost_centavos)}`
+        );
+        return;
+      }
+      // guaranteed minimum: with a card, the suki price is the ceiling
+      if (max !== null && price > max) {
+        toast.error(
+          `${label}: the suki price ${formatCentavos(max)} is the maximum with this card`
+        );
+        return;
       }
     }
     if (paymentType === "partial") {
@@ -327,18 +507,27 @@ export function RecordSaleForm({
         .map((l) => ({ engine_id: l.engine_id, agreed_price_centavos: engineAgreed(l) })),
       payment_type: paymentType,
       amount_paid_centavos: paymentType === "partial" ? amountPaid : null,
+      payment_method: paymentMethod,
+      discount_card_id: suki?.card_id ?? null,
     });
     setSubmitting(false);
 
     if (res.ok) {
-      toast.success("Sale saved — print the receipt for the customer");
-      setLastReceiptId(res.id ?? null);
+      if (autoPrint && res.id) {
+        printReceiptInPlace(res.id);
+        toast.success("Sale saved — printing receipt…");
+      } else {
+        toast.success("Sale saved — reprint the receipt from Submissions anytime");
+      }
       setCart([]);
       setCustName("");
       setCustPhone("");
       setTendered("");
       setDownpayment("");
       setPaymentType("full");
+      setPaymentMethod("cash");
+      setSuki(null);
+      setSukiInput("");
       router.refresh();
       scanRef.current?.focus();
     } else {
@@ -356,24 +545,6 @@ export function RecordSaleForm({
             the owner approves.
           </p>
         </div>
-
-        {/* Receipt-ready banner after a successful save */}
-        {lastReceiptId && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-success/40 bg-success/5 px-4 py-3">
-            <div>
-              <p className="text-sm font-medium">Sale saved & receipt ready</p>
-              <p className="text-xs text-muted-foreground">
-                Print it for the buyer — the amount matches what the owner will
-                review.
-              </p>
-            </div>
-            <Button asChild variant="outline">
-              <Link href={`/receipt/${lastReceiptId}`} target="_blank">
-                <Printer className="size-4" /> Print receipt
-              </Link>
-            </Button>
-          </div>
-        )}
 
         {/* One panel: scan on top, browse/search list below */}
         <Card className="overflow-hidden py-0 gap-0">
@@ -395,84 +566,151 @@ export function RecordSaleForm({
           </div>
 
           <div className="flex flex-col gap-2 p-4">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="No scanner? Search or tap an item below…"
-                className="pl-8"
-                aria-label="Search shop stock"
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="No scanner? Search or tap an item below…"
+                  className="pl-8"
+                  aria-label="Search shop stock"
+                />
+              </div>
+              <ViewToggle value={view} onChange={setView} />
             </div>
 
-            <div className="thin-scrollbar flex max-h-[52vh] flex-col gap-1.5 overflow-y-auto pr-1">
-              {matches.map((p) => (
-                <button
-                  key={p.part_id}
-                  type="button"
-                  onClick={() => {
-                    addPart(p);
-                    toast.success(`${p.name} added`);
-                  }}
-                  disabled={p.qty === 0}
-                  className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <span className="flex min-w-0 items-center gap-2.5">
-                    <ProductThumb path={p.image_path} alt={p.name} size={36} />
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{p.name}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {p.qty} {p.unit} on hand
-                        {fitmentHints[p.part_id] &&
-                          ` · Fits: ${fitmentHints[p.part_id]}`}
-                      </span>
-                    </span>
-                  </span>
-                  <span className="shrink-0 tabular-nums font-medium">
-                    {formatCentavos(p.price_centavos)}
-                  </span>
-                </button>
-              ))}
-
-              {engineMatches.map((en) => (
-                <button
-                  key={en.engine_id}
-                  type="button"
-                  onClick={() => addEngine(en)}
-                  className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/80"
-                >
-                  <span className="flex min-w-0 items-center gap-2.5">
-                    <ProductThumb
-                      path={en.image_path}
-                      alt={`${en.brand} ${en.model}`}
-                      size={36}
-                    />
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">
-                        {en.brand} {en.model}
-                        {en.horsepower != null && ` — ${en.horsepower}HP`}
-                      </span>
-                      <span className="block truncate font-mono text-xs text-muted-foreground">
-                        SN {en.serial_number}
-                      </span>
-                    </span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <Badge variant="secondary">Engine</Badge>
-                    <span className="tabular-nums font-medium">
-                      {formatCentavos(en.price_centavos)}
-                    </span>
-                  </span>
-                </button>
-              ))}
-
-              {matches.length + engineMatches.length === 0 && (
+            <div className="thin-scrollbar max-h-[52vh] overflow-y-auto pr-1">
+              {matches.length + engineMatches.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">
                   {q
-                    ? "Nothing in your shop stock matches."
-                    : "No stock delivered yet."}
+                    ? "Nothing in stock matches your search."
+                    : "Nothing on hand to sell right now."}
                 </p>
+              ) : view === "table" ? (
+                <div className="flex flex-col gap-1.5">
+                  {matches.map((p) => {
+                    // everything on hand is already in the cart — nothing left to add
+                    const maxed = cartQtyOf(p.part_id) >= p.qty;
+                    return (
+                      <button
+                        key={p.part_id}
+                        type="button"
+                        onClick={() => addPart(p)}
+                        disabled={maxed}
+                        className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <span className="flex min-w-0 items-center gap-2.5">
+                          <ProductThumb path={p.image_path} alt={p.name} size={36} />
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{p.name}</span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {p.qty} {p.unit} on hand
+                              {maxed && " · all in cart"}
+                              {fitmentHints[p.part_id] &&
+                                ` · Fits: ${fitmentHints[p.part_id]}`}
+                            </span>
+                          </span>
+                        </span>
+                        <span className="shrink-0 tabular-nums font-medium">
+                          {formatCentavos(p.price_centavos)}
+                        </span>
+                      </button>
+                    );
+                  })}
+
+                  {engineMatches.map((en) => (
+                    <button
+                      key={en.engine_id}
+                      type="button"
+                      onClick={() => addEngine(en)}
+                      className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/80"
+                    >
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <ProductThumb
+                          path={en.image_path}
+                          alt={`${en.brand} ${en.model}`}
+                          size={36}
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">
+                            {en.brand} {en.model}
+                            {en.horsepower != null && ` — ${en.horsepower}HP`}
+                          </span>
+                          <span className="block truncate font-mono text-xs text-muted-foreground">
+                            SN {en.serial_number}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <Badge variant="secondary">Engine</Badge>
+                        <span className="tabular-nums font-medium">
+                          {formatCentavos(en.price_centavos)}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                /* Card grid — image-first so an unfamiliar name is still recognisable */
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                  {matches.map((p) => {
+                    const maxed = cartQtyOf(p.part_id) >= p.qty;
+                    return (
+                      <button
+                        key={p.part_id}
+                        type="button"
+                        onClick={() => addPart(p)}
+                        disabled={maxed}
+                        className="group flex flex-col overflow-hidden rounded-lg border text-left transition-colors hover:border-primary/60 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <ProductCardImage path={p.image_path} alt={p.name} />
+                        <div className="flex min-w-0 flex-col gap-0.5 p-2">
+                          <span className="truncate text-xs font-medium">{p.name}</span>
+                          <span className="truncate text-[11px] text-muted-foreground">
+                            {p.qty} {p.unit}
+                            {maxed && " · in cart"}
+                          </span>
+                          <span className="text-xs font-semibold tabular-nums">
+                            {formatCentavos(p.price_centavos)}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+
+                  {engineMatches.map((en) => (
+                    <button
+                      key={en.engine_id}
+                      type="button"
+                      onClick={() => addEngine(en)}
+                      className="group relative flex flex-col overflow-hidden rounded-lg border text-left transition-colors hover:border-primary/60 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/80"
+                    >
+                      <Badge
+                        variant="secondary"
+                        className="absolute left-1.5 top-1.5 z-10 shadow-sm"
+                      >
+                        Engine
+                      </Badge>
+                      <ProductCardImage
+                        path={en.image_path}
+                        alt={`${en.brand} ${en.model}`}
+                      />
+                      <div className="flex min-w-0 flex-col gap-0.5 p-2">
+                        <span className="truncate text-xs font-medium">
+                          {en.brand} {en.model}
+                          {en.horsepower != null && ` — ${en.horsepower}HP`}
+                        </span>
+                        <span className="truncate font-mono text-[11px] text-muted-foreground">
+                          SN {en.serial_number}
+                        </span>
+                        <span className="text-xs font-semibold tabular-nums">
+                          {formatCentavos(en.price_centavos)}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           </div>
@@ -495,12 +733,13 @@ export function RecordSaleForm({
                 Scan or tap items on the left to add them.
               </p>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 rounded-lg border border-primary/15 bg-primary/[0.05] p-2.5">
                 {cart.map((l) =>
                   l.kind === "part" ? (
                     <PartCartLine
                       key={l.part_id}
                       line={l}
+                      sukiMax={sukiMaxOf(l)}
                       onPriceChange={(raw) => setPartPrice(l.part_id, raw)}
                       onQty={(qty) => setQty(l.part_id, qty)}
                     />
@@ -508,6 +747,7 @@ export function RecordSaleForm({
                     <EngineCartLine
                       key={l.engine_id}
                       line={l}
+                      sukiMax={sukiMaxOf(l)}
                       onAgreedChange={(raw) => setEngineAgreed(l.engine_id, raw)}
                       onRemove={() =>
                         setCart((c) =>
@@ -532,9 +772,77 @@ export function RecordSaleForm({
                   </span>
                 </div>
 
-                {/* Payment type */}
+                {/* Suki card — scan/type to apply the loyalty discount */}
+                {suki === null ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (sukiInput.trim()) void applySukiCard(sukiInput);
+                    }}
+                    className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2"
+                  >
+                    <BadgePercent className="size-4 shrink-0 text-muted-foreground" />
+                    <Input
+                      value={sukiInput}
+                      onChange={(e) => setSukiInput(e.target.value)}
+                      placeholder="Suki card? Scan or type SC…"
+                      className="h-8 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
+                      aria-label="Suki card number"
+                      autoComplete="off"
+                    />
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      size="sm"
+                      disabled={sukiBusy || !sukiInput.trim()}
+                    >
+                      {sukiBusy ? <Loader2 className="size-3.5 animate-spin" /> : "Apply"}
+                    </Button>
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-2 rounded-md bg-success/10 px-3 py-2">
+                    <BadgePercent className="size-4 shrink-0 text-success" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-success">
+                        Suki: {suki.customer_name}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {suki.engine_pct}% off engines · {suki.part_pct}% off parts —
+                        taken off each line&apos;s price
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Remove suki card"
+                      onClick={clearSuki}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </div>
+                )}
+
+                {/* Payment */}
                 <div className="grid gap-2 rounded-md border p-3">
                   <Label className="text-sm">Payment</Label>
+
+                  {/* Method — how the money was tendered */}
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {PAYMENT_METHODS.map((m) => (
+                      <Button
+                        key={m.value}
+                        type="button"
+                        variant={paymentMethod === m.value ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setPaymentMethod(m.value)}
+                      >
+                        {m.label}
+                      </Button>
+                    ))}
+                  </div>
+
+                  {/* Full vs partial (how much now) */}
                   <div className="grid grid-cols-2 gap-2">
                     <Button
                       type="button"
@@ -555,6 +863,18 @@ export function RecordSaleForm({
                   </div>
 
                   {paymentType === "full" ? (
+                    paymentMethod !== "cash" ? (
+                      // non-cash full payment: exact amount transferred, no change
+                      <div className="flex items-center justify-between rounded-md bg-success/10 px-3 py-2">
+                        <span className="text-sm font-medium text-success">
+                          Paid in full via{" "}
+                          {PAYMENT_METHODS.find((m) => m.value === paymentMethod)?.label}
+                        </span>
+                        <span className="text-sm font-bold tabular-nums text-success">
+                          {formatCentavos(total)}
+                        </span>
+                      </div>
+                    ) : (
                     <div className="grid gap-2">
                       <Label htmlFor="cash-tendered" className="text-xs">
                         Customer&apos;s cash ₱ (for change)
@@ -600,6 +920,7 @@ export function RecordSaleForm({
                           </div>
                         ))}
                     </div>
+                    )
                   ) : (
                     <div className="grid gap-2">
                       <Label htmlFor="downpayment" className="text-xs">
@@ -642,6 +963,7 @@ export function RecordSaleForm({
                     onChange={(e) => setCustName(e.target.value)}
                     placeholder="Customer name"
                     className="bg-background"
+                    disabled={suki !== null}
                   />
                   <Input
                     value={custPhone}
@@ -649,13 +971,32 @@ export function RecordSaleForm({
                     placeholder="Phone (optional)"
                     aria-label="Customer phone"
                     className="bg-background"
+                    disabled={suki !== null}
                   />
+                  {suki !== null && (
+                    <p className="text-xs text-muted-foreground">
+                      Set by the suki card — remove the card to change.
+                    </p>
+                  )}
                 </div>
+
+                <label
+                  htmlFor="auto-print"
+                  className="flex cursor-pointer items-center gap-2 self-start text-sm text-muted-foreground select-none"
+                >
+                  <Checkbox
+                    id="auto-print"
+                    checked={autoPrint}
+                    onCheckedChange={(v) => setAutoPrintPersisted(v === true)}
+                  />
+                  <Printer className="size-3.5" />
+                  Print receipt on save
+                </label>
 
                 <Button
                   onClick={onSubmit}
-                  disabled={submitting || belowCost}
-                  className="self-end"
+                  disabled={submitting || belowCost || overSuki}
+                  className="self-start"
                 >
                   {submitting ? (
                     <Loader2 className="size-4 animate-spin" />
@@ -676,10 +1017,12 @@ export function RecordSaleForm({
 /** Part cart line: qty controls + read-only cost and a negotiable per-unit price. */
 function PartCartLine({
   line,
+  sukiMax,
   onPriceChange,
   onQty,
 }: {
   line: CartPart;
+  sukiMax: number | null;
   onPriceChange: (raw: string) => void;
   onQty: (qty: number) => void;
 }) {
@@ -687,7 +1030,7 @@ function PartCartLine({
   const below = price <= line.cost_centavos;
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border px-3 py-2.5">
+    <div className="flex flex-col gap-2 rounded-md border bg-card px-3 py-2.5 shadow-sm">
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{line.name}</div>
@@ -725,6 +1068,7 @@ function PartCartLine({
         cost_centavos={line.cost_centavos}
         priceRaw={line.priceRaw}
         below={below}
+        sukiMax={sukiMax}
         onPriceChange={onPriceChange}
       />
     </div>
@@ -734,10 +1078,12 @@ function PartCartLine({
 /** Engine cart line: read-only cost and a negotiable per-unit price. */
 function EngineCartLine({
   line,
+  sukiMax,
   onAgreedChange,
   onRemove,
 }: {
   line: CartEngine;
+  sukiMax: number | null;
   onAgreedChange: (raw: string) => void;
   onRemove: () => void;
 }) {
@@ -745,7 +1091,7 @@ function EngineCartLine({
   const below = agreed <= line.cost_centavos;
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border px-3 py-2.5">
+    <div className="flex flex-col gap-2 rounded-md border bg-card px-3 py-2.5 shadow-sm">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">
@@ -773,26 +1119,32 @@ function EngineCartLine({
         cost_centavos={line.cost_centavos}
         priceRaw={line.agreedRaw}
         below={below}
+        sukiMax={sukiMax}
         onPriceChange={onAgreedChange}
       />
     </div>
   );
 }
 
-/** Read-only cost + editable per-unit price, floored strictly above cost. */
+/** Read-only cost + editable per-unit price, floored strictly above cost.
+    With a suki card, the card price is also the CEILING (lower ok, higher not). */
 function PriceRow({
   id,
   cost_centavos,
   priceRaw,
   below,
+  sukiMax,
   onPriceChange,
 }: {
   id: string;
   cost_centavos: number;
   priceRaw: string;
   below: boolean;
+  sukiMax: number | null;
   onPriceChange: (raw: string) => void;
 }) {
+  const price = parsePesosToCentavos(priceRaw) ?? 0;
+  const overSuki = sukiMax !== null && price > sukiMax;
   return (
     <div className="grid grid-cols-2 gap-2">
       <div className="grid gap-1.5">
@@ -804,6 +1156,11 @@ function PriceRow({
       <div className="grid gap-1.5">
         <Label htmlFor={id} className="text-xs">
           Price ₱
+          {sukiMax !== null && (
+            <span className="ml-1 font-normal text-muted-foreground">
+              (suki max {formatCentavos(sukiMax)})
+            </span>
+          )}
         </Label>
         <Input
           id={id}
@@ -812,13 +1169,19 @@ function PriceRow({
           onChange={(e) => onPriceChange(e.target.value.replace(/[^\d.]/g, ""))}
           className={cn(
             "text-base tabular-nums",
-            below && "border-destructive focus-visible:ring-destructive"
+            (below || overSuki) && "border-destructive focus-visible:ring-destructive"
           )}
         />
       </div>
       {below && (
         <p className="col-span-2 text-xs font-medium text-destructive">
           Can&apos;t sell at or below cost {formatCentavos(cost_centavos)}
+        </p>
+      )}
+      {!below && overSuki && (
+        <p className="col-span-2 text-xs font-medium text-destructive">
+          Above the suki price — {formatCentavos(sukiMax)} is the maximum with
+          this card
         </p>
       )}
     </div>

@@ -15,7 +15,7 @@ export default async function OwnerReceivablesPage() {
     supabase
       .from("utang_payments")
       .select(
-        "id, sale_id, amount_centavos, status, created_at, deleted_at, owner_note, profiles!utang_payments_recorded_by_fkey(full_name)"
+        "id, sale_id, amount_centavos, method, payer_name, payer_contact, status, created_at, deleted_at, owner_note, profiles!utang_payments_recorded_by_fkey(full_name)"
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -30,6 +30,9 @@ export default async function OwnerReceivablesPage() {
     id: p.id,
     sale_id: p.sale_id,
     amount_centavos: p.amount_centavos,
+    method: p.method ?? "cash",
+    payer_name: p.payer_name,
+    payer_contact: p.payer_contact,
     created_at: p.created_at,
     voided: !!p.deleted_at,
     owner_note: p.owner_note ?? null,

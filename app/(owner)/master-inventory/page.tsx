@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Master Inventory" };
 export default async function MasterInventoryPage() {
   const supabase = await createClient();
 
-  const [partsRes, enginesRes, categoriesRes, modelsRes, fitmentsRes, pricesRes] = await Promise.all([
+  const [partsRes, enginesRes, categoriesRes, modelsRes, fitmentsRes, pricesRes, suppliersRes] = await Promise.all([
     supabase
       .from("parts")
       .select(
@@ -44,6 +44,8 @@ export default async function MasterInventoryPage() {
         "supplier_id, supplier_name, part_id, engine_model_id, last_paid_centavos, last_paid_at, receiving_id, quote_centavos, quoted_at, quote_stale, effective_centavos, effective_source, effective_as_of, is_preferred, is_cheapest"
       )
       .not("part_id", "is", null),
+    // suppliers for the Add product/engine attribution dropdown ("No supplier")
+    supabase.from("suppliers").select("id, name").is("deleted_at", null).order("name"),
   ]);
 
   const fitmentsByPart: Record<string, string[]> = {};
@@ -67,6 +69,7 @@ export default async function MasterInventoryPage() {
     image_path: p.image_path,
     master_qty:
       (p.stock_levels ?? []).find((s: any) => s.shop_id === null)?.qty ?? 0,
+    total_qty: (p.stock_levels ?? []).reduce((sum: number, s: any) => sum + s.qty, 0),
   }));
 
   const engines: EngineRow[] = (enginesRes.data ?? []).map((e: any) => ({
@@ -89,6 +92,7 @@ export default async function MasterInventoryPage() {
 
   const categories: Category[] = categoriesRes.data ?? [];
   const models: EngineModel[] = modelsRes.data ?? [];
+  const suppliers = suppliersRes.data ?? [];
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const pricesByPart: Record<string, any[]> = {};
@@ -103,6 +107,7 @@ export default async function MasterInventoryPage() {
       engines={engines}
       categories={categories}
       models={models}
+      suppliers={suppliers}
       fitmentsByPart={fitmentsByPart}
       pricesByPart={pricesByPart}
     />

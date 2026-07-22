@@ -136,5 +136,32 @@ section("UPDATE still works (view + edit page contract)");
   );
 }
 
+// ── 5. Supplier-less "Add product" still creates via the RPC only (0059) ─────
+section("Supplier-less Add: creation only via the RPC, direct INSERT still fails");
+{
+  // the door is the same definer function; direct inserts stay revoked (§1)
+  const { data: rid, error } = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: null,
+    p_note: `ZZ-TEST custom-add ${RUN}`,
+    p_parts: [{
+      qty: 5,
+      unit_cost_centavos: 1000,
+      new_part: { name: `ZZ-TEST Custom Born ${RUN}`, price_centavos: 1500 },
+    }],
+  });
+  check("supplier-less receiving succeeds", !error, error?.message);
+
+  const { data: part } = await owner
+    .from("parts").select("id").eq("name", `ZZ-TEST Custom Born ${RUN}`).maybeSingle();
+  trackPart(part?.id);
+  check("custom part was born through the RPC (no supplier)", !!part);
+
+  const { data: rcv } = await owner
+    .from("receivings").select("supplier_id, total_amount, payment_status").eq("id", rid).single();
+  check("supplier-less receiving: no supplier, total 0, settled",
+    rcv?.supplier_id === null && rcv?.total_amount === 0 && rcv?.payment_status === "paid",
+    JSON.stringify(rcv));
+}
+
 await cleanup();
 summary();

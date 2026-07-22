@@ -51,7 +51,7 @@ async function get(path, cookie) {
   }
   if (!html.includes("Inventory &amp; Approvals")) {
     console.error(
-      `\n${BASE} answered, but it is NOT Jerry's Marine — its sign-in page is a ` +
+      `\n${BASE} answered, but it is NOT Gerwin Trading — its sign-in page is a ` +
         `different app.\nNext moves to another port when 3000 is taken; point this ` +
         `at the right one:\n  TEST_BASE_URL=http://localhost:3001 node scripts/test-settings-documents.mjs\n`
     );
@@ -205,9 +205,16 @@ section("Sale receipt (owner AND shop)");
   assertsIdentity(s.html, "SHOP receipt", { footer: true, tin: true });
   check(
     "shop receipt does NOT fall back to a hardcoded name",
-    !s.html.includes(">Jerry&#x27;s Marine<") && !s.html.includes(">Jerry's Marine<"),
+    !s.html.includes(">Gerwin Trading<"),
     "hardcoded fallback rendered"
   );
+  // 58mm thermal layout: the route-scoped @page size is the fingerprint.
+  check("receipt is a 58mm thermal layout (owner + shop copies)",
+    o.html.includes("58mm") && s.html.includes("58mm"));
+  // monochrome-safe: the receipt body renders black-on-white with dashed rules,
+  // no logo tile / colored badge (the marker comment rides in the scoped CSS).
+  check("receipt carries the thermal marker + dashed rules",
+    o.html.includes("thermal-receipt-58mm") && o.html.includes("thermal-58"));
 }
 
 // ── 2. Warranty certificate — same paper from both sides ───────────────────
@@ -228,6 +235,9 @@ section("Delivery note, count sheet, purchase list");
   const note = await get(`/deliveries/${deliveryId}/note`, ownerCookie);
   check("delivery note renders", note.status === 200, String(note.status));
   assertsIdentity(note.html, "delivery note");
+  // Leakage guard: the receipt's thermal @page must NOT reach any other doc.
+  check("delivery note is NOT thermal — full-page layout unchanged",
+    !note.html.includes("58mm"));
 
   // The count sheet had NO letterhead at all before this change — it gets
   // walked round a shop, initialled and filed, so whose sheet it is matters.
@@ -239,6 +249,9 @@ section("Delivery note, count sheet, purchase list");
   const list = await get("/stock-alerts/purchase-list", ownerCookie);
   check("purchase list renders", list.status === 200, String(list.status));
   assertsIdentity(list.html, "purchase list");
+
+  check("count sheet + purchase list stay full-page (no 58mm leak)",
+    !sheet.html.includes("58mm") && !list.html.includes("58mm"));
 }
 
 // ── 4. Payslip — read-only against existing payroll ────────────────────────

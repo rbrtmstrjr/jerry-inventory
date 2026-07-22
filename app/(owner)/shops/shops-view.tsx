@@ -63,8 +63,15 @@ import {
 import { ShopBadge } from "@/components/shop-badge";
 import { SHOP_COLOR_KEYS, shopColorVars } from "@/lib/shop-colors";
 import {
+  ImageUploadField,
+  type ImageAction,
+} from "@/components/image-upload-field";
+import { createClient } from "@/lib/supabase/client";
+import { PRODUCT_IMAGE_BUCKET } from "@/lib/product-image";
+import {
   closeShop,
   createEmployee,
+  setShopLogo,
   updateEmployee,
   updateShopCredentials,
   upsertShop,
@@ -78,6 +85,7 @@ export interface ShopRow {
   longitude: number | null;
   active: boolean;
   color_key: string | null;
+  logo_path: string | null;
   part_units: number;
   engine_count: number;
   pending_count: number;
@@ -118,6 +126,9 @@ export function ShopsView({
   const [shopPin, setShopPin] = React.useState<LatLng | null>(null);
   const [shopActive, setShopActive] = React.useState(true);
   const [shopColor, setShopColor] = React.useState<string | null>(null);
+  const [shopLogoAction, setShopLogoAction] = React.useState<ImageAction>({
+    type: "keep",
+  });
 
   // employee dialogs
   const [empDialog, setEmpDialog] = React.useState(false);
@@ -144,6 +155,7 @@ export function ShopsView({
     );
     setShopActive(shop?.active ?? true);
     setShopColor(shop?.color_key ?? null);
+    setShopLogoAction({ type: "keep" });
     setShopDialog(true);
   }
 
@@ -168,6 +180,40 @@ export function ShopsView({
       active: shopActive,
       color_key: shopColor,
     });
+
+    // Logo: upload/remove the Storage object, then persist the path. Versioned
+    // names give every replace a fresh URL; the old object is deleted after.
+    // (Same pattern as product photos — see part-form-dialog.)
+    const shopId = res.ok ? res.id : null;
+    if (res.ok && shopId && shopLogoAction.type !== "keep") {
+      const supabase = createClient();
+      const oldPath = editingShop?.logo_path ?? null;
+      if (shopLogoAction.type === "set") {
+        const objectPath = `shop-logos/${shopId}-${Date.now()}.webp`;
+        const { error } = await supabase.storage
+          .from(PRODUCT_IMAGE_BUCKET)
+          .upload(objectPath, shopLogoAction.image.blob, {
+            contentType: "image/webp",
+            cacheControl: "31536000",
+          });
+        if (error) {
+          toast.error(`Shop saved, but the logo upload failed: ${error.message}`);
+        } else {
+          const set = await setShopLogo(shopId, objectPath);
+          if (!set.ok) toast.error(set.error);
+          else if (oldPath && oldPath !== objectPath) {
+            await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+          }
+        }
+      } else {
+        if (oldPath) {
+          await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+        }
+        const set = await setShopLogo(shopId, null);
+        if (!set.ok) toast.error(set.error);
+      }
+    }
+
     setBusy(false);
     if (res.ok) {
       toast.success(editingShop ? "Shop updated" : "Shop created");
@@ -222,11 +268,8 @@ export function ShopsView({
                 <div className="flex items-center gap-3">
                   {/* identity tile in the shop's palette color (token-resolved) */}
                   <div
-                    className="flex size-9 items-center justify-center rounded-md"
-                    style={{
-                      backgroundColor: shopColorVars(shop.color_key).soft,
-                      color: shopColorVars(shop.color_key).strong,
-                    }}
+                    className="flex size-9 items-center justify-center rounded-md text-white"
+                    style={{ backgroundColor: shopColorVars(shop.color_key).solid }}
                   >
                     <Store className="size-4" />
                   </div>
@@ -338,7 +381,7 @@ export function ShopsView({
                   label={shop.name}
                   className="h-44 w-full"
                   pinColor={
-                    shop.color_key ? shopColorVars(shop.color_key).strong : undefined
+                    shop.color_key ? shopColorVars(shop.color_key).solid : undefined
                   }
                 />
               )}
@@ -446,6 +489,19 @@ export function ShopsView({
               </div>
             </div>
             <div className="grid gap-2">
+              <Label>Shop logo</Label>
+              <p className="text-xs text-muted-foreground">
+                Printed on this branch&apos;s receipts and warranty certificates,
+                in place of the anchor. Optional — leave empty to keep the anchor.
+              </p>
+              <ImageUploadField
+                currentPath={editingShop?.logo_path ?? null}
+                action={shopLogoAction}
+                onActionChange={setShopLogoAction}
+              />
+            </div>
+
+            <div className="grid gap-2">
               <Label>Shop color</Label>
               <p className="text-xs text-muted-foreground">
                 Marks this branch everywhere it appears — lists, charts, its map
@@ -472,7 +528,7 @@ export function ShopsView({
                           ? "ring-2 ring-ring ring-offset-2 ring-offset-background"
                           : "hover:ring-2 hover:ring-ring/40 hover:ring-offset-1 hover:ring-offset-background"
                       } ${takenByOther ? "cursor-not-allowed opacity-25" : ""}`}
-                      style={{ backgroundColor: shopColorVars(key).strong }}
+                      style={{ backgroundColor: shopColorVars(key).solid }}
                     />
                   );
                 })}

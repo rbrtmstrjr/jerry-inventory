@@ -218,6 +218,7 @@ section("7. Customer pays down the utang (posts immediately):");
 }
 const { data: payId, error: payErr } = await emp.rpc("fn_record_utang_payment", {
   p_sale_id: engSale, p_amount_centavos: 2_000_000, p_note: `ZZ-TEST bayad ${RUN}`,
+  p_payer_name: `ZZ-TEST Payer ${RUN}`,
 });
 check("shop records a ₱20,000 payment", !payErr, payErr?.message);
 {
@@ -249,6 +250,7 @@ section("9. Settling the balance:");
 {
   const { error } = await emp.rpc("fn_record_utang_payment", {
     p_sale_id: engSale, p_amount_centavos: ENG_PRICE - 1_000_000, p_note: `ZZ-TEST full ${RUN}`,
+    p_payer_name: `ZZ-TEST Payer ${RUN}`,
   });
   check("customer pays the rest", !error, error?.message);
 }
@@ -258,7 +260,7 @@ section("9. Settling the balance:");
 }
 {
   const { error } = await emp.rpc("fn_record_utang_payment", {
-    p_sale_id: engSale, p_amount_centavos: 100,
+    p_sale_id: engSale, p_amount_centavos: 100, p_payer_name: `ZZ-TEST Payer ${RUN}`,
   });
   check("cannot overpay a settled sale", !!error, "overpayment accepted!");
 }

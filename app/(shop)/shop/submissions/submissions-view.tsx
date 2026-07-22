@@ -2,13 +2,16 @@
 
 import * as React from "react";
 import { format } from "date-fns";
+import Link from "next/link";
 import {
   AlertTriangle,
   Loader2,
   MessageCircleQuestion,
   NotebookPen,
+  Printer,
   ReceiptText,
   Send,
+  ShieldCheck,
   ShoppingCart,
   Trash2,
 } from "lucide-react";
@@ -25,6 +28,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { cancelLoss, cancelSale, submitShopBatch } from "../actions";
 
@@ -42,6 +46,7 @@ export interface SaleSubmission {
     qty: number;
     unit_price_centavos: number;
     line_total_centavos: number;
+    engine_id: string | null;
   }[];
 }
 
@@ -183,6 +188,7 @@ export function SubmissionsView({
   }
 
   function renderSaleRow(s: SaleSubmission, showStatus: boolean) {
+    const engineLineCount = s.sale_lines.filter((l) => l.engine_id).length;
     return (
       <div key={s.id} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -191,6 +197,17 @@ export function SubmissionsView({
           </span>
           <div className="flex items-center gap-2">
             {showStatus && <StatusBadge status={s.status} />}
+            <Button
+              asChild
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-label="Print receipt"
+            >
+              <Link href={`/receipt/${s.id}`} target="_blank">
+                <Printer className="size-4" />
+              </Link>
+            </Button>
             {(s.status === "recorded" || s.status === "pending") && (
               <Button
                 variant="ghost"
@@ -225,6 +242,26 @@ export function SubmissionsView({
           <div className="mt-1 flex items-start gap-2 rounded-md bg-accent p-2 text-sm text-accent-foreground">
             <MessageCircleQuestion className="mt-0.5 size-4 shrink-0" />
             <span>Owner: {s.owner_note}</span>
+          </div>
+        )}
+        {/* Warranty certificate — full-page (coupon printer), NOT the thermal
+            receipt. A customer document rendered from the sale, so it's ready
+            the moment the engine sale is recorded (no Admin approval needed).
+            Voids with the sale: cancelling it 404s this the same as the receipt. */}
+        {engineLineCount > 0 && (
+          <div className="mt-1 flex items-center justify-between gap-2 rounded-md border border-dashed bg-muted/30 px-2 py-1.5 text-xs">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <ShieldCheck className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate">
+                Warranty certificate
+                {engineLineCount > 1 ? ` · ${engineLineCount} engines` : ""}
+              </span>
+            </span>
+            <Button asChild variant="outline" size="sm" className="h-7 shrink-0">
+              <Link href={`/shop/warranty-preview/${s.id}`} target="_blank">
+                <Printer className="size-3.5" /> Print warranty
+              </Link>
+            </Button>
           </div>
         )}
       </div>
@@ -399,9 +436,13 @@ export function SubmissionsView({
 
       <Tabs defaultValue="current">
         <TabsList>
-          <TabsTrigger value="current">Current ({currentTotal})</TabsTrigger>
-          <TabsTrigger value="submitted">Submitted ({submitted.length})</TabsTrigger>
-          <TabsTrigger value="reviewed">Reviewed ({reviewed.length})</TabsTrigger>
+          <TabsTrigger value="current">
+            Current<TabCountBadge count={currentTotal} />
+          </TabsTrigger>
+          <TabsTrigger value="submitted">
+            Submitted<TabCountBadge count={submitted.length} />
+          </TabsTrigger>
+          <TabsTrigger value="reviewed">Reviewed</TabsTrigger>
         </TabsList>
 
         {/* ONE card for everything not yet sent — it becomes a new report

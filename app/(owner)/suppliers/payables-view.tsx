@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
 import { DataTable, SortableHeader } from "@/components/data-table/data-table";
 import {
   ImageUploadField,
@@ -155,13 +156,17 @@ export function PayablesView({
   const aging = React.useMemo(() => {
     const buckets = { current: 0, "1-30": 0, "31-60": 0, "60+": 0 };
     for (const b of openBalances) buckets[agingBucket(b)] += b.balance;
+    // severity gradient — centralized tokens (app/theme.css), never raw hex
     return [
-      { bucket: "Current", amount: buckets.current, fill: "var(--success)" },
-      { bucket: "1–30 days", amount: buckets["1-30"], fill: "var(--warning)" },
-      { bucket: "31–60 days", amount: buckets["31-60"], fill: "var(--warning)" },
-      { bucket: "60+ days", amount: buckets["60+"], fill: "var(--destructive)" },
+      { bucket: "Current", amount: buckets.current, fill: "var(--aging-current)" },
+      { bucket: "1–30 days", amount: buckets["1-30"], fill: "var(--aging-low)" },
+      { bucket: "31–60 days", amount: buckets["31-60"], fill: "var(--aging-mid)" },
+      { bucket: "60+ days", amount: buckets["60+"], fill: "var(--aging-high)" },
     ];
   }, [openBalances]);
+
+  // controlled so the CSV button in the tab row knows which export to run
+  const [tab, setTab] = React.useState("suppliers");
 
   const columns: ColumnDef<SupplierPayableRow>[] = [
     {
@@ -355,11 +360,27 @@ export function PayablesView({
         </Card>
       </div>
 
-      <Tabs defaultValue="suppliers">
-        <TabsList>
-          <TabsTrigger value="suppliers">By supplier ({owing.length})</TabsTrigger>
-          <TabsTrigger value="aging">Aging</TabsTrigger>
-        </TabsList>
+      <Tabs value={tab} onValueChange={setTab}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <TabsList>
+            <TabsTrigger value="suppliers">
+              By supplier<TabCountBadge count={owing.length} />
+            </TabsTrigger>
+            <TabsTrigger value="aging">Aging</TabsTrigger>
+          </TabsList>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={tab === "aging" ? agingCsv.length === 0 : csvRows.length === 0}
+            onClick={() =>
+              tab === "aging"
+                ? downloadCsv("payables_aging.csv", agingCsv)
+                : downloadCsv("supplier_payables.csv", csvRows)
+            }
+          >
+            <Download className="size-4" /> {tab === "aging" ? "Aging CSV" : "CSV"}
+          </Button>
+        </div>
 
         <TabsContent value="suppliers" className="pt-2">
           <DataTable
@@ -373,15 +394,6 @@ export function PayablesView({
                 : s.utilization_pct != null && s.utilization_pct >= 80
                   ? "bg-warning/5"
                   : undefined
-            }
-            toolbar={
-              <Button
-                variant="outline"
-                disabled={csvRows.length === 0}
-                onClick={() => downloadCsv("supplier_payables.csv", csvRows)}
-              >
-                <Download className="size-4" /> CSV
-              </Button>
             }
           />
         </TabsContent>
@@ -408,8 +420,9 @@ export function PayablesView({
                     <Tooltip
                       formatter={(v) => formatCentavos(Number(v ?? 0))}
                       labelFormatter={(l) => String(l)}
+                      cursor={{ fill: "var(--muted)", opacity: 0.4 }}
                     />
-                    <Bar dataKey="amount" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="amount" radius={[6, 6, 0, 0]} maxBarSize={72}>
                       {aging.map((a, i) => (
                         <Cell key={i} fill={a.fill} />
                       ))}
@@ -429,15 +442,6 @@ export function PayablesView({
               </div>
             </CardContent>
           </Card>
-          <div className="flex justify-end">
-            <Button
-              variant="outline"
-              disabled={agingCsv.length === 0}
-              onClick={() => downloadCsv("payables_aging.csv", agingCsv)}
-            >
-              <Download className="size-4" /> Aging CSV
-            </Button>
-          </div>
         </TabsContent>
       </Tabs>
 

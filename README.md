@@ -1,4 +1,4 @@
-# Jerry's Marine — Multi-Shop Inventory & Approval System
+# Gerwin Trading — Multi-Shop Inventory & Approval System
 
 Centralized inventory and sales-approval system for a Philippine marine store
 (outboard engines + parts + fisherman goods) supplying multiple branch shops.

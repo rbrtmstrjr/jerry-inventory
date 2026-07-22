@@ -32,6 +32,7 @@ import {
 import { Search } from "lucide-react";
 import { softDeleteEngine } from "./actions";
 import { EngineFormDialog } from "./engine-form-dialog";
+import { AddEngineDialog } from "./add-engine-dialog";
 import { ModelManagerDialog } from "./reference-data-dialogs";
 
 const STATUS_BADGE: Record<
@@ -47,11 +48,14 @@ const STATUS_BADGE: Record<
 export function EnginesTable({
   engines,
   models,
+  suppliers,
 }: {
   engines: EngineRow[];
   models: EngineModel[];
+  suppliers: { id: string; name: string }[];
 }) {
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [addOpen, setAddOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<EngineRow | null>(null);
   const [deleting, setDeleting] = React.useState<EngineRow | null>(null);
   const [view, setView] = usePersistedView("jm-view-owner-engines");
@@ -96,17 +100,15 @@ export function EnginesTable({
     );
   }
 
-  // No Add button — serials are born on a supplier receiving (0049 revokes
-  // direct INSERT at the database). This page is view + edit.
+  // Add engine = a supplier-less receiving through fn_receive_stock (0059);
+  // creation still only via the definer function (0049 lockdown intact).
   const toolbarButtons = (
     <>
       <Button variant="outline" onClick={() => setModelMgrOpen(true)}>
         <Cog className="size-4" /> Models
       </Button>
-      <Button asChild>
-        <Link href="/suppliers?tab=receiving">
-          <PackagePlus className="size-4" /> Receive engines
-        </Link>
+      <Button onClick={() => setAddOpen(true)}>
+        <PackagePlus className="size-4" /> Add engine
       </Button>
     </>
   );
@@ -206,7 +208,7 @@ export function EnginesTable({
           columns={columns}
           data={engines}
           searchPlaceholder="Search serial or model…"
-          emptyMessage="No engines yet — serials enter through a supplier receiving (Suppliers → Receiving)."
+          emptyMessage="No engines yet — click Add engine, or receive from a supplier (Suppliers → Receiving)."
           toolbar={
             <>
               <ViewToggle value={view} onChange={setView} />
@@ -244,9 +246,13 @@ export function EnginesTable({
                     `Nothing matches “${cardSearch}”.`
                   ) : (
                     <>
-                      No engines yet — serials enter through a{" "}
+                      No engines yet — click{" "}
+                      <button className="underline" onClick={() => setAddOpen(true)}>
+                        Add engine
+                      </button>
+                      , or receive from a{" "}
                       <Link className="underline" href="/suppliers?tab=receiving">
-                        supplier receiving
+                        supplier
                       </Link>
                       .
                     </>
@@ -318,6 +324,12 @@ export function EnginesTable({
         onOpenChange={setDialogOpen}
         models={models}
         engine={editing}
+      />
+      <AddEngineDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        models={models}
+        suppliers={suppliers}
       />
       <ModelManagerDialog
         open={modelMgrOpen}

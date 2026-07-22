@@ -138,7 +138,7 @@ const { data: rejectedSaleId } = await B.client.rpc("fn_record_sale", {
 }
 // Shop A: an utang payment (posts immediately)
 const { data: payId, error: payErr } = await A.client.rpc("fn_record_utang_payment", {
-  p_sale_id: saleId, p_amount_centavos: 700000,
+  p_sale_id: saleId, p_amount_centavos: 700000, p_payer_name: "ZZ-TEST Payer",
 });
 check("utang payment recorded", !payErr, payErr?.message);
 

@@ -18,7 +18,7 @@ const check = (name, ok, detail = "") => { ok ? pass++ : fail++; console.log(`  
   try { html = await (await fetch(`${BASE}/login`, { redirect: "manual" })).text(); }
   catch { console.error(`\nCannot reach ${BASE} — run \`npm run dev\` first.\n`); process.exit(2); }
   if (!html.includes("Inventory &amp; Approvals")) {
-    console.error(`\n${BASE} is not Jerry's Marine — set TEST_BASE_URL to the right port.\n`); process.exit(2);
+    console.error(`\n${BASE} is not Gerwin Trading — set TEST_BASE_URL to the right port.\n`); process.exit(2);
   }
 }
 

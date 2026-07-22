@@ -111,6 +111,34 @@ const sell = (parts, engines, payType = "full", paid = null) =>
   check("engine discount vs catalog price", line?.list_reference_centavos === 1000000 && line?.discount_centavos === 1000000 - 800001);
 }
 
+// ── payment method (0061): cash / gcash / bank / other, default cash ─────────
+section("Payment method");
+{
+  const line = [{ part_id: part.id, qty: 1, unit_price_centavos: 20000 }];
+
+  // omitted → defaults to cash
+  const dflt = await sell(line, []);
+  check("sale records with no method given", !dflt.error && !!dflt.data, dflt.error?.message);
+  const { data: d1 } = await owner.from("sales").select("payment_method").eq("id", dflt.data).single();
+  check("omitted method defaults to cash", d1?.payment_method === "cash", d1?.payment_method);
+
+  // explicit gcash is stored
+  const g = await shop.client.rpc("fn_record_sale", {
+    p_customer_id: cust.id, p_part_lines: line, p_engine_lines: [],
+    p_payment_type: "full", p_amount_paid_centavos: null, p_payment_method: "gcash",
+  });
+  check("sale records with gcash", !g.error && !!g.data, g.error?.message);
+  const { data: d2 } = await owner.from("sales").select("payment_method").eq("id", g.data).single();
+  check("gcash method is stored", d2?.payment_method === "gcash", d2?.payment_method);
+
+  // a bogus method is rejected (mirrors the CHECK constraint)
+  const bad = await shop.client.rpc("fn_record_sale", {
+    p_customer_id: cust.id, p_part_lines: line, p_engine_lines: [],
+    p_payment_type: "full", p_amount_paid_centavos: null, p_payment_method: "bitcoin",
+  });
+  check("invalid method is rejected", /invalid payment method/i.test(bad.error?.message ?? ""), bad.error?.message);
+}
+
 // ── 4. owner sets catalog price; the floor is > cost ─────────────────────────
 section("Owner catalog price > cost");
 {

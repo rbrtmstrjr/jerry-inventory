@@ -39,12 +39,27 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
 import { recordUtangPayment, voidUtangPayment } from "../actions";
+
+export type PaymentMethod = "cash" | "gcash" | "bank" | "other";
+const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
+  { value: "cash", label: "Cash" },
+  { value: "gcash", label: "GCash" },
+  { value: "bank", label: "Bank" },
+  { value: "other", label: "Other" },
+];
+const METHOD_LABEL: Record<string, string> = Object.fromEntries(
+  PAYMENT_METHODS.map((m) => [m.value, m.label])
+);
 
 export interface PaymentRow {
   id: string;
   sale_id: string;
   amount_centavos: number;
+  method: string;
+  payer_name: string | null;
+  payer_contact: string | null;
   note: string | null;
   owner_note: string | null;
   created_at: string;
@@ -147,8 +162,8 @@ export function ShopReceivablesView({
 
       <Tabs defaultValue="open">
         <TabsList>
-          <TabsTrigger value="open">Open ({open.length})</TabsTrigger>
-          <TabsTrigger value="settled">Fully paid ({settled.length})</TabsTrigger>
+          <TabsTrigger value="open">Open<TabCountBadge count={open.length} /></TabsTrigger>
+          <TabsTrigger value="settled">Fully paid</TabsTrigger>
         </TabsList>
 
         <TabsContent value="open" className="flex flex-col gap-3 pt-2">
@@ -284,12 +299,22 @@ function ReceivableCard({
         {showHistory && history.length > 0 && (
           <div className="flex flex-col gap-1 rounded-md border p-2 text-xs">
             {history.map((h) => (
-              <div key={h.id} className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate text-muted-foreground">
-                  {format(new Date(h.created_at), "MMM d, yyyy h:mm a")} ·{" "}
-                  {h.recorded_by}
-                  {h.voided && h.owner_note && ` · ${h.owner_note}`}
-                </span>
+              <div key={h.id} className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate">
+                    {h.payer_name ? `Paid by ${h.payer_name}` : "Payment"}
+                    {h.payer_contact ? ` · ${h.payer_contact}` : ""}
+                    <span className="text-muted-foreground">
+                      {" · via "}
+                      {METHOD_LABEL[h.method] ?? h.method}
+                    </span>
+                  </div>
+                  <div className="truncate text-muted-foreground">
+                    {format(new Date(h.created_at), "MMM d, yyyy h:mm a")} ·{" "}
+                    {h.recorded_by}
+                    {h.voided && h.owner_note && ` · ${h.owner_note}`}
+                  </div>
+                </div>
                 <span className="flex shrink-0 items-center gap-2">
                   <span
                     className={`tabular-nums font-medium ${
@@ -349,15 +374,25 @@ function RecordPaymentDialog({
 }) {
   const router = useRouter();
   const [amount, setAmount] = React.useState("");
+  const [method, setMethod] = React.useState<PaymentMethod>("cash");
+  const [payerName, setPayerName] = React.useState("");
+  const [payerContact, setPayerContact] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
-    if (row) setAmount("");
+    if (row) {
+      setAmount("");
+      setMethod("cash");
+      // default the payer to the debtor; editable if someone else pays
+      setPayerName(row.customer_name ?? "");
+      setPayerContact(row.customer_phone ?? "");
+    }
   }, [row]);
 
   const balance = row?.balance_centavos ?? 0;
   const amountC = parsePesosToCentavos(amount || "0") ?? 0;
   const tooMuch = amountC > balance;
+  const noPayer = payerName.trim() === "";
 
   async function onSave() {
     if (!row) return;
@@ -369,10 +404,17 @@ function RecordPaymentDialog({
       toast.error(`That's more than the ${formatCentavos(balance)} balance`);
       return;
     }
+    if (noPayer) {
+      toast.error("Enter who paid");
+      return;
+    }
     setBusy(true);
     const res = await recordUtangPayment({
       sale_id: row.sale_id,
       amount_centavos: amountC,
+      method,
+      payer_name: payerName.trim(),
+      payer_contact: payerContact.trim() || null,
     });
     setBusy(false);
     if (res.ok) {
@@ -399,31 +441,70 @@ function RecordPaymentDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-2">
-          <Label htmlFor="pay-amount">Amount paid ₱</Label>
-          <Input
-            id="pay-amount"
-            inputMode="decimal"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
-            placeholder="0.00"
-            className="text-base tabular-nums"
-            autoFocus
-          />
-          <div className="flex items-center justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setAmount((balance / 100).toFixed(2))}
-            >
-              Full balance ({formatCentavos(balance)})
-            </Button>
-            {tooMuch && (
-              <p className="text-xs font-medium text-destructive">
-                More than the {formatCentavos(balance)} owed
-              </p>
-            )}
+        <div className="grid gap-3">
+          <div className="grid gap-2">
+            <Label htmlFor="pay-amount">Amount paid ₱</Label>
+            <Input
+              id="pay-amount"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
+              placeholder="0.00"
+              className="text-base tabular-nums"
+              autoFocus
+            />
+            <div className="flex items-center justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setAmount((balance / 100).toFixed(2))}
+              >
+                Full balance ({formatCentavos(balance)})
+              </Button>
+              {tooMuch && (
+                <p className="text-xs font-medium text-destructive">
+                  More than the {formatCentavos(balance)} owed
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* How the money was paid */}
+          <div className="grid gap-1.5">
+            <Label>Payment method</Label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {PAYMENT_METHODS.map((m) => (
+                <Button
+                  key={m.value}
+                  type="button"
+                  variant={method === m.value ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setMethod(m.value)}
+                >
+                  {m.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Who paid — required (may differ from the debtor) */}
+          <div className="grid gap-1.5">
+            <Label htmlFor="pay-payer">Paid by</Label>
+            <Input
+              id="pay-payer"
+              value={payerName}
+              onChange={(e) => setPayerName(e.target.value)}
+              placeholder="Payer's name"
+              className={noPayer ? "border-destructive focus-visible:ring-destructive" : ""}
+            />
+            <Input
+              value={payerContact}
+              onChange={(e) => setPayerContact(e.target.value)}
+              placeholder="Contact number (optional)"
+              aria-label="Payer contact number"
+              inputMode="tel"
+            />
           </div>
         </div>
 
@@ -431,7 +512,7 @@ function RecordPaymentDialog({
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={onSave} disabled={busy || tooMuch || amountC <= 0}>
+          <Button onClick={onSave} disabled={busy || tooMuch || amountC <= 0 || noPayer}>
             {busy && <Loader2 className="size-4 animate-spin" />}
             Record payment
           </Button>

@@ -24,14 +24,14 @@ export function ShopBadge({
   variant?: "badge" | "dot" | "text";
   className?: string;
 }) {
-  const { soft, strong } = shopColorVars(shop.color_key);
+  const { solid } = shopColorVars(shop.color_key);
 
   if (variant === "dot") {
     return (
       <span
         aria-hidden
         className={cn("inline-block size-2 shrink-0 rounded-full", className)}
-        style={{ backgroundColor: strong }}
+        style={{ backgroundColor: solid }}
       />
     );
   }
@@ -42,20 +42,21 @@ export function ShopBadge({
         <span
           aria-hidden
           className="inline-block size-2 shrink-0 rounded-full"
-          style={{ backgroundColor: strong }}
+          style={{ backgroundColor: solid }}
         />
         <span className="truncate">{shop.name}</span>
       </span>
     );
   }
 
+  // Solid fill + white text — reads as a category tag, never a status/alert.
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center gap-1 truncate rounded-md px-2 py-0.5 text-xs font-medium",
+        "inline-flex max-w-full items-center gap-1 truncate rounded-md px-2 py-0.5 text-xs font-medium text-white",
         className
       )}
-      style={{ backgroundColor: soft, color: strong }}
+      style={{ backgroundColor: solid }}
     >
       {shop.name}
     </span>

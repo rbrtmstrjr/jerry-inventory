@@ -19,7 +19,6 @@ import {
 import {
   AlertTriangle,
   Anchor,
-  ClipboardCheck,
   Download,
   PhilippinePeso,
   Truck,
@@ -210,25 +209,12 @@ export function ReportsView({ data }: { data: ReportData }) {
       hint: `${data.totals.transitLossQty} unit(s) never reached a shop · at cost`,
       icon: Truck,
     },
-    {
-      label: "Awaiting approval",
-      value: `${data.totals.pendingCount}`,
-      hint: "not in these figures yet",
-      icon: ClipboardCheck,
-    },
   ];
 
   const dateTick = (d: string) => format(new Date(d + "T00:00:00"), "MMM d");
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="print:hidden">
-        <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
-        <p className="text-sm text-muted-foreground">
-          Approved figures only — any date range.
-        </p>
-      </div>
-
       {/* Toolbar: filters (left) → export (right) */}
       <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3 print:hidden">
         <div className="flex flex-wrap items-end gap-2">
@@ -268,9 +254,9 @@ export function ReportsView({ data }: { data: ReportData }) {
             </SelectContent>
           </Select>
           <div className="flex gap-1">
-            <Button variant="outline" size="sm" onClick={() => preset(1)}>Today</Button>
-            <Button variant="outline" size="sm" onClick={() => preset(7)}>7d</Button>
-            <Button variant="outline" size="sm" onClick={() => preset(30)}>30d</Button>
+            <Button variant="outline" onClick={() => preset(1)}>Today</Button>
+            <Button variant="outline" onClick={() => preset(7)}>7d</Button>
+            <Button variant="outline" onClick={() => preset(30)}>30d</Button>
           </div>
         </div>
 
@@ -295,7 +281,7 @@ export function ReportsView({ data }: { data: ReportData }) {
 
       {/* Range header (visible in print) */}
       <p className="hidden text-sm text-muted-foreground print:block">
-        Jerry&apos;s Marine — Report {format(new Date(data.from), "MMM d, yyyy")} to{" "}
+        Gerwin Trading — Report {format(new Date(data.from), "MMM d, yyyy")} to{" "}
         {format(new Date(data.to), "MMM d, yyyy")}
       </p>
 

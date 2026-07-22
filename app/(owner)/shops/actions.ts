@@ -40,10 +40,12 @@ export async function upsertShop(input: unknown): Promise<ActionResult> {
   const { id, ...fields } = parsed.data;
   const row = { ...fields, location: fields.location || null };
   const supabase = await createClient();
+  // Return the id on insert too, so the caller can upload the shop logo against
+  // the new row (same two-step pattern as products: save row → upload image).
   const query = id
-    ? supabase.from("shops").update(row).eq("id", id)
-    : supabase.from("shops").insert(row);
-  const { error } = await query;
+    ? supabase.from("shops").update(row).eq("id", id).select("id").single()
+    : supabase.from("shops").insert(row).select("id").single();
+  const { data, error } = await query;
   if (error) {
     // partial unique index on color_key (live shops) — surface it kindly
     if (error.code === "23505" && /color_key/.test(error.message)) {
@@ -51,6 +53,25 @@ export async function upsertShop(input: unknown): Promise<ActionResult> {
     }
     return { ok: false, error: error.message };
   }
+  revalidatePath("/shops");
+  return { ok: true, id: data?.id ?? id };
+}
+
+/** Persist (or clear) a shop's logo object path after the Storage upload. */
+export async function setShopLogo(
+  shopId: string,
+  logoPath: string | null
+): Promise<ActionResult> {
+  const ownerId = await requireOwnerAction();
+  if (!ownerId) return { ok: false, error: "Only the owner can edit shops" };
+  if (!z.uuid().safeParse(shopId).success) return { ok: false, error: "Invalid shop" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("shops")
+    .update({ logo_path: logoPath })
+    .eq("id", shopId);
+  if (error) return { ok: false, error: error.message };
   revalidatePath("/shops");
   return { ok: true };
 }

@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
 import { createDeliveryRequest } from "../actions";
 
 export interface MyRequestRow {
@@ -52,6 +53,7 @@ export function ShopLowStockView({
   requests: MyRequestRow[];
 }) {
   const router = useRouter();
+  const [tab, setTab] = React.useState("low");
   const [search, setSearch] = React.useState("");
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState(false);
@@ -105,6 +107,7 @@ export function ShopLowStockView({
     if (res.ok) {
       toast.success("Request sent to Admin");
       setNote("");
+      setTab("requests"); // jump to My requests so they see it land
       router.refresh();
     } else {
       toast.error(res.error);
@@ -121,10 +124,14 @@ export function ShopLowStockView({
         </p>
       </div>
 
-      <Tabs defaultValue="low">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="low">Low items ({rows.length})</TabsTrigger>
-          <TabsTrigger value="requests">My requests ({requests.length})</TabsTrigger>
+          <TabsTrigger value="low">
+            Low items<TabCountBadge count={rows.length} />
+          </TabsTrigger>
+          <TabsTrigger value="requests">
+            My requests<TabCountBadge count={requests.length} />
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="low" className="flex flex-col gap-3 pt-2">

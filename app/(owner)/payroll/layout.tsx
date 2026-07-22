@@ -5,6 +5,7 @@ const tabs = [
   { href: "/payroll", label: "Run Payroll" },
   { href: "/payroll/staff", label: "Staff" },
   { href: "/payroll/positions", label: "Positions" },
+  { href: "/payroll/advances", label: "Advances" },
   { href: "/payroll/reports", label: "Reports" },
 ];
 

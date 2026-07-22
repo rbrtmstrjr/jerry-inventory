@@ -54,7 +54,8 @@ export default async function ApprovalsPage({
       .from("sales")
       .select(
         `id, shop_id, business_date, status, total_centavos, owner_note, created_at, batch_id,
-         payment_type, amount_paid_centavos, balance_due_centavos, receipt_no,
+         payment_type, payment_method, amount_paid_centavos, balance_due_centavos, receipt_no,
+         discount_card_id, card_discount_centavos, discount_cards(card_no),
          submission_batches(submitted_at),
          shops(name, color_key),
          profiles!sales_recorded_by_fkey(full_name),
@@ -114,11 +115,14 @@ export default async function ApprovalsPage({
     status: s.status,
     total_centavos: s.total_centavos,
     payment_type: s.payment_type ?? "full",
+    payment_method: s.payment_method ?? "cash",
     amount_paid_centavos: s.amount_paid_centavos ?? null,
     balance_due_centavos: s.balance_due_centavos ?? 0,
     receipt_no: s.receipt_no ?? null,
     owner_note: s.owner_note,
     created_at: s.created_at,
+    suki_card_no: s.discount_card_id ? (s.discount_cards?.card_no ?? null) : null,
+    card_discount_centavos: s.card_discount_centavos ?? 0,
     has_engine: (s.sale_lines ?? []).some((l: any) => l.engine_id),
     lines: (s.sale_lines ?? []).map((l: any) => ({
       description: l.description ?? "Item",

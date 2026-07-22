@@ -30,9 +30,19 @@ export function isShopColorKey(v: string | null | undefined): v is ShopColorKey 
 export function shopColorVars(key: string | null | undefined): {
   soft: string;
   strong: string;
+  solid: string;
 } {
   if (!isShopColorKey(key)) {
-    return { soft: "var(--secondary)", strong: "var(--muted-foreground)" };
+    return {
+      soft: "var(--secondary)",
+      strong: "var(--muted-foreground)",
+      // neutral fallback badge: a mid-dark grey that carries white text
+      solid: "var(--muted-foreground)",
+    };
   }
-  return { soft: `var(--shop-${key})`, strong: `var(--shop-${key}-strong)` };
+  return {
+    soft: `var(--shop-${key})`,
+    strong: `var(--shop-${key}-strong)`,
+    solid: `var(--shop-${key}-solid)`,
+  };
 }

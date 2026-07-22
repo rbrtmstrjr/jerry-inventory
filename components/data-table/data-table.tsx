@@ -53,6 +53,8 @@ interface DataTableProps<TData, TValue> {
   data: TData[];
   /** placeholder for the global search box; omit to hide search */
   searchPlaceholder?: string;
+  /** rendered immediately beside the search box (e.g. a filter dropdown) */
+  filters?: React.ReactNode;
   /** rendered on the right of the toolbar (e.g. an "Add" button) */
   toolbar?: React.ReactNode;
   emptyMessage?: string;
@@ -68,6 +70,7 @@ export function DataTable<TData, TValue>({
   columns,
   data,
   searchPlaceholder,
+  filters,
   toolbar,
   emptyMessage = "No records yet.",
   rowClassName,
@@ -99,7 +102,7 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className="flex flex-col gap-3">
-      {(searchPlaceholder || toolbar) && (
+      {(searchPlaceholder || filters || toolbar) && (
         <div className="flex flex-wrap items-center gap-2">
           {searchPlaceholder && (
             <div className="relative w-full max-w-xs">
@@ -113,6 +116,7 @@ export function DataTable<TData, TValue>({
               />
             </div>
           )}
+          {filters}
           <div className="ml-auto flex items-center gap-2">{toolbar}</div>
         </div>
       )}

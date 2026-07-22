@@ -128,7 +128,7 @@ export function LabelPrinter({
                 {selected.size} selected
               </span>
             </div>
-            <div className="max-h-96 overflow-auto rounded-md border">
+            <div className="thin-scrollbar max-h-96 overflow-auto rounded-md border">
               {filtered.length === 0 && (
                 <p className="p-4 text-sm text-muted-foreground">
                   No barcoded items found.

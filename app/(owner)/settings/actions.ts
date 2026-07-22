@@ -136,6 +136,18 @@ const alertSettingsSchema = z.object({
     .int()
     .min(1, "Staleness must be between 1 and 365 days")
     .max(365, "Staleness must be between 1 and 365 days"),
+  // Suki card rates (0072) — data, not code. 0 legally means "no discount on
+  // that kind"; the CHECK allows 0..100 and the RPC caps the price above cost.
+  suki_engine_discount_pct: z
+    .number()
+    .int()
+    .min(0, "Engine discount must be between 0 and 100 percent")
+    .max(100, "Engine discount must be between 0 and 100 percent"),
+  suki_part_discount_pct: z
+    .number()
+    .int()
+    .min(0, "Part discount must be between 0 and 100 percent")
+    .max(100, "Part discount must be between 0 and 100 percent"),
 });
 
 export async function updateAlertSettings(input: unknown): Promise<ActionResult> {
@@ -153,6 +165,7 @@ export async function updateAlertSettings(input: unknown): Promise<ActionResult>
   // The thresholds change who gets warned and when, on pages that read them.
   revalidatePath("/suppliers");
   revalidatePath("/warranties");
+  revalidatePath("/suki-cards");
   return { ok: true };
 }
 

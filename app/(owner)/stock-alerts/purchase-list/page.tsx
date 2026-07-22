@@ -18,7 +18,12 @@ export const metadata: Metadata = { title: "Purchase List" };
  */
 const BUFFER = 2;
 
-export default async function PurchaseListPage() {
+export default async function PurchaseListPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ supplier?: string }>;
+}) {
+  const { supplier: selectedSupplier } = await searchParams;
   const supabase = await createClient();
 
   const [lowRes, cmpRes, business] = await Promise.all([
@@ -72,6 +77,16 @@ export default async function PurchaseListPage() {
     a[0] === "__none__" ? 1 : b[0] === "__none__" ? -1 : a[1].name.localeCompare(b[1].name)
   );
 
+  // Order one supplier at a time: ?supplier=<key> narrows the sheet to that
+  // supplier (letterhead + sign-off intact). An unknown key falls back to all.
+  // Supplier is chosen on the Stock Alerts → Master tab, which links here with
+  // ?supplier=<key>. Narrow the sheet to that supplier (unknown key = all).
+  const isFiltered =
+    !!selectedSupplier && blocks.some(([key]) => key === selectedSupplier);
+  const visibleBlocks = isFiltered
+    ? blocks.filter(([key]) => key === selectedSupplier)
+    : blocks;
+
   return (
     <div className="mx-auto max-w-3xl p-4">
       <div className="mb-4 flex justify-end print:hidden">
@@ -108,7 +123,7 @@ export default async function PurchaseListPage() {
             Nothing to order — master stock is above every reorder level.
           </p>
         ) : (
-          blocks.map(([key, g]) => (
+          visibleBlocks.map(([key, g]) => (
             <section key={key} className="break-inside-avoid border-b py-4 last:border-b-0">
               {/* Supplier header */}
               <div className="mb-2 flex items-baseline justify-between gap-4">

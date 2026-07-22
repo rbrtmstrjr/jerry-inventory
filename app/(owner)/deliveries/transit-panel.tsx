@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { AlertTriangle, Loader2, Truck } from "lucide-react";
+import { AlertTriangle, Loader2, Package, Truck, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -91,42 +91,61 @@ export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
         <div className="flex flex-col gap-2">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
             <AlertTriangle className="size-4 text-warning-foreground" />
-            Reported missing ({short.length})
+            Needs your decision ({short.length})
           </h2>
-          {short.map((t) => (
-            <div
-              key={t.delivery_line_id}
-              className="flex flex-wrap items-center gap-3 rounded-md border border-warning px-3 py-2"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">
-                  {t.is_engine && (
-                    <Badge variant="secondary" className="mr-1">
-                      Engine
-                    </Badge>
+          {short.map((t) => {
+            const missing = Math.max(0, t.qty_outstanding - t.qty_damaged);
+            return (
+              <div
+                key={t.delivery_line_id}
+                className="flex flex-wrap items-center gap-3 rounded-md border border-warning px-3 py-2"
+              >
+                {t.damage_photo_url && (
+                  <a href={t.damage_photo_url} target="_blank" rel="noopener noreferrer">
+                    {/* signed URL to a private photo — plain img is correct */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={t.damage_photo_url}
+                      alt="Damage"
+                      className="size-12 rounded-md border object-cover"
+                    />
+                  </a>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">
+                    {t.is_engine && (
+                      <Badge variant="secondary" className="mr-1">
+                        Engine
+                      </Badge>
+                    )}
+                    {t.name}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+                    <ShopBadge
+                      variant="text"
+                      shop={{ name: t.shop_name, color_key: t.shop_color_key }}
+                    />
+                    <span>
+                      · sent {t.qty_sent}, received {t.qty_received ?? 0} ·{" "}
+                      {format(new Date(t.delivered_at), "MMM d")}
+                      {t.shop_note && ` · “${t.shop_note}”`}
+                    </span>
+                  </div>
+                </div>
+                <span className="flex flex-col items-end text-sm font-semibold tabular-nums">
+                  {t.qty_damaged > 0 && (
+                    <span className="text-warning-foreground">{t.qty_damaged} damaged</span>
                   )}
-                  {t.name}
-                </div>
-                <div className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
-                  <ShopBadge
-                    variant="text"
-                    shop={{ name: t.shop_name, color_key: t.shop_color_key }}
-                  />
-                  <span>
-                    · sent {t.qty_sent}, received {t.qty_received ?? 0} ·{" "}
-                    {format(new Date(t.delivered_at), "MMM d")}
-                    {t.shop_note && ` · “${t.shop_note}”`}
-                  </span>
-                </div>
+                  {missing > 0 && (
+                    <span className="text-muted-foreground">{missing} missing</span>
+                  )}
+                </span>
+                <Button size="sm" onClick={() => setTarget(t)}>
+                  Resolve
+                </Button>
               </div>
-              <span className="text-sm font-semibold tabular-nums text-warning-foreground">
-                {t.qty_outstanding} missing
-              </span>
-              <Button size="sm" onClick={() => setTarget(t)}>
-                Resolve
-              </Button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -140,26 +159,54 @@ export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
           </p>
         ) : (
           awaiting.map((t) => (
-            <div
-              key={t.delivery_line_id}
-              className="flex flex-wrap items-center gap-3 rounded-md border px-3 py-2"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{t.name}</div>
-                <div className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
-                  <ShopBadge
-                    variant="text"
-                    shop={{ name: t.shop_name, color_key: t.shop_color_key }}
-                  />
-                  <span>
-                    · sent {format(new Date(t.delivered_at), "MMM d, h:mm a")}
+            <div key={t.delivery_line_id} className="rounded-lg border bg-card p-3">
+              {/* header: what + how many */}
+              <div className="flex items-center gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <Package className="size-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">
+                    {t.is_engine && (
+                      <Badge variant="secondary" className="mr-1">Engine</Badge>
+                    )}
+                    {t.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    sent {format(new Date(t.delivered_at), "MMM d, h:mm a")}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  <span className="text-sm font-semibold tabular-nums">
+                    {t.qty_outstanding} {t.unit}
                   </span>
+                  <Badge variant="secondary">In transit</Badge>
                 </div>
               </div>
-              <span className="text-sm tabular-nums">
-                {t.qty_outstanding} {t.unit}
-              </span>
-              <Badge variant="secondary">In transit</Badge>
+
+              {/* journey: master → (truck) → shop */}
+              <div className="mt-3 flex items-center gap-2 sm:gap-3">
+                <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground">
+                  <Warehouse className="size-3.5" /> Master
+                </span>
+                <div
+                  className="relative h-6 flex-1 [container-type:inline-size]"
+                  aria-hidden="true"
+                >
+                  {/* the road */}
+                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-dashed border-muted-foreground/30" />
+                  {/* the truck (rides the road, animated horizontally) */}
+                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
+                    <span className="animate-truck-run inline-flex size-6 items-center justify-center rounded-full border bg-background text-primary shadow-sm">
+                      <Truck className="size-3.5" />
+                    </span>
+                  </div>
+                </div>
+                <ShopBadge
+                  variant="text"
+                  shop={{ name: t.shop_name, color_key: t.shop_color_key }}
+                />
+              </div>
             </div>
           ))
         )}
@@ -179,16 +226,21 @@ function ResolveDialog({
 }) {
   const router = useRouter();
   const [qty, setQty] = React.useState("");
+  const [cause, setCause] = React.useState<"damaged" | "lost_in_transit">("lost_in_transit");
   const [resolution, setResolution] = React.useState<
     "returned_to_master" | "written_off"
-  >("returned_to_master");
+  >("written_off");
   const [reason, setReason] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (row) {
-      setQty(String(row.qty_outstanding));
-      setResolution("returned_to_master");
+      // pre-fill from what the shop flagged: damaged units default to the
+      // damaged cause + write-off; missing default to lost + write-off.
+      const damaged = row.qty_damaged > 0;
+      setQty(String(damaged ? row.qty_damaged : row.qty_outstanding));
+      setCause(damaged ? "damaged" : "lost_in_transit");
+      setResolution("written_off");
       setReason("");
     }
   }, [row]);
@@ -203,18 +255,21 @@ function ResolveDialog({
       return;
     }
     setBusy(true);
+    // structured reason so reports can split "arrived damaged" (supplier/quality)
+    // from "lost in transit" (logistics): cause token first, free text appended.
+    const structured = reason.trim() ? `${cause}: ${reason.trim()}` : cause;
     const res = await resolveDeliveryDiscrepancy({
       delivery_line_id: row.delivery_line_id,
       qty: n,
       resolution,
-      reason: reason.trim() || null,
+      reason: structured,
     });
     setBusy(false);
     if (res.ok) {
       toast.success(
         resolution === "returned_to_master"
-          ? `${n} back in master stock`
-          : `${n} written off as lost in transit`
+          ? `${n} returned to master`
+          : `${n} written off (${cause === "damaged" ? "damaged" : "lost in transit"})`
       );
       onClose();
       router.refresh();
@@ -227,13 +282,25 @@ function ResolveDialog({
     <Dialog open={row !== null} onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Resolve missing stock</DialogTitle>
+          <DialogTitle>Resolve damaged / missing</DialogTitle>
           <DialogDescription>
-            {row?.name} — {row?.qty_outstanding} unaccounted for on the way to{" "}
-            {row?.shop_name}. It sits in transit until you decide.
+            {row?.name} — {row?.qty_outstanding} outstanding on the way to{" "}
+            {row?.shop_name}
+            {row && row.qty_damaged > 0 && ` (${row.qty_damaged} flagged damaged)`}.
+            It sits in transit until you decide.
           </DialogDescription>
         </DialogHeader>
 
+        {row?.damage_photo_url && (
+          <a href={row.damage_photo_url} target="_blank" rel="noopener noreferrer">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={row.damage_photo_url}
+              alt="Damage"
+              className="max-h-40 w-full rounded-md border object-contain"
+            />
+          </a>
+        )}
         {row?.shop_note && (
           <p className="rounded-md bg-accent p-2 text-xs text-accent-foreground">
             Shop said: “{row.shop_note}”
@@ -257,21 +324,45 @@ function ResolveDialog({
             )}
           </div>
 
+          {/* Cause — splits reporting between quality (damaged) and logistics */}
           <div className="grid gap-1.5">
-            <Label>What happened?</Label>
+            <Label>Cause</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={cause === "damaged" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCause("damaged")}
+              >
+                Damaged
+              </Button>
+              <Button
+                type="button"
+                variant={cause === "lost_in_transit" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCause("lost_in_transit")}
+              >
+                Lost in transit
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label>What now?</Label>
             <div className="grid gap-2">
               <button
                 type="button"
                 onClick={() => setResolution("returned_to_master")}
                 className={cn(
                   "rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
-                  resolution === "returned_to_master" &&
-                    "border-primary bg-primary/10"
+                  resolution === "returned_to_master" && "border-primary bg-primary/10"
                 )}
               >
-                <div className="font-medium">Found — return to master</div>
+                <div className="font-medium">Return to master</div>
                 <div className="text-xs text-muted-foreground">
-                  Never actually sent, or it came back. Master stock goes back up.
+                  {cause === "damaged"
+                    ? "Send back to master to return to the supplier. Master stock goes back up."
+                    : "Found — never sent, or came back. Master stock goes back up."}
                 </div>
               </button>
               <button
@@ -282,26 +373,27 @@ function ResolveDialog({
                   resolution === "written_off" && "border-destructive bg-destructive/10"
                 )}
               >
-                <div className="font-medium">Lost — write off</div>
+                <div className="font-medium">Write off</div>
                 <div className="text-xs text-muted-foreground">
-                  Gone between master and the shop. Recorded as a transit loss,
-                  kept separate from shop losses.
+                  {cause === "damaged"
+                    ? "Damaged beyond use. Business shrinkage, kept separate from shop losses."
+                    : "Gone between master and the shop. Recorded as a transit loss."}
                 </div>
               </button>
             </div>
           </div>
 
           <div className="grid gap-1.5">
-            <Label htmlFor="res-reason">Reason</Label>
+            <Label htmlFor="res-reason">Note (optional)</Label>
             <Textarea
               id="res-reason"
               rows={2}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder={
-                resolution === "written_off"
-                  ? "e.g. nawala sa biyahe / nahulog"
-                  : "e.g. naiwan sa bodega, hindi na-load"
+                cause === "damaged"
+                  ? "e.g. casing cracked, water-damaged"
+                  : "e.g. nawala sa biyahe / naiwan sa bodega"
               }
             />
           </div>

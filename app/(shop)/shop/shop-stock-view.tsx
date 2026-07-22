@@ -6,7 +6,7 @@ import { type ColumnDef } from "@tanstack/react-table";
 import {
   AlertTriangle,
   Camera,
-  ClipboardList,
+  HandCoins,
   PhilippinePeso,
   ShoppingCart,
 } from "lucide-react";
@@ -35,15 +35,15 @@ export function ShopStockView({
   engines,
   todayCount,
   todayTotalCentavos,
-  recordedCount,
-  pendingCount,
+  receivablesCentavos,
+  receivablesCount,
 }: {
   stock: ShopStockRow[];
   engines: ShopEngineRow[];
   todayCount: number;
   todayTotalCentavos: number;
-  recordedCount: number;
-  pendingCount: number;
+  receivablesCentavos: number;
+  receivablesCount: number;
 }) {
   const lowStock = stock.filter((s) => s.qty <= s.reorder_level && s.reorder_level > 0);
   const [view, setView] = usePersistedView("jm-view-shop-stock");
@@ -68,13 +68,13 @@ export function ShopStockView({
       icon: ShoppingCart,
     },
     {
-      label: "Not yet submitted",
-      value: `${recordedCount}`,
+      label: "Receivables (utang)",
+      value: formatCentavos(receivablesCentavos),
       hint:
-        pendingCount > 0
-          ? `${pendingCount} with Admin for approval`
-          : "sales + losses to batch",
-      icon: ClipboardList,
+        receivablesCount > 0
+          ? `across ${receivablesCount} unpaid sale${receivablesCount === 1 ? "" : "s"}`
+          : "all collected",
+      icon: HandCoins,
     },
     {
       label: "Items in stock",
@@ -274,8 +274,8 @@ export function ShopStockView({
 
       <Tabs defaultValue="parts">
         <TabsList>
-          <TabsTrigger value="parts">Parts &amp; Goods ({stock.length})</TabsTrigger>
-          <TabsTrigger value="engines">Engines ({engines.length})</TabsTrigger>
+          <TabsTrigger value="parts">Parts &amp; Goods</TabsTrigger>
+          <TabsTrigger value="engines">Engines</TabsTrigger>
         </TabsList>
         <TabsContent value="parts" className="pt-2">
           {view === "table" ? (

@@ -18,7 +18,7 @@ export default async function ShopReceivablesPage() {
     supabase
       .from("utang_payments")
       .select(
-        "id, sale_id, amount_centavos, note, owner_note, created_at, deleted_at, profiles!utang_payments_recorded_by_fkey(full_name)"
+        "id, sale_id, amount_centavos, method, payer_name, payer_contact, note, owner_note, created_at, deleted_at, profiles!utang_payments_recorded_by_fkey(full_name)"
       )
       .order("created_at", { ascending: false }),
   ]);
@@ -28,6 +28,9 @@ export default async function ShopReceivablesPage() {
     id: p.id,
     sale_id: p.sale_id,
     amount_centavos: p.amount_centavos,
+    method: p.method ?? "cash",
+    payer_name: p.payer_name,
+    payer_contact: p.payer_contact,
     note: p.note,
     owner_note: p.owner_note,
     created_at: p.created_at,

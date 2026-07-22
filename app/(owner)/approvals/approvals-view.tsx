@@ -67,11 +67,15 @@ export interface PendingSale {
   status: "pending" | "questioned";
   total_centavos: number;
   payment_type: "full" | "partial";
+  payment_method: "cash" | "gcash" | "bank" | "other";
   amount_paid_centavos: number | null;
   balance_due_centavos: number;
   receipt_no: string | null;
   owner_note: string | null;
   created_at: string;
+  /** suki card (0072) — card no + what the program gave, when a card was used */
+  suki_card_no: string | null;
+  card_discount_centavos: number;
   has_engine: boolean;
   lines: {
     description: string;
@@ -134,6 +138,13 @@ const REASON_LABEL: Record<PendingLoss["reason"], string> = {
   expired: "Expired",
   sample: "Sample / libre",
   correction: "Correction",
+};
+
+const METHOD_LABEL: Record<PendingSale["payment_method"], string> = {
+  cash: "Cash",
+  gcash: "GCash",
+  bank: "Bank",
+  other: "Other",
 };
 
 interface BatchGroup {
@@ -472,6 +483,17 @@ export function ApprovalsView({
                 </span>
               ) : (
                 <span className="text-muted-foreground">Paid in full</span>
+              )}
+              <span className="text-muted-foreground">
+                {" · "}
+                {METHOD_LABEL[s.payment_method] ?? "Cash"}
+              </span>
+              {s.suki_card_no && (
+                <Badge variant="secondary" className="ml-1">
+                  Suki {s.suki_card_no}
+                  {s.card_discount_centavos > 0 &&
+                    ` · −${formatCentavos(s.card_discount_centavos)}`}
+                </Badge>
               )}
             </div>
             <Button asChild variant="outline" size="sm">

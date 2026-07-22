@@ -6,6 +6,7 @@ import { SectionTabs } from "@/components/shell/section-tabs";
 // redirect.
 const tabs = [
   { href: "/master-inventory", label: "Products" },
+  { href: "/master-inventory/categories", label: "Category" },
   { href: "/master-inventory/labels", label: "Labels" },
 ];
 

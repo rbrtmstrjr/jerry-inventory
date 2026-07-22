@@ -180,8 +180,8 @@ export function ShopStockReadonly({
 
       <Tabs defaultValue="parts">
         <TabsList>
-          <TabsTrigger value="parts">Parts &amp; Goods ({stock.length})</TabsTrigger>
-          <TabsTrigger value="engines">Engines ({engines.length})</TabsTrigger>
+          <TabsTrigger value="parts">Parts &amp; Goods</TabsTrigger>
+          <TabsTrigger value="engines">Engines</TabsTrigger>
         </TabsList>
         <TabsContent value="parts" className="pt-2">
           {view === "table" ? (

@@ -5,7 +5,7 @@ import { AlertTriangle, Check, Printer } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -63,11 +63,11 @@ export function StockCardView({
   return (
     <div className="flex flex-col gap-4">
       <Card className="print:hidden">
-        <CardContent className="grid gap-3 pt-6 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="grid gap-1">
+        <CardContent className="flex flex-wrap items-end gap-3 pt-6">
+          <div className="grid min-w-44 flex-1 gap-1">
             <Label className="text-xs">Product</Label>
             <Select value={partId ?? ""} onValueChange={(v) => apply({ part: v })}>
-              <SelectTrigger><SelectValue placeholder="Pick a product" /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Pick a product" /></SelectTrigger>
               <SelectContent>
                 {parts.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
@@ -77,10 +77,10 @@ export function StockCardView({
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1">
+          <div className="grid min-w-44 flex-1 gap-1">
             <Label className="text-xs">Location</Label>
             <Select value={shopParam ?? "master"} onValueChange={(v) => apply({ shop: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="master">Master</SelectItem>
                 {shops.map((s) => (
@@ -91,13 +91,15 @@ export function StockCardView({
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1">
-            <Label htmlFor="sc-from" className="text-xs">From</Label>
-            <DatePicker id="sc-from" value={from} onChange={(v) => apply({ from: v })} />
-          </div>
-          <div className="grid gap-1">
-            <Label htmlFor="sc-to" className="text-xs">To</Label>
-            <DatePicker id="sc-to" value={to} onChange={(v) => apply({ to: v })} />
+          <div className="flex items-end gap-2">
+            <div className="grid gap-1">
+              <Label htmlFor="sc-from" className="text-xs">From</Label>
+              <DatePicker id="sc-from" value={from} onChange={(v) => apply({ from: v })} />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="sc-to" className="text-xs">To</Label>
+              <DatePicker id="sc-to" value={to} onChange={(v) => apply({ to: v })} />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -110,32 +112,32 @@ export function StockCardView({
         </Card>
       ) : (
         <Card>
-          <CardHeader className="flex-row items-start justify-between gap-4">
-            <div>
-              <CardTitle className="text-base">
-                {part?.name}
-                {part?.sku && (
-                  <span className="ml-2 font-mono text-xs text-muted-foreground">{part.sku}</span>
-                )}
-              </CardTitle>
-              <CardDescription>
-                {shopParam && shopParam !== "master" ? (
-                  locShop && <ShopBadge variant="text" shop={locShop} />
-                ) : (
-                  "Master"
-                )}{" "}
-                · {from} to {to}
-              </CardDescription>
-            </div>
-            <Button variant="outline" size="sm" asChild>
-              <a
-                href={`/movements/stock-card/print?part=${partId}&shop=${shopParam ?? "master"}&from=${from}&to=${to}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Printer className="size-4" /> Print
-              </a>
-            </Button>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {part?.name}
+              {part?.sku && (
+                <span className="ml-2 font-mono text-xs text-muted-foreground">{part.sku}</span>
+              )}
+            </CardTitle>
+            <CardDescription>
+              {shopParam && shopParam !== "master" ? (
+                locShop && <ShopBadge variant="text" shop={locShop} />
+              ) : (
+                "Master"
+              )}{" "}
+              · {from} to {to}
+            </CardDescription>
+            <CardAction>
+              <Button variant="outline" size="sm" asChild>
+                <a
+                  href={`/movements/stock-card/print?part=${partId}&shop=${shopParam ?? "master"}&from=${from}&to=${to}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Printer className="size-4" /> Print
+                </a>
+              </Button>
+            </CardAction>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">

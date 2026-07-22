@@ -50,9 +50,13 @@ export interface SaleDetail {
   lines: SaleLineDetail[];
   total_centavos: number;
   payment_type: string;
+  payment_method: string | null;
   amount_paid_centavos: number | null;
   balance_due_centavos: number;
   receipt_no: string | null;
+  /** suki card (0072) — card no + program discount when a card was used */
+  suki_card_no: string | null;
+  card_discount_centavos: number;
   customer: { id: string; name: string; phone: string | null } | null;
   warranty_id: string | null;
   movements: MovementRow[];
@@ -158,8 +162,9 @@ export async function getReviewedDetail(
     const { data, error } = await supabase
       .from("sales")
       .select(
-        `id, business_date, status, total_centavos, payment_type, amount_paid_centavos,
+        `id, business_date, status, total_centavos, payment_type, payment_method, amount_paid_centavos,
          balance_due_centavos, receipt_no, owner_note, created_at, reviewed_at,
+         discount_card_id, card_discount_centavos, discount_cards(card_no),
          shops(name),
          customers(id, name, phone),
          recorded:profiles!sales_recorded_by_fkey(full_name),
@@ -229,8 +234,11 @@ export async function getReviewedDetail(
         lines,
         total_centavos: s.total_centavos,
         payment_type: s.payment_type ?? "full",
+        payment_method: s.payment_method ?? "cash",
         amount_paid_centavos: s.amount_paid_centavos,
         balance_due_centavos: s.balance_due_centavos ?? 0,
+        suki_card_no: s.discount_card_id ? (s.discount_cards?.card_no ?? null) : null,
+        card_discount_centavos: s.card_discount_centavos ?? 0,
         receipt_no: s.receipt_no,
         customer: s.customers
           ? { id: s.customers.id, name: s.customers.name, phone: s.customers.phone }

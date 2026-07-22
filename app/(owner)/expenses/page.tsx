@@ -35,7 +35,7 @@ export default async function ExpensesPage() {
     supabase.from("shops").select("id, name").is("deleted_at", null).order("name"),
     supabase
       .from("deliveries")
-      .select("id, delivered_at, note, shop_id, shops(name)")
+      .select("id, delivered_at, note, shop_id, shops!deliveries_shop_id_fkey(name)")
       .is("deleted_at", null)
       .order("delivered_at", { ascending: false })
       .limit(50),

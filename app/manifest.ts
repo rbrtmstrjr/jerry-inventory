@@ -2,13 +2,15 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Jerry's Marine Inventory",
-    short_name: "Jerry's Marine",
+    name: "Gerwin Trading Inventory",
+    short_name: "Gerwin Trading",
     description: "Multi-shop inventory and sales-approval system",
     start_url: "/",
     display: "standalone",
-    background_color: "#fbfaf9",
-    theme_color: "#1e5a96",
+    // OS-level (install splash / address bar) — can't read CSS vars, so these
+    // approximate the brand tokens by hand: bg ≈ --background, theme = --primary.
+    background_color: "#f0f3fa",
+    theme_color: "#0c45ff",
     icons: [
       {
         src: "/icon.svg",

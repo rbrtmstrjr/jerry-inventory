@@ -56,6 +56,8 @@ export interface PartRow {
   notes: string | null;
   image_path: string | null;
   master_qty: number;
+  /** on-hand across ALL locations (master + shops) — merge blocks on any stock */
+  total_qty: number;
 }
 
 export interface EngineRow {

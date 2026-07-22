@@ -5,7 +5,6 @@ import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   Barcode,
-  FolderCog,
   GitMerge,
   MoreHorizontal,
   PackagePlus,
@@ -42,34 +41,37 @@ import {
 import { Search } from "lucide-react";
 import { generateInternalBarcode, softDeletePart } from "./actions";
 import { PartFormDialog } from "./part-form-dialog";
+import { AddProductDialog } from "./add-product-dialog";
 import { FitmentDialog } from "./fitment-dialog";
-import { CategoryManagerDialog } from "./reference-data-dialogs";
 import { MergeDuplicatesDialog } from "./merge-dialog";
 import {
   SupplierPricesDialog,
   provenanceLabel,
   type ComparisonRow,
 } from "./supplier-prices-dialog";
+// Category management moved to its own tab (/master-inventory/categories).
 
 export function PartsTable({
   parts,
   categories,
   models,
+  suppliers,
   fitmentsByPart,
   pricesByPart,
 }: {
   parts: PartRow[];
   categories: Category[];
   models: EngineModel[];
+  suppliers: { id: string; name: string }[];
   fitmentsByPart: Record<string, string[]>;
   pricesByPart: Record<string, ComparisonRow[]>;
 }) {
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [addOpen, setAddOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<PartRow | null>(null);
   const [fitmentFor, setFitmentFor] = React.useState<PartRow | null>(null);
   const [deleting, setDeleting] = React.useState<PartRow | null>(null);
   const [pricesFor, setPricesFor] = React.useState<PartRow | null>(null);
-  const [catMgrOpen, setCatMgrOpen] = React.useState(false);
   const [mergeOpen, setMergeOpen] = React.useState(false);
   const [view, setView] = usePersistedView("jm-view-owner-parts");
   const [cardSearch, setCardSearch] = React.useState("");
@@ -133,20 +135,16 @@ export function PartsTable({
     );
   }
 
-  // No Add button — products are born on a supplier receiving (0049 revokes
-  // direct INSERT at the database). This page is view + edit.
+  // Add product = a supplier-less receiving through fn_receive_stock (0059) —
+  // creation still only via the definer function (0049 direct-INSERT lockdown
+  // intact). Real purchases with debt still go through Suppliers → Receiving.
   const toolbarButtons = (
     <>
       <Button variant="outline" onClick={() => setMergeOpen(true)}>
         <GitMerge className="size-4" /> Merge duplicates
       </Button>
-      <Button variant="outline" onClick={() => setCatMgrOpen(true)}>
-        <FolderCog className="size-4" /> Categories
-      </Button>
-      <Button asChild>
-        <Link href="/suppliers?tab=receiving">
-          <PackagePlus className="size-4" /> Receive stock
-        </Link>
+      <Button onClick={() => setAddOpen(true)}>
+        <PackagePlus className="size-4" /> Add product
       </Button>
     </>
   );
@@ -296,7 +294,7 @@ export function PartsTable({
           columns={columns}
           data={parts}
           searchPlaceholder="Search name, SKU, barcode…"
-          emptyMessage="No products yet — stock enters through a supplier receiving (Suppliers → Receiving)."
+          emptyMessage="No products yet — click Add product, or receive from a supplier (Suppliers → Receiving)."
           toolbar={
             <>
               <ViewToggle value={view} onChange={setView} />
@@ -334,9 +332,13 @@ export function PartsTable({
                     `Nothing matches “${cardSearch}”.`
                   ) : (
                     <>
-                      No products yet — stock enters through a{" "}
+                      No products yet — click{" "}
+                      <button className="underline" onClick={() => setAddOpen(true)}>
+                        Add product
+                      </button>
+                      , or receive from a{" "}
                       <Link className="underline" href="/suppliers?tab=receiving">
-                        supplier receiving
+                        supplier
                       </Link>
                       .
                     </>
@@ -422,6 +424,12 @@ export function PartsTable({
         categories={categories}
         part={editing}
       />
+      <AddProductDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        categories={categories}
+        suppliers={suppliers}
+      />
       <FitmentDialog
         part={fitmentFor}
         models={models}
@@ -435,14 +443,15 @@ export function PartsTable({
         rows={pricesFor ? (pricesByPart[pricesFor.id] ?? []) : []}
         onClose={() => setPricesFor(null)}
       />
-      <CategoryManagerDialog
-        open={catMgrOpen}
-        categories={categories}
-        onClose={() => setCatMgrOpen(false)}
-      />
       <MergeDuplicatesDialog
         open={mergeOpen}
-        parts={parts.map((p) => ({ id: p.id, name: p.name, sku: p.sku }))}
+        parts={parts.map((p) => ({
+          id: p.id,
+          name: p.name,
+          sku: p.sku,
+          stock_qty: p.total_qty, // all locations — merge blocks on any stock
+          unit: p.unit,
+        }))}
         onClose={() => setMergeOpen(false)}
       />
       <ConfirmDialog

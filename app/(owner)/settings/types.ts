@@ -17,6 +17,8 @@ export interface SettingsRow {
   warranty_expiry_alert_days: number;
   supplier_limit_warn_pct: number;
   quote_stale_days: number;
+  suki_engine_discount_pct: number;
+  suki_part_discount_pct: number;
   payroll_working_days_per_month: number;
   contribution_split_semimonthly: "half_each" | "second_cutoff";
 }

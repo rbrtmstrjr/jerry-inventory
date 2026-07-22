@@ -3,9 +3,10 @@
 import * as React from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 /** Live count of submissions awaiting the owner (sales + losses). */
-export function ApprovalsBadge() {
+export function ApprovalsBadge({ active }: { active?: boolean }) {
   const [count, setCount] = React.useState<number | null>(null);
 
   React.useEffect(() => {
@@ -43,7 +44,12 @@ export function ApprovalsBadge() {
 
   if (!count) return null;
   return (
-    <Badge className="ml-auto h-5 min-w-5 justify-center px-1.5 tabular-nums">
+    <Badge
+      className={cn(
+        "ml-auto h-5 min-w-5 justify-center px-1.5 tabular-nums",
+        active && "border-transparent bg-sidebar-primary-foreground text-sidebar-primary"
+      )}
+    >
       {count}
     </Badge>
   );

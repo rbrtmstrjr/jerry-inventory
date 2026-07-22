@@ -1,53 +1,74 @@
 /* ============================================================================
-   MACCKY'S MARINE — DESIGN TOKENS (single source of truth)
+   GERWIN TRADING — DESIGN TOKENS (single source of truth)
    ----------------------------------------------------------------------------
    ALL colors, radius, and theme values live in THIS file.
    Rebranding the app = editing this file only. Never hardcode colors
    in components — treat an inline hex value as a bug.
 
    ┌──────────────────────── BRAND BLOCK ─────────────────────────┐
-   │ Placeholder palette: clean marine / nautical.                │
-   │   • Primary   → deep-sea blue                                │
-   │   • Surfaces  → warm neutrals                                │
-   │   • Accent    → sea-foam cyan                                │
-   │ When the client delivers final brand colors, replace the     │
-   │ oklch() values below (both :root light set and .dark set).   │
-   │ Tip: https://oklch.com to convert hex → oklch.               │
+   │ Brand: client-delivered ELECTRIC BLUE ramp (2026).           │
+   │   • --blue-50..950 hold the exact delivered hex.             │
+   │   • Semantic tokens (--primary, --ring, --accent, sidebar-*) │
+   │     point AT those steps — retint by re-mapping, not by      │
+   │     editing scattered values.                                │
+   │   • Surfaces stay warm-neutral; status/chart/shop tokens     │
+   │     are unchanged.                                            │
+   │ Literal hex is correct in ONE place: these token definitions.│
+   │ (The "no hex" rule is about COMPONENTS, not this file.)      │
    └──────────────────────────────────────────────────────────────┘
    ========================================================================== */
 
 :root {
-  /* ---- Surfaces (warm neutral) ---- */
-  --background: oklch(0.984 0.003 80);
+  /* ---- Surfaces (soft cool tint, tuned to the blue ramp) ----
+     Page background is a CUSTOM low-chroma cool tone (not the raw --blue-50,
+     which washed too saturated over large areas) — light enough that white
+     cards lift off it, blue enough to read as one family with the accent.
+     Lightness order top→down: card(1) > sidebar(.975) > background(.97) >
+     muted(.95), so cards pop, the sidebar is a lighter rail, muted recedes. */
+  --background: oklch(0.972 0.008 245);
   --foreground: oklch(0.22 0.02 250);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.22 0.02 250);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.22 0.02 250);
 
-  /* ---- Brand: deep-sea blue primary ---- */
-  --primary: oklch(0.42 0.1 245);
+  /* ---- Brand ramp: client-delivered electric blue (exact hex) ---- */
+  --blue-50:  #e8f4ff;
+  --blue-100: #d5ebff;
+  --blue-200: #b3d8ff;
+  --blue-300: #85beff;
+  --blue-400: #5697ff;
+  --blue-500: #2f70ff;
+  --blue-600: #0c45ff;
+  --blue-700: #0037ff;
+  --blue-800: #0634cd;
+  --blue-900: #10349f;
+  --blue-950: #0a1d5c;
+
+  /* ---- Brand: electric blue primary (600; white text) ---- */
+  --primary: var(--blue-600);
   --primary-foreground: oklch(0.985 0.005 240);
 
   /* ---- Supporting tones ---- */
   --secondary: oklch(0.945 0.012 235);
   --secondary-foreground: oklch(0.32 0.05 245);
-  --muted: oklch(0.955 0.008 80);
+  --muted: oklch(0.95 0.014 245);
   --muted-foreground: oklch(0.5 0.02 250);
-  --accent: oklch(0.93 0.03 210);
-  --accent-foreground: oklch(0.3 0.06 235);
+  /* accent = subtle blue-tinted hover surface (was sea-foam cyan) */
+  --accent: var(--blue-100);
+  --accent-foreground: var(--blue-900);
   --destructive: oklch(0.577 0.215 27);
 
   /* ---- Lines & focus ---- */
   --border: oklch(0.912 0.008 240);
   --input: oklch(0.912 0.008 240);
-  --ring: oklch(0.55 0.08 245);
+  --ring: var(--blue-500);
 
   /* ---- Charts (marine sequence: blue, teal, sand, coral, violet) ----
      CVD-validated (dataviz six-checks, light surface #fff) — if you change
      these, re-run the palette validator for BOTH modes. Fixed assignment
      order; never cycle. */
-  --chart-1: oklch(0.52 0.13 245);
+  --chart-1: var(--primary); /* the app's accent blue */
   --chart-2: oklch(0.65 0.11 195);
   --chart-3: oklch(0.66 0.13 80);
   --chart-4: oklch(0.6 0.14 35);
@@ -59,12 +80,12 @@
   /* ---- Sidebar (owner/employee shells) ---- */
   --sidebar: oklch(0.975 0.006 240);
   --sidebar-foreground: oklch(0.28 0.03 250);
-  --sidebar-primary: oklch(0.42 0.1 245);
+  --sidebar-primary: var(--blue-600);
   --sidebar-primary-foreground: oklch(0.985 0.005 240);
-  --sidebar-accent: oklch(0.93 0.02 235);
-  --sidebar-accent-foreground: oklch(0.3 0.06 240);
+  --sidebar-accent: var(--blue-100);
+  --sidebar-accent-foreground: var(--blue-900);
   --sidebar-border: oklch(0.905 0.01 240);
-  --sidebar-ring: oklch(0.55 0.08 245);
+  --sidebar-ring: var(--blue-500);
 
   /* ---- Status (success / warning for stock & approvals) ---- */
   --success: oklch(0.58 0.13 155);
@@ -72,31 +93,52 @@
   --warning: oklch(0.75 0.13 80);
   --warning-foreground: oklch(0.25 0.05 80);
 
+  /* ---- Aging severity gradient (payables aging, overdue badges) ----
+     current → 60+ past due: fresh green → amber → orange → hot red. */
+  --aging-current: oklch(0.7 0.16 162);
+  --aging-low: oklch(0.77 0.16 70);
+  --aging-mid: oklch(0.7 0.19 42);
+  --aging-high: oklch(0.64 0.24 25);
+
   /* ---- Shop identity palette (0050) ----
      Pairs per key: --shop-<key> = soft badge surface, --shop-<key>-strong =
      saturated text/dot/pin/chart color. Shops store the KEY, never a value;
      <ShopBadge> resolves it here. Keys must stay in sync with
      lib/shop-colors.ts and the shops.color_key CHECK constraint. */
-  --shop-slate: oklch(0.93 0.01 250);
-  --shop-slate-strong: oklch(0.45 0.03 250);
-  --shop-teal: oklch(0.93 0.05 195);
-  --shop-teal-strong: oklch(0.5 0.1 195);
-  --shop-amber: oklch(0.94 0.06 85);
-  --shop-amber-strong: oklch(0.55 0.12 75);
-  --shop-rose: oklch(0.93 0.04 15);
-  --shop-rose-strong: oklch(0.55 0.16 15);
-  --shop-violet: oklch(0.93 0.04 300);
-  --shop-violet-strong: oklch(0.5 0.15 300);
-  --shop-emerald: oklch(0.93 0.05 155);
-  --shop-emerald-strong: oklch(0.5 0.12 155);
-  --shop-sky: oklch(0.93 0.04 230);
-  --shop-sky-strong: oklch(0.5 0.11 230);
-  --shop-orange: oklch(0.93 0.05 45);
-  --shop-orange-strong: oklch(0.56 0.15 45);
-  --shop-indigo: oklch(0.93 0.04 275);
-  --shop-indigo-strong: oklch(0.48 0.14 275);
-  --shop-lime: oklch(0.94 0.07 125);
-  --shop-lime-strong: oklch(0.5 0.12 125);
+  /* -solid = the badge fill (white text on top); a fixed dark saturated value,
+     NOT re-declared in .dark, so a shop badge looks the same in both themes.
+     Hues avoid the system's error-red + warning-orange: the old red 'rose' is
+     now magenta, and the warm keys read as bronze / terracotta / olive. */
+  --shop-slate: oklch(0.93 0.012 250);
+  --shop-slate-strong: oklch(0.46 0.045 250);
+  --shop-slate-solid: oklch(0.46 0.045 250);
+  --shop-teal: oklch(0.93 0.05 190);
+  --shop-teal-strong: oklch(0.53 0.13 190);
+  --shop-teal-solid: oklch(0.53 0.13 190);
+  --shop-amber: oklch(0.93 0.05 78);
+  --shop-amber-strong: oklch(0.54 0.12 78);
+  --shop-amber-solid: oklch(0.54 0.12 78);
+  --shop-rose: oklch(0.93 0.05 350);
+  --shop-rose-strong: oklch(0.54 0.2 350);
+  --shop-rose-solid: oklch(0.54 0.2 350);
+  --shop-violet: oklch(0.93 0.05 300);
+  --shop-violet-strong: oklch(0.51 0.2 300);
+  --shop-violet-solid: oklch(0.51 0.2 300);
+  --shop-emerald: oklch(0.93 0.055 160);
+  --shop-emerald-strong: oklch(0.54 0.15 160);
+  --shop-emerald-solid: oklch(0.54 0.15 160);
+  --shop-sky: oklch(0.93 0.05 235);
+  --shop-sky-strong: oklch(0.53 0.16 235);
+  --shop-sky-solid: oklch(0.53 0.16 235);
+  --shop-orange: oklch(0.93 0.05 48);
+  --shop-orange-strong: oklch(0.55 0.16 48);
+  --shop-orange-solid: oklch(0.55 0.16 48);
+  --shop-indigo: oklch(0.93 0.05 270);
+  --shop-indigo-strong: oklch(0.49 0.2 270);
+  --shop-indigo-solid: oklch(0.49 0.2 270);
+  --shop-lime: oklch(0.93 0.055 128);
+  --shop-lime-strong: oklch(0.55 0.14 128);
+  --shop-lime-solid: oklch(0.55 0.14 128);
 }
 
 .dark {
@@ -108,9 +150,9 @@
   --popover: oklch(0.21 0.022 255);
   --popover-foreground: oklch(0.96 0.005 240);
 
-  /* ---- Brand: lifted sea blue for dark bg ---- */
-  --primary: oklch(0.68 0.11 240);
-  --primary-foreground: oklch(0.16 0.03 250);
+  /* ---- Brand: electric blue for dark bg (500; WHITE text on solid fills) ---- */
+  --primary: var(--blue-500);
+  --primary-foreground: oklch(0.985 0.005 240);
 
   /* ---- Supporting tones ---- */
   --secondary: oklch(0.27 0.025 255);
@@ -124,10 +166,10 @@
   /* ---- Lines & focus ---- */
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.6 0.08 240);
+  --ring: var(--blue-400);
 
   /* ---- Charts (CVD-validated for dark surface #111922) ---- */
-  --chart-1: oklch(0.62 0.12 245);
+  --chart-1: var(--primary); /* the app's accent blue (dark) */
   --chart-2: oklch(0.66 0.11 195);
   --chart-3: oklch(0.66 0.12 80);
   --chart-4: oklch(0.62 0.13 35);
@@ -136,12 +178,12 @@
   /* ---- Sidebar ---- */
   --sidebar: oklch(0.19 0.022 255);
   --sidebar-foreground: oklch(0.93 0.008 240);
-  --sidebar-primary: oklch(0.68 0.11 240);
-  --sidebar-primary-foreground: oklch(0.16 0.03 250);
+  --sidebar-primary: var(--blue-500);
+  --sidebar-primary-foreground: oklch(0.985 0.005 240);
   --sidebar-accent: oklch(0.27 0.03 250);
   --sidebar-accent-foreground: oklch(0.93 0.02 235);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.6 0.08 240);
+  --sidebar-ring: var(--blue-400);
 
   /* ---- Status ---- */
   --success: oklch(0.68 0.13 155);
@@ -149,25 +191,32 @@
   --warning: oklch(0.8 0.13 80);
   --warning-foreground: oklch(0.25 0.05 80);
 
+  /* ---- Aging severity gradient (brighter on dark surfaces) ---- */
+  --aging-current: oklch(0.74 0.15 162);
+  --aging-low: oklch(0.8 0.15 75);
+  --aging-mid: oklch(0.74 0.18 45);
+  --aging-high: oklch(0.68 0.22 25);
+
   /* ---- Shop identity palette (dark: dim surfaces, lifted strong colors) ---- */
-  --shop-slate: oklch(0.3 0.015 250);
-  --shop-slate-strong: oklch(0.78 0.02 250);
-  --shop-teal: oklch(0.29 0.045 195);
-  --shop-teal-strong: oklch(0.75 0.1 195);
-  --shop-amber: oklch(0.3 0.05 80);
-  --shop-amber-strong: oklch(0.8 0.12 85);
-  --shop-rose: oklch(0.3 0.05 15);
-  --shop-rose-strong: oklch(0.75 0.13 15);
-  --shop-violet: oklch(0.3 0.06 300);
-  --shop-violet-strong: oklch(0.76 0.11 300);
-  --shop-emerald: oklch(0.29 0.05 155);
-  --shop-emerald-strong: oklch(0.75 0.11 155);
-  --shop-sky: oklch(0.3 0.05 230);
-  --shop-sky-strong: oklch(0.75 0.1 230);
-  --shop-orange: oklch(0.3 0.05 45);
-  --shop-orange-strong: oklch(0.77 0.12 50);
-  --shop-indigo: oklch(0.3 0.06 275);
-  --shop-indigo-strong: oklch(0.74 0.1 275);
-  --shop-lime: oklch(0.3 0.05 125);
-  --shop-lime-strong: oklch(0.78 0.12 125);
+  /* soft + strong re-tint for dark; -solid stays the :root value (badge fill) */
+  --shop-slate: oklch(0.3 0.018 250);
+  --shop-slate-strong: oklch(0.78 0.03 250);
+  --shop-teal: oklch(0.29 0.045 190);
+  --shop-teal-strong: oklch(0.77 0.12 190);
+  --shop-amber: oklch(0.3 0.045 78);
+  --shop-amber-strong: oklch(0.82 0.11 78);
+  --shop-rose: oklch(0.3 0.055 350);
+  --shop-rose-strong: oklch(0.78 0.16 350);
+  --shop-violet: oklch(0.3 0.055 300);
+  --shop-violet-strong: oklch(0.78 0.15 300);
+  --shop-emerald: oklch(0.29 0.045 160);
+  --shop-emerald-strong: oklch(0.78 0.14 160);
+  --shop-sky: oklch(0.3 0.055 235);
+  --shop-sky-strong: oklch(0.77 0.13 235);
+  --shop-orange: oklch(0.3 0.055 48);
+  --shop-orange-strong: oklch(0.8 0.14 48);
+  --shop-indigo: oklch(0.3 0.055 270);
+  --shop-indigo-strong: oklch(0.76 0.15 270);
+  --shop-lime: oklch(0.3 0.045 128);
+  --shop-lime-strong: oklch(0.8 0.13 128);
 }

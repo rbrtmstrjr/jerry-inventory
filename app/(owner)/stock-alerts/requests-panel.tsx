@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { FileText, Inbox, Loader2, Truck, X } from "lucide-react";
+import { Inbox, Loader2, Printer, Truck, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
 import { ShopBadge } from "@/components/shop-badge";
 import { dismissDeliveryRequest } from "./request-actions";
 
@@ -54,19 +55,20 @@ const STATUS: Record<
 };
 
 /**
- * Shops asking for stock. Lives inside the Deliveries page because converting a
- * request just pre-fills the delivery form on this same page — a request is not
- * a stock movement of its own.
+ * Shops asking for stock. Lives on Stock Alerts — a request is a stock-alert
+ * signal, not a stock movement. Converting one jumps to the Deliveries page's
+ * New Delivery form pre-filled (via ?request=), where the actual movement
+ * happens; the printable Stock Request Receipt is the ingoing (shop→admin)
+ * document, and a fulfilled request links to its outgoing Delivery Note.
  *
- * The inner Open/Reviewed tabs use variant="line" so they read as a sub-level of
- * the page's pill tabs rather than competing with them.
+ * The inner Open/Reviewed tabs use variant="line" so they read as a sub-level.
  */
 export function RequestsPanel({
   requests,
   onConvert,
 }: {
   requests: RequestRow[];
-  /** Switches the page to the pre-filled New Delivery tab. */
+  /** Navigates to the pre-filled New Delivery tab on the Deliveries page. */
   onConvert: (requestId: string) => void;
 }) {
   const router = useRouter();
@@ -93,14 +95,15 @@ export function RequestsPanel({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
-        Shops asking for stock. Converting fills in the New Delivery tab — stock
-        still moves through the usual delivery flow.
+        Shops asking for stock. Print the request for your records, then Convert
+        — that fills in the New Delivery form on the Deliveries page, where the
+        stock actually moves.
       </p>
 
       <Tabs defaultValue="open">
         <TabsList variant="line">
-          <TabsTrigger value="open">Open ({open.length})</TabsTrigger>
-          <TabsTrigger value="closed">Reviewed ({closed.length})</TabsTrigger>
+          <TabsTrigger value="open">Open<TabCountBadge count={open.length} /></TabsTrigger>
+          <TabsTrigger value="closed">Reviewed</TabsTrigger>
         </TabsList>
 
         <TabsContent value="open" className="flex flex-col gap-3 pt-2">
@@ -125,6 +128,11 @@ export function RequestsPanel({
                     </Badge>
                   </CardTitle>
                   <div className="flex gap-2">
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={`/stock-alerts/request/${r.id}/receipt`} target="_blank">
+                        <Printer className="size-3.5" /> Print request
+                      </Link>
+                    </Button>
                     <Button size="sm" onClick={() => onConvert(r.id)}>
                       <Truck className="size-3.5" /> Convert to delivery
                     </Button>
@@ -195,13 +203,11 @@ export function RequestsPanel({
                       {STATUS[r.status].label}
                     </Badge>
                   </CardTitle>
-                  {r.fulfilled_delivery_id && (
-                    <Button asChild variant="outline" size="sm">
-                      <Link href={`/deliveries/${r.fulfilled_delivery_id}/note`} target="_blank">
-                        <FileText className="size-3.5" /> Delivery note
-                      </Link>
-                    </Button>
-                  )}
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/stock-alerts/request/${r.id}/receipt`} target="_blank">
+                      <Printer className="size-3.5" /> Print request
+                    </Link>
+                  </Button>
                 </div>
                 <CardDescription>
                   {r.items.length} item{r.items.length === 1 ? "" : "s"} ·{" "}

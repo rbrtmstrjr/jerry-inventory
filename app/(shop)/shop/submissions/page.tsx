@@ -16,7 +16,7 @@ export default async function SubmissionsPage() {
     supabase
       .from("sales")
       .select(
-        "id, business_date, status, total_centavos, owner_note, created_at, batch_id, submission_batches(submitted_at), sale_lines(description, qty, unit_price_centavos, line_total_centavos)"
+        "id, business_date, status, total_centavos, owner_note, created_at, batch_id, submission_batches(submitted_at), sale_lines(description, qty, unit_price_centavos, line_total_centavos, engine_id)"
       )
       .is("deleted_at", null)
       .order("created_at", { ascending: false })

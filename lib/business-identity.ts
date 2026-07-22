@@ -7,8 +7,8 @@ import type { BusinessIdentity } from "@/lib/db-types";
 /**
  * The one fallback, in one place.
  *
- * Six documents used to carry their own `settings?.business_name ?? "Jerry's
- * Marine"`, which meant six copies of a hardcoded business name that a rename
+ * Six documents used to carry their own `settings?.business_name ?? "Gerwin
+ * Trading"`, which meant six copies of a hardcoded business name that a rename
  * would have to find. Worse, the fallback was load-bearing rather than
  * defensive: `settings` is owner-only, so a shop printing a receipt ALWAYS hit
  * it and always printed a nameless, addressless, footerless receipt.
@@ -18,7 +18,7 @@ import type { BusinessIdentity } from "@/lib/db-types";
  * path for half the documents this business prints.
  */
 const FALLBACK: BusinessIdentity = {
-  business_name: "Jerry's Marine",
+  business_name: "Gerwin Trading",
   address: null,
   phone: null,
   business_email: null,

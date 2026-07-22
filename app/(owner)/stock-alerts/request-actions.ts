@@ -6,7 +6,10 @@ import { createClient } from "@/lib/supabase/server";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
+// Requests live on Stock Alerts now; fulfilling one still creates a delivery,
+// so both pages (and the shop's low-stock history) must refresh.
 function revalidate() {
+  revalidatePath("/stock-alerts");
   revalidatePath("/deliveries");
   revalidatePath("/shop/low-stock");
 }

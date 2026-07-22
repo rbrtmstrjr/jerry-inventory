@@ -28,7 +28,7 @@ export default async function WarrantyCertificatePage({
         `id, sold_on, months, expires_on,
          engines(serial_number, condition, engine_models(brand, model, horsepower, stroke)),
          customers(name, phone, address),
-         sales(shops(name))`
+         sales(shops(name, location, logo_path))`
       )
       .eq("id", id)
       .is("deleted_at", null)
@@ -53,6 +53,8 @@ export default async function WarrantyCertificatePage({
     customer_phone: w.customers?.phone ?? null,
     customer_address: w.customers?.address ?? null,
     shop_name: w.sales?.shops?.name ?? null,
+    shop_location: w.sales?.shops?.location ?? null,
+    shop_logo_path: w.sales?.shops?.logo_path ?? null,
     sold_on: w.sold_on,
     months: w.months,
     expires_on: w.expires_on,

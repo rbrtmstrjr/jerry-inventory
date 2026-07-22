@@ -37,6 +37,11 @@ const saleSchema = z
       .default([]),
     payment_type: z.enum(["full", "partial"]).default("full"),
     amount_paid_centavos: z.number().int().min(0).nullable().default(null),
+    // how the money was tendered — same set as a shop expense's method
+    payment_method: z.enum(["cash", "gcash", "bank", "other"]).default("cash"),
+    // suki card (0072) — the server re-derives the card prices and clamps;
+    // the client's prices are only a preview
+    discount_card_id: z.uuid().nullable().default(null),
   })
   .refine((v) => v.part_lines.length + v.engine_lines.length > 0, {
     message: "Add at least one item",
@@ -55,11 +60,44 @@ export async function recordSale(input: unknown): Promise<ActionResult> {
     p_engine_lines: parsed.data.engine_lines,
     p_payment_type: parsed.data.payment_type,
     p_amount_paid_centavos: parsed.data.amount_paid_centavos,
+    p_payment_method: parsed.data.payment_method,
+    p_discount_card_id: parsed.data.discount_card_id,
   });
   if (error) return { ok: false, error: error.message };
   revalidatePath("/shop");
   revalidatePath("/shop/submissions");
   return { ok: true, id: data as string };
+}
+
+export interface SukiCardInfo {
+  card_id: string;
+  customer_id: string;
+  customer_name: string;
+  customer_phone: string | null;
+  engine_pct: number;
+  part_pct: number;
+}
+
+/**
+ * Resolve a scanned suki card. Goes through the guarded definer
+ * fn_lookup_discount_card — the shop's ONLY window into cards: the customer +
+ * the two live percentages, nothing else. Unknown/inactive → not found.
+ */
+export async function lookupDiscountCard(
+  cardNo: unknown
+): Promise<{ ok: true; card: SukiCardInfo } | { ok: false; error: string }> {
+  const parsed = z.string().trim().min(1).max(40).safeParse(cardNo);
+  if (!parsed.success) return { ok: false, error: "Scan or type a card number" };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("fn_lookup_discount_card", {
+    p_card_no: parsed.data,
+  });
+  if (error) return { ok: false, error: error.message };
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!row) {
+    return { ok: false, error: "No active suki card with that number" };
+  }
+  return { ok: true, card: row as SukiCardInfo };
 }
 
 const lossSchema = z
@@ -103,6 +141,9 @@ export async function recordUtangPayment(input: unknown): Promise<ActionResult> 
     .object({
       sale_id: z.uuid(),
       amount_centavos: z.number().int().positive(),
+      method: z.enum(["cash", "gcash", "bank", "other"]),
+      payer_name: z.string().trim().min(1, "The payer's name is required").max(120),
+      payer_contact: z.string().trim().max(50).optional().nullable(),
       note: z.string().trim().max(2000).optional().nullable(),
     })
     .safeParse(input);
@@ -114,6 +155,9 @@ export async function recordUtangPayment(input: unknown): Promise<ActionResult> 
     p_sale_id: parsed.data.sale_id,
     p_amount_centavos: parsed.data.amount_centavos,
     p_note: parsed.data.note || null,
+    p_method: parsed.data.method,
+    p_payer_name: parsed.data.payer_name,
+    p_payer_contact: parsed.data.payer_contact || null,
   });
   if (error) return { ok: false, error: error.message };
   revalidatePath("/shop/receivables");
@@ -219,7 +263,8 @@ export async function submitShopBatch(): Promise<
  * deliberately no reject/return/write-off path here.
  */
 export async function confirmDelivery(input: unknown): Promise<
-  { ok: true; landed: number; short: number } | { ok: false; error: string }
+  | { ok: true; landed: number; damaged: number; missing: number; short: number }
+  | { ok: false; error: string }
 > {
   const parsed = z
     .object({
@@ -229,7 +274,9 @@ export async function confirmDelivery(input: unknown): Promise<
           z.object({
             line_id: z.uuid(),
             qty_received: z.number().int().min(0),
+            qty_damaged: z.number().int().min(0).default(0),
             shop_note: z.string().trim().max(500).optional().nullable(),
+            damage_photo_path: z.string().trim().max(400).optional().nullable(),
           })
         )
         .min(1, "Count every line"),
@@ -248,8 +295,8 @@ export async function confirmDelivery(input: unknown): Promise<
   if (error) return { ok: false, error: error.message };
   revalidatePath("/shop/deliveries");
   revalidatePath("/shop");
-  const res = data as { landed: number; short: number };
-  return { ok: true, landed: res.landed, short: res.short };
+  const res = data as { landed: number; damaged: number; missing: number; short: number };
+  return { ok: true, landed: res.landed, damaged: res.damaged, missing: res.missing, short: res.short };
 }
 
 /**
@@ -288,6 +335,126 @@ export async function createDeliveryRequest(input: unknown): Promise<ActionResul
   if (error) return { ok: false, error: error.message };
   revalidatePath("/shop/low-stock");
   return { ok: true, id: data as string };
+}
+
+const transferSchema = z.object({
+  to_shop_id: z.uuid(),
+  // each line is a part (with a positive qty) XOR an engine (qty 1 implied)
+  lines: z
+    .array(
+      z
+        .object({
+          part_id: z.uuid().nullable().default(null),
+          engine_id: z.uuid().nullable().default(null),
+          qty: z.number().int().positive().nullable().default(null),
+        })
+        .refine((l) => (l.part_id === null) !== (l.engine_id === null), {
+          message: "Each line is a part or an engine",
+        })
+        .refine((l) => l.part_id === null || (l.qty ?? 0) > 0, {
+          message: "Parts need a quantity",
+        })
+    )
+    .min(1, "Add at least one item"),
+  note: z.string().trim().max(2000).optional().nullable(),
+});
+
+/**
+ * Request a stock transfer to another shop. This is a REQUEST — it moves no
+ * stock; the owner approves it, then the destination confirms arrival exactly
+ * like a master delivery. The RPC enforces destination ≠ own shop and on-hand.
+ */
+export async function requestTransfer(input: unknown): Promise<ActionResult> {
+  const parsed = transferSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("fn_request_transfer", {
+    p_to_shop_id: parsed.data.to_shop_id,
+    p_lines: parsed.data.lines.map((l) =>
+      l.part_id ? { part_id: l.part_id, qty: l.qty } : { engine_id: l.engine_id }
+    ),
+    p_note: parsed.data.note?.trim() || null,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/shop/transfers");
+  revalidatePath("/shop");
+  return { ok: true, id: data as string };
+}
+
+/** Cancel own transfer — the RPC allows it only while status='requested'. */
+export async function cancelTransfer(deliveryId: string): Promise<ActionResult> {
+  if (!z.uuid().safeParse(deliveryId).success) {
+    return { ok: false, error: "Invalid id" };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_cancel_transfer", {
+    p_delivery_id: deliveryId,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/shop/transfers");
+  revalidatePath("/shop");
+  return { ok: true };
+}
+
+const returnSchema = z.object({
+  reason: z.string().trim().max(500).optional().nullable(),
+  parts: z
+    .array(
+      z.object({
+        part_id: z.uuid(),
+        qty_good: z.number().int().min(0).default(0),
+        qty_damaged: z.number().int().min(0).default(0),
+      })
+    )
+    .default([]),
+  engines: z
+    .array(
+      z.object({
+        engine_id: z.uuid(),
+        condition: z.enum(["good", "damaged"]).default("good"),
+      })
+    )
+    .default([]),
+}).refine((v) => v.parts.length + v.engines.length > 0, {
+  message: "Add at least one item to return",
+});
+
+/**
+ * Request a return to Admin (this shop's stock → master). A REQUEST — moves no
+ * stock; the owner approves it, which lands good units back in master and books
+ * damaged as a loss. The shop picks the reason + marks damaged here.
+ */
+export async function requestReturn(input: unknown): Promise<ActionResult> {
+  const parsed = returnSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("fn_request_return", {
+    p_reason: parsed.data.reason?.trim() || null,
+    p_parts: parsed.data.parts.map((p) => ({
+      part_id: p.part_id,
+      qty_good: p.qty_good,
+      qty_damaged: p.qty_damaged,
+    })),
+    p_engine_ids: parsed.data.engines,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/shop/transfers");
+  revalidatePath("/shop");
+  return { ok: true, id: data as string };
+}
+
+/** Cancel own return — the RPC allows it only while status='requested'. */
+export async function cancelReturn(returnId: string): Promise<ActionResult> {
+  if (!z.uuid().safeParse(returnId).success) return { ok: false, error: "Invalid id" };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_cancel_return", { p_return_id: returnId });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/shop/transfers");
+  return { ok: true };
 }
 
 /**

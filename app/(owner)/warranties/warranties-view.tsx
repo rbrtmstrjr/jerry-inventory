@@ -2,21 +2,25 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
+  ArrowRight,
+  Check,
   FileText,
   History,
   Loader2,
-  Plus,
   Search,
   ShieldCheck,
   Wrench,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { formatCentavos } from "@/lib/format";
+
 import { createClient } from "@/lib/supabase/client";
-import { ph_today } from "@/lib/ph-date";
 import type { ShopOption } from "@/lib/db-types";
 import { Badge } from "@/components/ui/badge";
 import { ShopBadge } from "@/components/shop-badge";
@@ -36,9 +40,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -48,8 +52,28 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DataTable, SortableHeader } from "@/components/data-table/data-table";
-import { DatePicker } from "@/components/date-picker";
-import { addClaim } from "./actions";
+import { reviewWarrantyClaim } from "./actions";
+
+export type ClaimResolution = "repair" | "replace" | "refund";
+const RESOLUTION_LABEL: Record<ClaimResolution, string> = {
+  repair: "Repair",
+  replace: "Replace",
+  refund: "Refund",
+};
+
+export interface PendingClaimRow {
+  id: string;
+  resolution: ClaimResolution | null;
+  issue: string;
+  refund_centavos: number | null;
+  created_at: string;
+  shop: string;
+  shop_color_key: string | null;
+  serial_number: string;
+  model: string;
+  customer: string | null;
+  replacement_serial: string | null;
+}
 
 export interface WarrantyClaim {
   id: string;
@@ -80,7 +104,7 @@ export interface SerialRow {
   serial_number: string;
   model: string;
   horsepower: number | null;
-  status: "in_master" | "delivered" | "sold" | "returned" | "written_off";
+  status: "in_master" | "delivered" | "sold" | "returned" | "defective" | "written_off";
   shop: string | null;
   shop_color_key: string | null;
   customer: string | null;
@@ -96,6 +120,7 @@ const SERIAL_STATUS: Record<
   delivered: { label: "At shop", variant: "default" },
   sold: { label: "Sold", variant: "outline" },
   returned: { label: "Returned", variant: "secondary" },
+  defective: { label: "Defective (RMA)", variant: "destructive" },
   written_off: { label: "Written off", variant: "destructive" },
 };
 
@@ -121,11 +146,13 @@ export function WarrantiesView({
   serials,
   today,
   shops = [],
+  pendingClaims = [],
 }: {
   warranties: WarrantyRow[];
   serials: SerialRow[];
   today: string;
   shops?: ShopOption[];
+  pendingClaims?: PendingClaimRow[];
 }) {
   const [claimsFor, setClaimsFor] = React.useState<WarrantyRow | null>(null);
   const [journeyFor, setJourneyFor] = React.useState<SerialRow | null>(null);
@@ -328,13 +355,17 @@ export function WarrantiesView({
         </p>
       </div>
 
+      {pendingClaims.length > 0 && <ClaimsApproval claims={pendingClaims} />}
+
       <Tabs defaultValue="warranties">
         <TabsList>
           <TabsTrigger value="warranties">
-            <ShieldCheck className="size-4" /> Warranties ({warranties.length})
+            <ShieldCheck className="size-4" /> Warranties
+            <TabCountBadge count={warranties.length} />
           </TabsTrigger>
           <TabsTrigger value="serials">
-            <Search className="size-4" /> Serial Lookup ({serials.length})
+            <Search className="size-4" /> Serial Lookup
+            <TabCountBadge count={serials.length} />
           </TabsTrigger>
         </TabsList>
 
@@ -390,6 +421,8 @@ export function WarrantiesView({
 // ---------------------------------------------------------------------------
 // Claims dialog — list + add
 // ---------------------------------------------------------------------------
+/** Read-only claim history for a serial. Claims are filed by shops and decided
+ *  in the "awaiting approval" section — there is no owner-typed claim path. */
 function ClaimsDialog({
   warranty,
   onClose,
@@ -397,39 +430,6 @@ function ClaimsDialog({
   warranty: WarrantyRow | null;
   onClose: () => void;
 }) {
-  const [adding, setAdding] = React.useState(false);
-  const [date, setDate] = React.useState("");
-  const [issue, setIssue] = React.useState("");
-  const [action, setAction] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
-
-  React.useEffect(() => {
-    if (warranty) {
-      setAdding(false);
-      setDate(ph_today());
-      setIssue("");
-      setAction("");
-    }
-  }, [warranty]);
-
-  async function onSubmit() {
-    if (!warranty) return;
-    setBusy(true);
-    const res = await addClaim({
-      warranty_id: warranty.id,
-      claim_date: date,
-      issue,
-      action_taken: action || null,
-    });
-    setBusy(false);
-    if (res.ok) {
-      toast.success("Claim logged");
-      onClose();
-    } else {
-      toast.error(res.error);
-    }
-  }
-
   return (
     <Dialog open={warranty !== null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
@@ -444,9 +444,9 @@ function ClaimsDialog({
         </DialogHeader>
 
         <div className="flex max-h-64 flex-col gap-2 overflow-auto">
-          {warranty?.claims.length === 0 && !adding && (
+          {warranty?.claims.length === 0 && (
             <p className="py-4 text-center text-sm text-muted-foreground">
-              No claims logged for this engine.
+              No claims for this engine.
             </p>
           )}
           {warranty?.claims.map((c) => (
@@ -463,52 +463,11 @@ function ClaimsDialog({
           ))}
         </div>
 
-        {adding ? (
-          <div className="grid gap-3">
-            <div className="grid gap-2">
-              <Label htmlFor="claim-date">Date</Label>
-              <DatePicker id="claim-date" value={date} onChange={setDate} className="w-44" />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="claim-issue">Issue</Label>
-              <Textarea
-                id="claim-issue"
-                rows={2}
-                value={issue}
-                onChange={(e) => setIssue(e.target.value)}
-                placeholder="e.g. hindi umaandar, carburetor issue"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="claim-action">Action taken (optional)</Label>
-              <Textarea
-                id="claim-action"
-                rows={2}
-                value={action}
-                onChange={(e) => setAction(e.target.value)}
-                placeholder="e.g. replaced impeller, sent to Yamaha service center"
-              />
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setAdding(false)}>
-                Cancel
-              </Button>
-              <Button onClick={onSubmit} disabled={busy || issue.trim() === ""}>
-                {busy && <Loader2 className="size-4 animate-spin" />}
-                Log claim
-              </Button>
-            </DialogFooter>
-          </div>
-        ) : (
-          <DialogFooter>
-            <Button variant="outline" onClick={onClose}>
-              Close
-            </Button>
-            <Button onClick={() => setAdding(true)}>
-              <Plus className="size-4" /> Log claim
-            </Button>
-          </DialogFooter>
-        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -610,5 +569,137 @@ function JourneyDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Shop-filed warranty claims awaiting the owner's approval. */
+function ClaimsApproval({ claims }: { claims: PendingClaimRow[] }) {
+  const router = useRouter();
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [rejecting, setRejecting] = React.useState<PendingClaimRow | null>(null);
+  const [note, setNote] = React.useState("");
+
+  async function onApprove(c: PendingClaimRow) {
+    setBusyId(c.id);
+    const res = await reviewWarrantyClaim(c.id, "approve");
+    setBusyId(null);
+    if (res.ok) {
+      toast.success("Claim approved");
+      router.refresh();
+    } else toast.error(res.error);
+  }
+
+  async function onReject() {
+    if (!rejecting) return;
+    if (note.trim() === "") {
+      toast.error("Give a reason");
+      return;
+    }
+    setBusyId(rejecting.id);
+    const res = await reviewWarrantyClaim(rejecting.id, "reject", note.trim());
+    setBusyId(null);
+    if (res.ok) {
+      toast.success("Claim declined — the shop was told");
+      setRejecting(null);
+      setNote("");
+      router.refresh();
+    } else toast.error(res.error);
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h2 className="flex items-center gap-2 text-sm font-semibold">
+        <Wrench className="size-4" /> Warranty claims awaiting approval ({claims.length})
+      </h2>
+      {claims.map((c) => (
+        <Card key={c.id} className="border-warning/40">
+          <CardHeader className="pb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                {c.model}
+                <span className="font-mono text-xs text-muted-foreground">
+                  SN {c.serial_number}
+                </span>
+                {c.resolution && (
+                  <Badge variant="secondary">{RESOLUTION_LABEL[c.resolution]}</Badge>
+                )}
+              </CardTitle>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => onApprove(c)} disabled={busyId === c.id}>
+                  {busyId === c.id ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Check className="size-3.5" />
+                  )}
+                  Approve
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={() => {
+                    setNote("");
+                    setRejecting(c);
+                  }}
+                  disabled={busyId === c.id}
+                >
+                  <X className="size-3.5" /> Reject
+                </Button>
+              </div>
+            </div>
+            <CardDescription>
+              <ShopBadge shop={{ name: c.shop, color_key: c.shop_color_key }} variant="text" />
+              {" · "}
+              {format(new Date(c.created_at), "MMM d, yyyy")}
+              {c.customer ? ` · ${c.customer}` : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <p className="text-muted-foreground">{c.issue}</p>
+            {c.resolution === "replace" && c.replacement_serial && (
+              <p className="mt-1 flex flex-wrap items-center gap-1 text-xs">
+                Replacement <span className="font-mono">SN {c.replacement_serial}</span>
+                <ArrowRight className="size-3 text-muted-foreground" /> customer; defective
+                unit returns to master.
+              </p>
+            )}
+            {c.resolution === "refund" && c.refund_centavos != null && (
+              <p className="mt-1 text-xs">
+                Refund {formatCentavos(c.refund_centavos)} (booked as a company expense).
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+
+      <Dialog open={rejecting !== null} onOpenChange={(o) => !o && setRejecting(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Decline this claim?</DialogTitle>
+            <DialogDescription>
+              The shop is told your reason. Nothing moves.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-1.5">
+            <Label htmlFor="claim-reject-note">Reason</Label>
+            <Textarea
+              id="claim-reject-note"
+              rows={2}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. out of warranty, customer misuse"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejecting(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={onReject} disabled={busyId !== null}>
+              Decline claim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

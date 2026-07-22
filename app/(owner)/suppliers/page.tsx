@@ -156,13 +156,22 @@ export default async function SuppliersPage({
   }
 
   if (tab === "comparison") {
-    const [cmpRes, supRes, partsRes, modelsRes, catRes] = await Promise.all([
+    const [cmpRes, partsRes, modelsRes, catRes] = await Promise.all([
       supabase.from("supplier_price_comparison").select("*"),
-      supabase.from("suppliers").select("id, name").is("deleted_at", null).order("name"),
-      supabase.from("parts").select("id, name, sku").is("deleted_at", null).order("name"),
-      supabase.from("engine_models").select("id, brand, model").order("brand"),
+      supabase
+        .from("parts")
+        .select("id, name, sku, unit, created_at, stock_levels(shop_id, qty)")
+        .is("deleted_at", null)
+        .order("name"),
+      supabase.from("engine_models").select("id, brand, model, created_at").order("brand"),
       supabase.from("product_categories").select("id, name").order("name"),
     ]);
+
+    // product_id → catalog creation timestamp, so the comparison can float the
+    // most recently added product to the top (finer than the date-level price).
+    const createdAtByProduct: Record<string, string> = {};
+    for (const p of partsRes.data ?? []) createdAtByProduct[p.id] = p.created_at;
+    for (const m of modelsRes.data ?? []) createdAtByProduct[m.id] = m.created_at;
 
     return (
       <div className="flex flex-col gap-4">
@@ -170,14 +179,16 @@ export default async function SuppliersPage({
         <SupplierTabs active="comparison" />
         <ComparisonView
           rows={(cmpRes.data ?? []) as ComparisonRow[]}
-          suppliers={supRes.data ?? []}
-          parts={partsRes.data ?? []}
-          engineModels={(modelsRes.data ?? []).map((m) => ({
-            id: m.id,
-            name: `${m.brand} ${m.model}`,
+          createdAtByProduct={createdAtByProduct}
+          parts={(partsRes.data ?? []).map((p) => ({
+            id: p.id,
+            name: p.name,
+            sku: p.sku,
+            unit: p.unit,
+            // total on-hand across ALL locations — a merge blocks on any stock
+            stock_qty: (p.stock_levels ?? []).reduce((sum, s) => sum + s.qty, 0),
           }))}
           categories={(catRes.data ?? []).map((c) => c.name)}
-          today={ph_today()}
         />
       </div>
     );
