@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/pnl";
 import type { Category, EngineModel, EngineRow, PartRow } from "@/lib/db-types";
 import { CatalogTabs } from "./catalog-tabs";
 
@@ -8,7 +9,7 @@ export const metadata: Metadata = { title: "Master Inventory" };
 export default async function MasterInventoryPage() {
   const supabase = await createClient();
 
-  const [partsRes, enginesRes, categoriesRes, modelsRes, fitmentsRes, pricesRes, suppliersRes] = await Promise.all([
+  const [partsRes, allEngines, categoriesRes, modelsRes, fitmentsRes, pricesRes, suppliersRes] = await Promise.all([
     supabase
       .from("parts")
       .select(
@@ -17,13 +18,18 @@ export default async function MasterInventoryPage() {
       .is("deleted_at", null)
       // newest first, same as engines — a just-added product must be visible on top
       .order("created_at", { ascending: false }),
-    supabase
-      .from("engines")
-      .select(
-        "id, serial_number, engine_model_id, condition, cost_centavos, price_centavos, warranty_months, status, image_path, engine_models(brand, model, horsepower), shops(name, color_key)"
-      )
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
+    // every serial-tracked engine — paginated (keyset by id): this outgrows the
+    // 1,000-row cap, which would drop engines from the catalog. The view sorts.
+    fetchAll(
+      () =>
+        supabase
+          .from("engines")
+          .select(
+            "id, serial_number, engine_model_id, condition, cost_centavos, price_centavos, warranty_months, status, image_path, engine_models(brand, model, horsepower), shops(name, color_key)"
+          )
+          .is("deleted_at", null),
+      "id"
+    ),
     supabase
       .from("product_categories")
       .select("id, name")
@@ -72,7 +78,7 @@ export default async function MasterInventoryPage() {
     total_qty: (p.stock_levels ?? []).reduce((sum: number, s: any) => sum + s.qty, 0),
   }));
 
-  const engines: EngineRow[] = (enginesRes.data ?? []).map((e: any) => ({
+  const engines: EngineRow[] = (allEngines as any[]).map((e: any) => ({
     id: e.id,
     serial_number: e.serial_number,
     engine_model_id: e.engine_model_id,

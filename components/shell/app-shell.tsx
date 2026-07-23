@@ -67,7 +67,7 @@ type NavItem = {
 };
 
 /** Owner sidebar count badges, keyed by the nav href they attach to. */
-const OWNER_BADGES: Record<string, React.FC<{ active?: boolean }>> = {
+const OWNER_BADGES: Record<string, React.FC<{ active?: boolean; initialCount?: number }>> = {
   "/approvals": ApprovalsBadge,
   "/deliveries": DeliveriesBadge,
   "/stock-alerts": StockAlertsBadge,
@@ -77,7 +77,7 @@ const OWNER_BADGES: Record<string, React.FC<{ active?: boolean }>> = {
 };
 
 /** Employee (shop) sidebar count badges — the "needs your attention" numbers. */
-const EMPLOYEE_BADGES: Record<string, React.FC<{ active?: boolean }>> = {
+const EMPLOYEE_BADGES: Record<string, React.FC<{ active?: boolean; initialCount?: number }>> = {
   "/shop/deliveries": ShopDeliveriesBadge,
   "/shop/low-stock": ShopLowStockBadge,
   "/shop/receivables": ShopReceivablesBadge,
@@ -159,6 +159,9 @@ export interface AppShellProps {
   userName: string;
   /** e.g. "Owner" or the shop's name for employees */
   contextLabel: string;
+  /** server-computed sidebar counts, keyed by nav href — seeds the badges'
+   *  first paint so they don't pop in after a client fetch. */
+  badgeCounts?: Record<string, number>;
   children: React.ReactNode;
 }
 
@@ -174,11 +177,13 @@ function NavLinks({
   pathname,
   onNavigate,
   badges,
+  badgeCounts,
 }: {
   groups: NavGroup[];
   pathname: string;
   onNavigate?: () => void;
-  badges?: Record<string, React.FC<{ active?: boolean }>>;
+  badges?: Record<string, React.FC<{ active?: boolean; initialCount?: number }>>;
+  badgeCounts?: Record<string, number>;
 }) {
   const hrefs = groups.flatMap((g) => g.items.map((i) => i.href));
   return (
@@ -205,7 +210,10 @@ function NavLinks({
                 <item.icon className="size-4 shrink-0" />
                 {item.label}
                 {badges?.[item.href] &&
-                  React.createElement(badges[item.href], { active })}
+                  React.createElement(badges[item.href], {
+                    active,
+                    initialCount: badgeCounts?.[item.href],
+                  })}
               </Link>
             );
           })}
@@ -321,7 +329,7 @@ function UserMenu({
   );
 }
 
-export function AppShell({ variant, userName, contextLabel, children }: AppShellProps) {
+export function AppShell({ variant, userName, contextLabel, badgeCounts, children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const groups = variant === "owner" ? OWNER_NAV : EMPLOYEE_NAV;
@@ -335,6 +343,7 @@ export function AppShell({ variant, userName, contextLabel, children }: AppShell
           groups={groups}
           pathname={pathname}
           badges={variant === "owner" ? OWNER_BADGES : EMPLOYEE_BADGES}
+                badgeCounts={badgeCounts}
         />
       </aside>
 
@@ -357,6 +366,7 @@ export function AppShell({ variant, userName, contextLabel, children }: AppShell
                 pathname={pathname}
                 onNavigate={() => setMobileOpen(false)}
                 badges={variant === "owner" ? OWNER_BADGES : EMPLOYEE_BADGES}
+                badgeCounts={badgeCounts}
               />
             </SheetContent>
           </Sheet>

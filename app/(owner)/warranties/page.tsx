@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/pnl";
 import { ph_today } from "@/lib/ph-date";
 import {
   WarrantiesView,
@@ -13,25 +14,34 @@ export const metadata: Metadata = { title: "Warranties & Serials" };
 export default async function WarrantiesPage() {
   const supabase = await createClient();
 
-  const [warrantiesRes, enginesRes, shopsRes, pendingClaimsRes] = await Promise.all([
-    supabase
-      .from("warranties")
-      .select(
-        `id, engine_id, sold_on, months, expires_on,
-         engines(serial_number, engine_models(brand, model, horsepower)),
-         customers(name, phone),
-         sales(shops(name, color_key)),
-         warranty_claims(id, claim_date, issue, action_taken)`
-      )
-      .is("deleted_at", null)
-      .order("expires_on", { ascending: true }),
+  const [allWarranties, allEngines, shopsRes, pendingClaimsRes] = await Promise.all([
+    // Paginated (keyset by id): both lists grow past 1,000 — the serial
+    // registry especially, which holds every engine ever received. The view
+    // re-sorts client-side, so the fetch order doesn't matter.
+    fetchAll(
+      () =>
+        supabase
+          .from("warranties")
+          .select(
+            `id, engine_id, sold_on, months, expires_on,
+             engines(serial_number, engine_models(brand, model, horsepower)),
+             customers(name, phone),
+             sales(shops(name, color_key)),
+             warranty_claims(id, claim_date, issue, action_taken)`
+          )
+          .is("deleted_at", null),
+      "id"
+    ),
     // every serial ever received — including sold and written-off
-    supabase
-      .from("engines")
-      .select(
-        "id, serial_number, status, deleted_at, sold_at, engine_models(brand, model, horsepower), shops(name, color_key), customers(name, phone)"
-      )
-      .order("created_at", { ascending: false }),
+    fetchAll(
+      () =>
+        supabase
+          .from("engines")
+          .select(
+            "id, serial_number, status, deleted_at, sold_at, engine_models(brand, model, horsepower), shops(name, color_key), customers(name, phone)"
+          ),
+      "id"
+    ),
     supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
     // shop-filed claims awaiting the owner's decision (0070)
     supabase
@@ -51,7 +61,7 @@ export default async function WarrantiesPage() {
   const today = ph_today();
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const warranties: WarrantyRow[] = (warrantiesRes.data ?? []).map((w: any) => ({
+  const warranties: WarrantyRow[] = (allWarranties as any[]).map((w: any) => ({
     id: w.id,
     engine_id: w.engine_id,
     serial_number: w.engines?.serial_number ?? "?",
@@ -75,7 +85,7 @@ export default async function WarrantiesPage() {
       })),
   }));
 
-  const serials: SerialRow[] = (enginesRes.data ?? []).map((e: any) => ({
+  const serials: SerialRow[] = (allEngines as any[]).map((e: any) => ({
     id: e.id,
     serial_number: e.serial_number,
     model: `${e.engine_models?.brand ?? ""} ${e.engine_models?.model ?? ""}`.trim(),

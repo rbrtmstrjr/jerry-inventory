@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/pnl";
 import { ph_today } from "@/lib/ph-date";
 import { ExpenseReports, type ExpenseReportData } from "./expense-reports";
 
@@ -26,37 +27,51 @@ export default async function ExpenseReportsPage({
 
   const supabase = await createClient();
 
-  let expQ = supabase
-    .from("expenses")
-    .select(
-      `id, amount, expense_date, scope, shop_id, delivery_id, description, paid_to,
-       payment_method, expense_categories(name), shops(name, color_key)`
-    )
-    // reports are money that actually left — pending claims never count (0051)
-    .eq("status", "approved")
-    .gte("expense_date", from)
-    .lte("expense_date", to)
-    .is("deleted_at", null);
-  if (shopFilter) expQ = expQ.eq("shop_id", shopFilter);
+  const buildExpenses = () => {
+    let q = supabase
+      .from("expenses")
+      .select(
+        `id, amount, expense_date, scope, shop_id, delivery_id, description, paid_to,
+         payment_method, expense_categories(name), shops(name, color_key)`
+      )
+      // reports are money that actually left — pending claims never count (0051)
+      .eq("status", "approved")
+      .gte("expense_date", from)
+      .lte("expense_date", to)
+      .is("deleted_at", null);
+    if (shopFilter) q = q.eq("shop_id", shopFilter);
+    return q;
+  };
 
-  const [expensesRes, shopsRes, salesRes, lossesRes, payrollRes] = await Promise.all([
-    expQ,
+  // All three cross-module sums are paginated (fetchAll) — a date range wide
+  // enough to matter outgrows the 1,000-row cap, which silently understated
+  // every per-shop total on this report.
+  const [allExpenses, shopsRes, allSales, allLosses, payrollRes] = await Promise.all([
+    fetchAll(buildExpenses, "id"),
     supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
     // cross-module (read-only): approved revenue in range, per shop
-    supabase
-      .from("sales")
-      .select("shop_id, total_centavos")
-      .eq("status", "approved")
-      .gte("business_date", from)
-      .lte("business_date", to)
-      .is("deleted_at", null),
-    supabase
-      .from("losses")
-      .select("shop_id, value_centavos")
-      .eq("status", "approved")
-      .gte("business_date", from)
-      .lte("business_date", to)
-      .is("deleted_at", null),
+    fetchAll(
+      () =>
+        supabase
+          .from("sales")
+          .select("id, shop_id, total_centavos")
+          .eq("status", "approved")
+          .gte("business_date", from)
+          .lte("business_date", to)
+          .is("deleted_at", null),
+      "id"
+    ),
+    fetchAll(
+      () =>
+        supabase
+          .from("losses")
+          .select("id, shop_id, value_centavos")
+          .eq("status", "approved")
+          .gte("business_date", from)
+          .lte("business_date", to)
+          .is("deleted_at", null),
+      "id"
+    ),
     supabase
       .from("payroll_entries")
       .select("shop_id, net_pay, pay_periods!inner(start_date, end_date, deleted_at)")
@@ -66,7 +81,7 @@ export default async function ExpenseReportsPage({
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const expenses = (expensesRes.data ?? []) as any[];
+  const expenses = allExpenses as any[];
   const shops = shopsRes.data ?? [];
 
   // by category
@@ -98,11 +113,11 @@ export default async function ExpenseReportsPage({
 
   // cross-module per shop
   const revByShop = new Map<string, number>();
-  for (const s of salesRes.data ?? []) {
+  for (const s of allSales) {
     revByShop.set(s.shop_id, (revByShop.get(s.shop_id) ?? 0) + (s.total_centavos ?? 0));
   }
   const lossByShop = new Map<string, number>();
-  for (const l of lossesRes.data ?? []) {
+  for (const l of allLosses) {
     lossByShop.set(l.shop_id, (lossByShop.get(l.shop_id) ?? 0) + (l.value_centavos ?? 0));
   }
   const payByShop = new Map<string, number>();

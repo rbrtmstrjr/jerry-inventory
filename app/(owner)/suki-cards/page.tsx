@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/pnl";
 import { SukiCardsView, type CardRow } from "./suki-cards-view";
 
 export const metadata: Metadata = { title: "Suki Cards" };
@@ -13,18 +14,23 @@ export const metadata: Metadata = { title: "Suki Cards" };
 export default async function SukiCardsPage() {
   const supabase = await createClient();
 
-  const [cardsRes, usageRes, customersRes, settingsRes] = await Promise.all([
+  const [cardsRes, allUsage, customersRes, settingsRes] = await Promise.all([
     supabase
       .from("discount_cards")
       .select("id, card_no, status, issued_at, note, customer_id, customers(name, phone)")
       .is("deleted_at", null)
       .order("issued_at", { ascending: false }),
-    // program usage per card — count + what the card saved the suki
-    supabase
-      .from("sales")
-      .select("discount_card_id, card_discount_centavos")
-      .not("discount_card_id", "is", null)
-      .is("deleted_at", null),
+    // program usage per card — count + what the card saved the suki. Paginated:
+    // card sales accumulate past 1,000 over time, which undercounted usage.
+    fetchAll(
+      () =>
+        supabase
+          .from("sales")
+          .select("id, discount_card_id, card_discount_centavos")
+          .not("discount_card_id", "is", null)
+          .is("deleted_at", null),
+      "id"
+    ),
     supabase
       .from("customers")
       .select("id, name, phone")
@@ -39,7 +45,7 @@ export default async function SukiCardsPage() {
   ]);
 
   const usage = new Map<string, { count: number; saved: number }>();
-  for (const s of usageRes.data ?? []) {
+  for (const s of allUsage as any[]) {
     const u = usage.get(s.discount_card_id as string) ?? { count: 0, saved: 0 };
     u.count += 1;
     u.saved += (s.card_discount_centavos as number) ?? 0;

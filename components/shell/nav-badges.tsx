@@ -3,6 +3,7 @@
 import * as React from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { getOwnerCounts } from "@/components/shell/badge-counts";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -21,8 +22,14 @@ import { cn } from "@/lib/utils";
 
 type Loader = (sb: SupabaseClient) => Promise<number>;
 
-function useNavCount(load: Loader, tables: readonly string[]) {
-  const [count, setCount] = React.useState<number | null>(null);
+function useNavCount(
+  load: Loader,
+  tables: readonly string[],
+  initialCount?: number
+) {
+  // Seed from the server-computed count so the badge is correct in the FIRST
+  // paint (no slow pop-in), then keep it live via realtime + focus refresh.
+  const [count, setCount] = React.useState<number | null>(initialCount ?? null);
 
   React.useEffect(() => {
     const supabase = createClient();
@@ -88,23 +95,10 @@ function CountBadge({ count, active }: { count: number | null; active?: boolean 
 // every discrepancy (delivery or transfer), never plain in-transit.
 const DELIVERIES_TABLES = ["deliveries", "returns"] as const;
 async function loadDeliveries(sb: SupabaseClient) {
-  const [del, ret] = await Promise.all([
-    sb
-      .from("deliveries")
-      .select("id", { count: "exact", head: true })
-      .in("status", ["requested", "discrepancy"])
-      .is("deleted_at", null),
-    // shop-requested returns awaiting approval (0065)
-    sb
-      .from("returns")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "requested")
-      .is("deleted_at", null),
-  ]);
-  return (del.count ?? 0) + (ret.count ?? 0);
+  return (await getOwnerCounts(sb)).deliveries;
 }
-export function DeliveriesBadge({ active }: { active?: boolean }) {
-  return <CountBadge count={useNavCount(loadDeliveries, DELIVERIES_TABLES)} active={active} />;
+export function DeliveriesBadge({ active, initialCount }: { active?: boolean; initialCount?: number }) {
+  return <CountBadge count={useNavCount(loadDeliveries, DELIVERIES_TABLES, initialCount)} active={active} />;
 }
 
 // ── Stock Alerts ────────────────────────────────────────────────────────────
@@ -114,19 +108,10 @@ export function DeliveriesBadge({ active }: { active?: boolean }) {
 // focus refresh; delivery_requests IS realtime, so new requests bump it live.
 const STOCK_TABLES = ["notifications", "delivery_requests"] as const;
 async function loadStockAlerts(sb: SupabaseClient) {
-  const [master, shops, requests] = await Promise.all([
-    sb.from("master_low_stock").select("*", { count: "exact", head: true }),
-    sb.from("shop_low_stock").select("*", { count: "exact", head: true }),
-    sb
-      .from("delivery_requests")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "open")
-      .is("deleted_at", null),
-  ]);
-  return (master.count ?? 0) + (shops.count ?? 0) + (requests.count ?? 0);
+  return (await getOwnerCounts(sb)).stock_alerts;
 }
-export function StockAlertsBadge({ active }: { active?: boolean }) {
-  return <CountBadge count={useNavCount(loadStockAlerts, STOCK_TABLES)} active={active} />;
+export function StockAlertsBadge({ active, initialCount }: { active?: boolean; initialCount?: number }) {
+  return <CountBadge count={useNavCount(loadStockAlerts, STOCK_TABLES, initialCount)} active={active} />;
 }
 
 // ── Receivables ─────────────────────────────────────────────────────────────
@@ -134,14 +119,10 @@ export function StockAlertsBadge({ active }: { active?: boolean }) {
 // settled rows for history, so filter to a live balance.
 const RECEIVABLES_TABLES = ["sales", "utang_payments"] as const;
 async function loadReceivables(sb: SupabaseClient) {
-  const { count } = await sb
-    .from("receivables")
-    .select("*", { count: "exact", head: true })
-    .gt("balance_centavos", 0);
-  return count ?? 0;
+  return (await getOwnerCounts(sb)).receivables;
 }
-export function ReceivablesBadge({ active }: { active?: boolean }) {
-  return <CountBadge count={useNavCount(loadReceivables, RECEIVABLES_TABLES)} active={active} />;
+export function ReceivablesBadge({ active, initialCount }: { active?: boolean; initialCount?: number }) {
+  return <CountBadge count={useNavCount(loadReceivables, RECEIVABLES_TABLES, initialCount)} active={active} />;
 }
 
 // ── Warranties & Serials ────────────────────────────────────────────────────
@@ -149,15 +130,10 @@ export function ReceivablesBadge({ active }: { active?: boolean }) {
 // on here (approve/reject). Clears as each is decided.
 const WARRANTIES_TABLES = ["warranty_claims"] as const;
 async function loadWarrantyClaimsPending(sb: SupabaseClient) {
-  const { count } = await sb
-    .from("warranty_claims")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "requested")
-    .is("deleted_at", null);
-  return count ?? 0;
+  return (await getOwnerCounts(sb)).warranties;
 }
-export function WarrantiesBadge({ active }: { active?: boolean }) {
-  return <CountBadge count={useNavCount(loadWarrantyClaimsPending, WARRANTIES_TABLES)} active={active} />;
+export function WarrantiesBadge({ active, initialCount }: { active?: boolean; initialCount?: number }) {
+  return <CountBadge count={useNavCount(loadWarrantyClaimsPending, WARRANTIES_TABLES, initialCount)} active={active} />;
 }
 
 // ── Suppliers (Payables) ────────────────────────────────────────────────────
@@ -168,14 +144,10 @@ export function WarrantiesBadge({ active }: { active?: boolean }) {
 // overdue cron (which raises a notification → realtime bump).
 const SUPPLIERS_TABLES = ["receivings", "supplier_payments", "notifications"] as const;
 async function loadOverduePayables(sb: SupabaseClient) {
-  const { count } = await sb
-    .from("receiving_balances")
-    .select("*", { count: "exact", head: true })
-    .eq("overdue", true);
-  return count ?? 0;
+  return (await getOwnerCounts(sb)).suppliers;
 }
-export function SuppliersBadge({ active }: { active?: boolean }) {
-  return <CountBadge count={useNavCount(loadOverduePayables, SUPPLIERS_TABLES)} active={active} />;
+export function SuppliersBadge({ active, initialCount }: { active?: boolean; initialCount?: number }) {
+  return <CountBadge count={useNavCount(loadOverduePayables, SUPPLIERS_TABLES, initialCount)} active={active} />;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -194,8 +166,8 @@ async function loadShopIncoming(sb: SupabaseClient) {
     .eq("status", "in_transit");
   return count ?? 0;
 }
-export function ShopDeliveriesBadge({ active }: { active?: boolean }) {
-  return <CountBadge count={useNavCount(loadShopIncoming, SHOP_DELIVERIES_TABLES)} active={active} />;
+export function ShopDeliveriesBadge({ active, initialCount }: { active?: boolean; initialCount?: number }) {
+  return <CountBadge count={useNavCount(loadShopIncoming, SHOP_DELIVERIES_TABLES, initialCount)} active={active} />;
 }
 
 // Low Stock — this shop's items at/below their effective reorder threshold.
@@ -208,8 +180,8 @@ async function loadShopLowStock(sb: SupabaseClient) {
     .select("*", { count: "exact", head: true });
   return count ?? 0;
 }
-export function ShopLowStockBadge({ active }: { active?: boolean }) {
-  return <CountBadge count={useNavCount(loadShopLowStock, SHOP_LOW_TABLES)} active={active} />;
+export function ShopLowStockBadge({ active, initialCount }: { active?: boolean; initialCount?: number }) {
+  return <CountBadge count={useNavCount(loadShopLowStock, SHOP_LOW_TABLES, initialCount)} active={active} />;
 }
 
 // Receivables — this shop's customers with an outstanding utang balance.
@@ -221,6 +193,6 @@ async function loadShopReceivables(sb: SupabaseClient) {
     .gt("balance_centavos", 0);
   return count ?? 0;
 }
-export function ShopReceivablesBadge({ active }: { active?: boolean }) {
-  return <CountBadge count={useNavCount(loadShopReceivables, SHOP_RECEIVABLES_TABLES)} active={active} />;
+export function ShopReceivablesBadge({ active, initialCount }: { active?: boolean; initialCount?: number }) {
+  return <CountBadge count={useNavCount(loadShopReceivables, SHOP_RECEIVABLES_TABLES, initialCount)} active={active} />;
 }

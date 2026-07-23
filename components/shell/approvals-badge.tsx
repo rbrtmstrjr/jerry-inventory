@@ -2,31 +2,32 @@
 
 import * as React from "react";
 import { createClient } from "@/lib/supabase/client";
+import { getOwnerCounts } from "@/components/shell/badge-counts";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 /** Live count of submissions awaiting the owner (sales + losses). */
-export function ApprovalsBadge({ active }: { active?: boolean }) {
-  const [count, setCount] = React.useState<number | null>(null);
+export function ApprovalsBadge({
+  active,
+  initialCount,
+}: {
+  active?: boolean;
+  initialCount?: number;
+}) {
+  const [count, setCount] = React.useState<number | null>(initialCount ?? null);
 
   React.useEffect(() => {
     const supabase = createClient();
     let cancelled = false;
 
     async function load() {
-      const [s, l] = await Promise.all([
-        supabase
-          .from("sales")
-          .select("id", { count: "exact", head: true })
-          .in("status", ["pending", "questioned"])
-          .is("deleted_at", null),
-        supabase
-          .from("losses")
-          .select("id", { count: "exact", head: true })
-          .in("status", ["pending", "questioned"])
-          .is("deleted_at", null),
-      ]);
-      if (!cancelled) setCount((s.count ?? 0) + (l.count ?? 0));
+      // batched with the other owner badges — one round-trip for all six
+      try {
+        const { approvals } = await getOwnerCounts(supabase);
+        if (!cancelled) setCount(approvals);
+      } catch {
+        /* transient — keep the last known count */
+      }
     }
 
     load();
