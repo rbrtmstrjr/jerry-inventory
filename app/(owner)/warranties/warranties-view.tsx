@@ -341,35 +341,38 @@ export function WarrantiesView({
     },
   ];
 
-  const activeCount = warranties.filter((w) => w.active).length;
-
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Warranties &amp; Serials
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {activeCount} active warrant{activeCount === 1 ? "y" : "ies"} · search
-          any serial to see who bought it, where, and when.
-        </p>
-      </div>
-
-      {pendingClaims.length > 0 && <ClaimsApproval claims={pendingClaims} />}
-
-      <Tabs defaultValue="warranties">
+      {/* Land on Approval when there are claims to act on, else on Warranty. */}
+      <Tabs defaultValue={pendingClaims.length > 0 ? "approval" : "warranty"}>
         <TabsList>
-          <TabsTrigger value="warranties">
-            <ShieldCheck className="size-4" /> Warranties
+          <TabsTrigger value="approval">
+            <Wrench className="size-4" /> Approval
+            <TabCountBadge count={pendingClaims.length} />
+          </TabsTrigger>
+          <TabsTrigger value="warranty">
+            <ShieldCheck className="size-4" /> Warranty
             <TabCountBadge count={warranties.length} />
           </TabsTrigger>
           <TabsTrigger value="serials">
-            <Search className="size-4" /> Serial Lookup
+            <Search className="size-4" /> Serials
             <TabCountBadge count={serials.length} />
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="warranties" className="pt-2">
+        {/* Approval: shop-filed warranty claims awaiting the owner's decision. */}
+        <TabsContent value="approval" className="pt-2">
+          {pendingClaims.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+              <Wrench className="size-8" />
+              No warranty claims awaiting approval.
+            </div>
+          ) : (
+            <ClaimsApproval claims={pendingClaims} />
+          )}
+        </TabsContent>
+
+        <TabsContent value="warranty" className="pt-2">
           <DataTable
             columns={warrantyColumns}
             data={shownWarranties}

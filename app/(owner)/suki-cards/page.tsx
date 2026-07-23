@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
 import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/pnl";
+import { TableSkeleton } from "@/components/shell/streaming-skeletons";
 import { SukiCardsView, type CardRow } from "./suki-cards-view";
 
 export const metadata: Metadata = { title: "Suki Cards" };
@@ -10,8 +12,27 @@ export const metadata: Metadata = { title: "Suki Cards" };
  * Suki discount cards — the owner produces a card per loyal customer; a shop
  * scans it at Record Sale and the engine/part percentages apply automatically.
  * Rates are Settings dials (Settings → Alerts); this page manages the cards.
+ *
+ * Shell: the heading paints instantly; the card table streams behind a skeleton.
  */
-export default async function SukiCardsPage() {
+export default function SukiCardsPage() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Suki Cards</h1>
+        <p className="text-sm text-muted-foreground">
+          Loyalty cards you print and hand out — a scan at Record Sale applies
+          the suki discount automatically (set the rates in Settings → Alerts).
+        </p>
+      </div>
+      <Suspense fallback={<TableSkeleton cols={5} />}>
+        <SukiCardsBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function SukiCardsBody() {
   const supabase = await createClient();
 
   const [cardsRes, allUsage, customersRes, settingsRes] = await Promise.all([
@@ -44,6 +65,7 @@ export default async function SukiCardsPage() {
       .single(),
   ]);
 
+  /* eslint-disable @typescript-eslint/no-explicit-any */
   const usage = new Map<string, { count: number; saved: number }>();
   for (const s of allUsage as any[]) {
     const u = usage.get(s.discount_card_id as string) ?? { count: 0, saved: 0 };
@@ -52,7 +74,6 @@ export default async function SukiCardsPage() {
     usage.set(s.discount_card_id as string, u);
   }
 
-  /* eslint-disable @typescript-eslint/no-explicit-any */
   const cards: CardRow[] = (cardsRes.data ?? []).map((c: any) => ({
     id: c.id,
     card_no: c.card_no,

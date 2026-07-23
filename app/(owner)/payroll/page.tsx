@@ -1,10 +1,21 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { TableSkeleton } from "@/components/shell/streaming-skeletons";
 import { PeriodsList, type PeriodRow } from "./periods-list";
 
 export const metadata: Metadata = { title: "Run Payroll" };
 
-export default async function PayrollPage() {
+/** Shell: the layout's heading + tabs stay instant; the periods table streams. */
+export default function PayrollPage() {
+  return (
+    <Suspense fallback={<TableSkeleton cols={5} />}>
+      <PayrollBody />
+    </Suspense>
+  );
+}
+
+async function PayrollBody() {
   const supabase = await createClient();
 
   const [periodsRes, staffCountRes] = await Promise.all([

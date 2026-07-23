@@ -1,12 +1,25 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAll } from "@/lib/pnl";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ShopsView, type EmployeeRow, type ShopRow } from "./shops-view";
 
 export const metadata: Metadata = { title: "Shops & Employees" };
 
-export default async function ShopsPage() {
+/** Shell: the layout's heading stays instant; the shop cards (which page every
+ *  shop's stock + engines) stream in behind a skeleton. */
+export default function ShopsPage() {
+  return (
+    <Suspense fallback={<ShopsSkeleton />}>
+      <ShopsBody />
+    </Suspense>
+  );
+}
+
+async function ShopsBody() {
   const supabase = await createClient();
 
   const [shopsRes, profilesRes, allStock, allEngines, pendSalesRes, pendLossesRes, staffRes] = await Promise.all([
@@ -104,4 +117,29 @@ export default async function ShopsPage() {
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return <ShopsView shops={shops} employees={employees} staff={staff} />;
+}
+
+function ShopsSkeleton() {
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-4 w-72" />
+        <Skeleton className="h-9 w-28" />
+      </div>
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i}>
+            <CardHeader>
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="mt-2 h-3 w-56" />
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
 }

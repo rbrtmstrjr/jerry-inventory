@@ -47,6 +47,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ShopBadge } from "@/components/shop-badge";
+import type { QueueTab } from "./approval-tabs";
 import { ReceiptImage } from "@/components/receipt-image";
 import {
   approveBatch,
@@ -167,12 +168,17 @@ type DialogState =
     }
   | null;
 
+// Reveal the active tab's list in batches so a long queue paints instantly.
+const APPROVAL_PAGE = 5;
+
 export function ApprovalsView({
+  activeTab,
   sales,
   losses,
   expenses,
   activeCategories,
 }: {
+  activeTab: QueueTab;
   sales: PendingSale[];
   losses: PendingLoss[];
   expenses: PendingExpense[];
@@ -301,6 +307,34 @@ export function ApprovalsView({
     );
   }, [sales, losses, expenses]);
 
+  // Scroll reveal for whichever tab is active. Only one list renders at a time
+  // and the body remounts on tab switch (Suspense key={tab}), so a single
+  // window resets per tab; a realtime refresh keeps it (no key change).
+  const [visibleCount, setVisibleCount] = React.useState(APPROVAL_PAGE);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const activeLen =
+    activeTab === "all"
+      ? batches.length
+      : activeTab === "sales"
+        ? sales.length
+        : activeTab === "losses"
+          ? losses.length
+          : expenses.length;
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || visibleCount >= activeLen) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((n) => Math.min(n + APPROVAL_PAGE, activeLen));
+        }
+      },
+      { rootMargin: "600px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount, activeLen]);
+
   async function onApprove(kind: "sale" | "loss", id: string) {
     setBusy(id);
     const res = kind === "sale" ? await approveSale(id) : await approveLoss(id);
@@ -408,7 +442,7 @@ export function ApprovalsView({
     );
   }
 
-  function renderSaleCard(s: PendingSale) {
+  function renderSaleCard(s: PendingSale, showShop = false) {
     return (
       <Card key={s.id} className={s.status === "questioned" ? "border-warning" : ""}>
         <CardHeader className="pb-2">
@@ -429,6 +463,15 @@ export function ApprovalsView({
             <ActionButtons kind="sale" id={s.id} />
           </div>
           <CardDescription>
+            {showShop && (
+              <>
+                <ShopBadge
+                  variant="text"
+                  shop={{ name: s.shop_name, color_key: s.shop_color_key }}
+                />
+                {" · "}
+              </>
+            )}
             {format(new Date(s.created_at), "MMM d, h:mm a")}
             {s.customer && ` · Customer: ${s.customer}`}
           </CardDescription>
@@ -514,7 +557,7 @@ export function ApprovalsView({
     );
   }
 
-  function renderLossCard(l: PendingLoss) {
+  function renderLossCard(l: PendingLoss, showShop = false) {
     return (
       <Card key={l.id} className={l.status === "questioned" ? "border-warning" : ""}>
         <CardHeader className="pb-2">
@@ -533,6 +576,15 @@ export function ApprovalsView({
             <ActionButtons kind="loss" id={l.id} />
           </div>
           <CardDescription>
+            {showShop && (
+              <>
+                <ShopBadge
+                  variant="text"
+                  shop={{ name: l.shop_name, color_key: l.shop_color_key }}
+                />
+                {" · "}
+              </>
+            )}
             Loss / adjustment · {format(new Date(l.created_at), "MMM d, h:mm a")}
           </CardDescription>
         </CardHeader>
@@ -550,7 +602,7 @@ export function ApprovalsView({
     );
   }
 
-  function renderExpenseCard(e: PendingExpense) {
+  function renderExpenseCard(e: PendingExpense, showShop = false) {
     return (
       <Card key={e.id} className={e.status === "questioned" ? "border-warning" : ""}>
         <CardHeader className="pb-2">
@@ -582,6 +634,15 @@ export function ApprovalsView({
             />
           </div>
           <CardDescription>
+            {showShop && (
+              <>
+                <ShopBadge
+                  variant="text"
+                  shop={{ name: e.shop_name, color_key: e.shop_color_key }}
+                />
+                {" · "}
+              </>
+            )}
             {format(new Date(e.expense_date), "MMM d")} · recorded{" "}
             {format(new Date(e.created_at), "MMM d, h:mm a")}
           </CardDescription>
@@ -615,23 +676,17 @@ export function ApprovalsView({
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Approval Queue</h1>
-        <p className="text-sm text-muted-foreground">
-          {batches.length} batch{batches.length === 1 ? "" : "es"} waiting —
-          each is one shop submission you can approve in one click. Stock only
-          moves when you approve. Updates live as shops submit.
-        </p>
-      </div>
+      {/* All: the per-shop submission batches with one-click Approve-all. */}
+      {activeTab === "all" && (
+        <div className="flex flex-col gap-6">
+          {batches.length === 0 && (
+            <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+              <Inbox className="size-8" />
+              Nothing waiting — you&apos;re all caught up.
+            </div>
+          )}
 
-      {batches.length === 0 && (
-        <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
-          <Inbox className="size-8" />
-          Nothing waiting — you&apos;re all caught up.
-        </div>
-      )}
-
-      {batches.map((b) => {
+          {batches.slice(0, visibleCount).map((b) => {
         const pendingCount =
           b.sales.filter((s) => s.status === "pending").length +
           b.losses.filter((l) => l.status === "pending").length +
@@ -697,23 +752,90 @@ export function ApprovalsView({
                   <ShoppingCart className="size-3.5" /> SALES
                 </p>
               )}
-              {b.sales.map(renderSaleCard)}
+              {b.sales.map((s) => renderSaleCard(s))}
               {b.losses.length > 0 && (
                 <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                   <AlertTriangle className="size-3.5" /> LOSSES / ADJUSTMENTS
                 </p>
               )}
-              {b.losses.map(renderLossCard)}
+              {b.losses.map((l) => renderLossCard(l))}
               {b.expenses.length > 0 && (
                 <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                   <Wallet className="size-3.5" /> EXPENSES
                 </p>
               )}
-              {b.expenses.map(renderExpenseCard)}
+              {b.expenses.map((e) => renderExpenseCard(e))}
             </div>
           </section>
         );
       })}
+          {visibleCount < batches.length && (
+            <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
+              Loading more… ({visibleCount} of {batches.length})
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Sales / Losses / Expenses: a flat list of just that type across every
+          shop, each card with its own Approve / Question / Reject. */}
+      {activeTab === "sales" && (
+        <div className="flex flex-col gap-3">
+          {sales.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+              <Inbox className="size-8" />
+              No sales awaiting approval.
+            </div>
+          ) : (
+            <>
+              {sales.slice(0, visibleCount).map((s) => renderSaleCard(s, true))}
+              {visibleCount < sales.length && (
+                <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
+                  Loading more… ({visibleCount} of {sales.length})
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {activeTab === "losses" && (
+        <div className="flex flex-col gap-3">
+          {losses.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+              <Inbox className="size-8" />
+              No losses awaiting approval.
+            </div>
+          ) : (
+            <>
+              {losses.slice(0, visibleCount).map((l) => renderLossCard(l, true))}
+              {visibleCount < losses.length && (
+                <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
+                  Loading more… ({visibleCount} of {losses.length})
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {activeTab === "expenses" && (
+        <div className="flex flex-col gap-3">
+          {expenses.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+              <Inbox className="size-8" />
+              No expenses awaiting approval.
+            </div>
+          ) : (
+            <>
+              {expenses.slice(0, visibleCount).map((e) => renderExpenseCard(e, true))}
+              {visibleCount < expenses.length && (
+                <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
+                  Loading more… ({visibleCount} of {expenses.length})
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Reviewed history lives in its own section below (see ReviewedHistory) */}
 

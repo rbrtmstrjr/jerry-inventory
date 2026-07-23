@@ -1,10 +1,21 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { TableSkeleton } from "@/components/shell/streaming-skeletons";
 import { StaffView, type StaffRow, type PositionOption } from "./staff-view";
 
 export const metadata: Metadata = { title: "Staff" };
 
-export default async function StaffPage() {
+/** Shell: the layout's heading + tabs stay instant; the staff table streams. */
+export default function StaffPage() {
+  return (
+    <Suspense fallback={<TableSkeleton cols={6} />}>
+      <StaffBody />
+    </Suspense>
+  );
+}
+
+async function StaffBody() {
   const supabase = await createClient();
 
   const [staffRes, shopsRes, positionsRes] = await Promise.all([

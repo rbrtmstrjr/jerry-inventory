@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { TableSkeleton } from "@/components/shell/streaming-skeletons";
 import {
   ExpensesView,
   type CategoryOption,
@@ -9,7 +11,16 @@ import {
 
 export const metadata: Metadata = { title: "Expenses" };
 
-export default async function ExpensesPage() {
+/** Shell: the layout's heading + tabs stay instant; the expense log streams. */
+export default function ExpensesPage() {
+  return (
+    <Suspense fallback={<TableSkeleton cols={6} />}>
+      <ExpensesBody />
+    </Suspense>
+  );
+}
+
+async function ExpensesBody() {
   const supabase = await createClient();
 
   const [expensesRes, categoriesRes, shopsRes, deliveriesRes] = await Promise.all([

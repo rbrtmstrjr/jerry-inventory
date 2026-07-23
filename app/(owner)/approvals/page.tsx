@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ApprovalTabs, type QueueTab } from "./approval-tabs";
 import {
   ApprovalsView,
   type PendingSale,
@@ -12,12 +15,49 @@ export const metadata: Metadata = { title: "Approval Queue" };
 
 const PAGE_SIZE = 20;
 
+function resolveTab(t?: string): QueueTab {
+  return t === "sales" || t === "losses" || t === "expenses" ? t : "all";
+}
+
+/**
+ * `?tab=` picks the queue view. The shell does NO DB work — it awaits only
+ * searchParams — so the heading + tab bar paint instantly (no fall-back to the
+ * whole-segment loader). Only the ACTIVE tab's data is fetched and streamed: the
+ * type tabs pull just their own rows, "All" builds the per-shop batches. No tab
+ * loads another tab's data.
+ */
 export default async function ApprovalsPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const sp = await searchParams;
+  const tab = resolveTab(sp.tab);
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Approval Queue</h1>
+        <p className="text-sm text-muted-foreground">
+          Each batch is one shop submission you can approve in one click. Stock
+          only moves when you approve. Updates live as shops submit.
+        </p>
+      </div>
+      <ApprovalTabs active={tab} />
+      <Suspense key={tab} fallback={<ApprovalsSkeleton tab={tab} />}>
+        <ApprovalsBody sp={sp} tab={tab} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function ApprovalsBody({
+  sp,
+  tab,
+}: {
+  sp: Record<string, string | undefined>;
+  tab: QueueTab;
+}) {
   const supabase = await createClient();
 
   // ── Reviewed History: filtered + paginated SERVER-SIDE. This list grows
@@ -48,50 +88,63 @@ export default async function ApprovalsPage({
     historyQuery = historyQuery.ilike("search_text", `%${filters.q.trim().toLowerCase()}%`);
   }
 
+  // Only the active tab's rows are fetched. "All" needs every type to build the
+  // per-shop batches; each type tab pulls just its own.
+  const wantSales = tab === "all" || tab === "sales";
+  const wantLosses = tab === "all" || tab === "losses";
+  const wantExpenses = tab === "all" || tab === "expenses";
+  const empty = Promise.resolve({ data: [] as unknown[] });
+
   const [salesRes, lossesRes, expensesRes, activeCatsRes, historyRes, shopListRes] =
     await Promise.all([
-    supabase
-      .from("sales")
-      .select(
-        `id, shop_id, business_date, status, total_centavos, owner_note, created_at, batch_id,
-         payment_type, payment_method, amount_paid_centavos, balance_due_centavos, receipt_no,
-         discount_card_id, card_discount_centavos, discount_cards(card_no),
-         submission_batches(submitted_at),
-         shops(name, color_key),
-         profiles!sales_recorded_by_fkey(full_name),
-         customers(name, phone),
-         sale_lines(description, qty, unit_price_centavos, line_total_centavos, engine_id,
-                    agreed_price_centavos, list_reference_centavos, discount_centavos,
-                    engines(cost_centavos))`
-      )
-      .in("status", ["pending", "questioned"])
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("losses")
-      .select(
-        `id, shop_id, business_date, status, reason, qty, note, owner_note, description, created_at, batch_id,
-         submission_batches(submitted_at),
-         shops(name, color_key),
-         profiles!losses_recorded_by_fkey(full_name)`
-      )
-      .in("status", ["pending", "questioned"])
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("expenses")
-      .select(
-        `id, shop_id, expense_date, status, amount, description, paid_to,
-         payment_method, reference_no, receipt_image_path, review_note, created_at, batch_id,
-         submission_batches(submitted_at),
-         shops(name, color_key),
-         profiles!expenses_recorded_by_fkey(full_name),
-         expense_categories(id, name, status)`
-      )
-      .eq("source", "shop")
-      .in("status", ["pending", "questioned"])
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true }),
+    wantSales
+      ? supabase
+          .from("sales")
+          .select(
+            `id, shop_id, business_date, status, total_centavos, owner_note, created_at, batch_id,
+             payment_type, payment_method, amount_paid_centavos, balance_due_centavos, receipt_no,
+             discount_card_id, card_discount_centavos, discount_cards(card_no),
+             submission_batches(submitted_at),
+             shops(name, color_key),
+             profiles!sales_recorded_by_fkey(full_name),
+             customers(name, phone),
+             sale_lines(description, qty, unit_price_centavos, line_total_centavos, engine_id,
+                        agreed_price_centavos, list_reference_centavos, discount_centavos,
+                        engines(cost_centavos))`
+          )
+          .in("status", ["pending", "questioned"])
+          .is("deleted_at", null)
+          .order("created_at", { ascending: true })
+      : empty,
+    wantLosses
+      ? supabase
+          .from("losses")
+          .select(
+            `id, shop_id, business_date, status, reason, qty, note, owner_note, description, created_at, batch_id,
+             submission_batches(submitted_at),
+             shops(name, color_key),
+             profiles!losses_recorded_by_fkey(full_name)`
+          )
+          .in("status", ["pending", "questioned"])
+          .is("deleted_at", null)
+          .order("created_at", { ascending: true })
+      : empty,
+    wantExpenses
+      ? supabase
+          .from("expenses")
+          .select(
+            `id, shop_id, expense_date, status, amount, description, paid_to,
+             payment_method, reference_no, receipt_image_path, review_note, created_at, batch_id,
+             submission_batches(submitted_at),
+             shops(name, color_key),
+             profiles!expenses_recorded_by_fkey(full_name),
+             expense_categories(id, name, status)`
+          )
+          .eq("source", "shop")
+          .in("status", ["pending", "questioned"])
+          .is("deleted_at", null)
+          .order("created_at", { ascending: true })
+      : empty,
     supabase
       .from("expense_categories")
       .select("id, name")
@@ -173,12 +226,12 @@ export default async function ApprovalsPage({
     category_name: e.expense_categories?.name ?? "?",
     category_proposed: e.expense_categories?.status === "proposed",
   }));
-
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return (
     <div className="flex flex-col gap-10">
       <ApprovalsView
+        activeTab={tab}
         sales={sales}
         losses={losses}
         expenses={expenses}
@@ -192,6 +245,47 @@ export default async function ApprovalsPage({
         filters={filters}
         openItem={sp.item ?? null}
       />
+    </div>
+  );
+}
+
+function ApprovalsSkeleton({ tab }: { tab: QueueTab }) {
+  return (
+    <div className="flex flex-col gap-10">
+      <div className="flex flex-col gap-3">
+        {tab === "all"
+          ? Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="overflow-hidden rounded-lg border">
+                <div className="border-b bg-muted/50 px-4 py-3">
+                  <Skeleton className="h-4 w-48" />
+                </div>
+                <div className="flex flex-col gap-3 p-3">
+                  <Skeleton className="h-20 w-full rounded-md" />
+                  <Skeleton className="h-20 w-full rounded-md" />
+                </div>
+              </div>
+            ))
+          : Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-28 w-full rounded-lg" />
+            ))}
+      </div>
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-6 w-40" />
+        <div className="flex flex-wrap gap-2">
+          <Skeleton className="h-9 w-40" />
+          <Skeleton className="h-9 w-40" />
+          <Skeleton className="h-9 w-56" />
+        </div>
+        <div className="overflow-hidden rounded-md border">
+          {Array.from({ length: 6 }).map((_, r) => (
+            <div key={r} className="flex items-center gap-4 border-b px-4 py-3.5 last:border-0">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-4 flex-1" />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -180,30 +180,19 @@ export function SukiCardsView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Suki Cards</h1>
-          <p className="text-sm text-muted-foreground">
-            Loyalty cards you print and hand out — a scan at Record Sale applies{" "}
-            <span className="font-medium text-foreground">
-              {enginePct}% off engines · {partPct}% off parts
-            </span>{" "}
-            (change the rates in Settings → Alerts).
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" /> New card
-        </Button>
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <BadgePercent className="size-4" /> Issued cards
           </CardTitle>
           <CardDescription>
-            One active card per customer. A lost card is deactivated and
-            reissued with a new number — the old one stops scanning immediately.
+            A scan at Record Sale applies{" "}
+            <span className="font-medium text-foreground">
+              {enginePct}% off engines · {partPct}% off parts
+            </span>{" "}
+            (change the rates in Settings → Alerts). One active card per
+            customer — a lost card is deactivated and reissued with a new number,
+            and the old one stops scanning immediately.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -212,6 +201,11 @@ export function SukiCardsView({
             data={cards}
             searchPlaceholder="Search customer or card no…"
             emptyMessage="No cards yet — create one for your first suki."
+            toolbar={
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" /> New card
+              </Button>
+            }
           />
         </CardContent>
       </Card>

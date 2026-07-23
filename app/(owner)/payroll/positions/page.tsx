@@ -1,10 +1,21 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { TableSkeleton } from "@/components/shell/streaming-skeletons";
 import { PositionsView, type PositionRow } from "./positions-view";
 
 export const metadata: Metadata = { title: "Positions" };
 
-export default async function PositionsPage() {
+/** Shell: the layout's heading + tabs stay instant; the positions table streams. */
+export default function PositionsPage() {
+  return (
+    <Suspense fallback={<TableSkeleton cols={5} />}>
+      <PositionsBody />
+    </Suspense>
+  );
+}
+
+async function PositionsBody() {
   const supabase = await createClient();
 
   const [positionsRes, shopsRes, staffRes] = await Promise.all([

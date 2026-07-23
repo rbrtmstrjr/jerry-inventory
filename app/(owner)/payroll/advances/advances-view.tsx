@@ -70,6 +70,26 @@ export function AdvancesView({
   const [busy, setBusy] = React.useState(false);
   const [voiding, setVoiding] = React.useState<AdvanceRow | null>(null);
 
+  // Reveal the vale history in batches so a long ledger paints instantly.
+  const HISTORY_PAGE = 30;
+  const [visibleCount, setVisibleCount] = React.useState(HISTORY_PAGE);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const visibleAdvances = advances.slice(0, visibleCount);
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || visibleCount >= advances.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((n) => Math.min(n + HISTORY_PAGE, advances.length));
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount, advances.length]);
+
   const amountC = parsePesosToCentavos(amount || "0") ?? 0;
 
   async function onGive() {
@@ -208,7 +228,7 @@ export function AdvancesView({
               No vales recorded yet.
             </p>
           ) : (
-            advances.map((a) => (
+            visibleAdvances.map((a) => (
               <div
                 key={a.id}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
@@ -243,6 +263,14 @@ export function AdvancesView({
                 </div>
               </div>
             ))
+          )}
+          {visibleCount < advances.length && (
+            <div
+              ref={sentinelRef}
+              className="py-2 text-center text-xs text-muted-foreground"
+            >
+              Loading more… ({visibleAdvances.length} of {advances.length})
+            </div>
           )}
         </div>
       </div>

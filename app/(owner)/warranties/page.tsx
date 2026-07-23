@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/pnl";
 import { ph_today } from "@/lib/ph-date";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/shell/streaming-skeletons";
 import {
   WarrantiesView,
   type WarrantyRow,
@@ -11,7 +14,28 @@ import {
 
 export const metadata: Metadata = { title: "Warranties & Serials" };
 
-export default async function WarrantiesPage() {
+/** Shell: the heading paints instantly; the serial registry (which loads every
+ *  engine ever received) streams in behind a skeleton. */
+export default function WarrantiesPage() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Warranties &amp; Serials
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Every engine serial and its warranty across all shops — search any
+          serial to see who bought it, where, and when.
+        </p>
+      </div>
+      <Suspense fallback={<WarrantiesSkeleton />}>
+        <WarrantiesBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function WarrantiesBody() {
   const supabase = await createClient();
 
   const [allWarranties, allEngines, shopsRes, pendingClaimsRes] = await Promise.all([
@@ -122,5 +146,18 @@ export default async function WarrantiesPage() {
       shops={shopsRes.data ?? []}
       pendingClaims={pendingClaims}
     />
+  );
+}
+
+function WarrantiesSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-2">
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-28" />
+      </div>
+      <TableSkeleton cols={6} toolbar={false} />
+    </div>
   );
 }

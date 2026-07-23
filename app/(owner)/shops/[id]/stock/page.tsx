@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -6,6 +7,7 @@ import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
 import { Button } from "@/components/ui/button";
+import { TableSkeleton } from "@/components/shell/streaming-skeletons";
 import { ShopStockReadonly } from "./shop-stock-readonly";
 
 export const metadata: Metadata = { title: "Shop Stock" };
@@ -26,17 +28,6 @@ export default async function OwnerShopStockPage({
     .single();
   if (!shop) notFound();
 
-  // the same employee-safe views — for the owner they return every shop,
-  // so filter to this one
-  const [stockRes, enginesRes] = await Promise.all([
-    supabase.from("shop_stock").select("*").eq("shop_id", id).order("name"),
-    supabase
-      .from("shop_engines")
-      .select("*")
-      .eq("shop_id", id)
-      .order("serial_number"),
-  ]);
-
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -55,10 +46,30 @@ export default async function OwnerShopStockPage({
         </p>
       </div>
 
-      <ShopStockReadonly
-        stock={(stockRes.data ?? []) as ShopStockRow[]}
-        engines={(enginesRes.data ?? []) as ShopEngineRow[]}
-      />
+      <Suspense fallback={<TableSkeleton cols={5} toolbar={false} />}>
+        <ShopStockBody shopId={id} />
+      </Suspense>
     </div>
+  );
+}
+
+async function ShopStockBody({ shopId }: { shopId: string }) {
+  const supabase = await createClient();
+  // the same employee-safe views — for the owner they return every shop,
+  // so filter to this one
+  const [stockRes, enginesRes] = await Promise.all([
+    supabase.from("shop_stock").select("*").eq("shop_id", shopId).order("name"),
+    supabase
+      .from("shop_engines")
+      .select("*")
+      .eq("shop_id", shopId)
+      .order("serial_number"),
+  ]);
+
+  return (
+    <ShopStockReadonly
+      stock={(stockRes.data ?? []) as ShopStockRow[]}
+      engines={(enginesRes.data ?? []) as ShopEngineRow[]}
+    />
   );
 }

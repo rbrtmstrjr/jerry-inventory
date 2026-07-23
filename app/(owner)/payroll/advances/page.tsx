@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   AdvancesView,
   type StaffOption,
@@ -9,7 +12,16 @@ import {
 
 export const metadata: Metadata = { title: "Advances" };
 
-export default async function PayrollAdvancesPage() {
+/** Shell: the layout's heading + tabs stay instant; the vale ledger streams. */
+export default function PayrollAdvancesPage() {
+  return (
+    <Suspense fallback={<AdvancesSkeleton />}>
+      <PayrollAdvancesBody />
+    </Suspense>
+  );
+}
+
+async function PayrollAdvancesBody() {
   const supabase = await createClient();
 
   const [staffRes, balancesRes, advancesRes] = await Promise.all([
@@ -61,4 +73,40 @@ export default async function PayrollAdvancesPage() {
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return <AdvancesView staff={staff} balances={balances} advances={advances} />;
+}
+
+function AdvancesSkeleton() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-3">
+      <Card className="lg:col-span-1">
+        <CardHeader>
+          <Skeleton className="h-5 w-28" />
+          <Skeleton className="mt-2 h-3 w-48" />
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-full" />
+          ))}
+        </CardContent>
+      </Card>
+      <div className="flex flex-col gap-4 lg:col-span-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <Skeleton className="h-5 w-40" />
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </CardContent>
+        </Card>
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-4 w-24" />
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-12 w-full rounded-md" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }

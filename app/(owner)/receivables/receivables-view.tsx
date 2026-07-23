@@ -159,14 +159,6 @@ export function OwnerReceivablesView({
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Receivables</h1>
-        <p className="text-sm text-muted-foreground">
-          Every unpaid balance (utang) across all shops. Balances only drop when
-          you approve a payment in the Approval Queue.
-        </p>
-      </div>
-
       {/* Totals */}
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>

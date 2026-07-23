@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/pnl";
 import { ph_today } from "@/lib/ph-date";
+import { ReportSkeleton } from "@/components/shell/streaming-skeletons";
 import { ExpenseReports, type ExpenseReportData } from "./expense-reports";
 
 export const metadata: Metadata = { title: "Expense Reports" };
@@ -12,12 +14,26 @@ function addDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Shell: the layout's heading + tabs stay instant; the report streams behind a
+ *  skeleton that re-shows whenever the filters change. */
 export default async function ExpenseReportsPage({
   searchParams,
 }: {
   searchParams: Promise<{ from?: string; to?: string; shop?: string }>;
 }) {
   const params = await searchParams;
+  return (
+    <Suspense key={JSON.stringify(params)} fallback={<ReportSkeleton />}>
+      <ExpenseReportsBody params={params} />
+    </Suspense>
+  );
+}
+
+async function ExpenseReportsBody({
+  params,
+}: {
+  params: { from?: string; to?: string; shop?: string };
+}) {
   const today = ph_today();
   const isDate = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 

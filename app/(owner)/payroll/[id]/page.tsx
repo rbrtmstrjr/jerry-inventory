@@ -1,12 +1,27 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { RemittanceTotal } from "@/lib/db-types";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PeriodDetail, type EntryRow, type PeriodInfo } from "./period-detail";
 
 export const metadata: Metadata = { title: "Pay Period" };
 
-export default async function PayPeriodPage({
+/** Shell: the layout's heading + tabs stay instant; the period grid streams. */
+export default function PayPeriodPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  return (
+    <Suspense fallback={<PeriodDetailSkeleton />}>
+      <PayPeriodBody params={params} />
+    </Suspense>
+  );
+}
+
+async function PayPeriodBody({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -82,5 +97,38 @@ export default async function PayPeriodPage({
       shops={shopsRes.data ?? []}
       remittance={(remittanceRes.data ?? []) as RemittanceTotal[]}
     />
+  );
+}
+
+function PeriodDetailSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-7 w-56" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-28" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+      </div>
+      <Skeleton className="h-9 w-48" />
+      <div className="overflow-hidden rounded-md border">
+        <div className="flex gap-4 border-b bg-muted/30 px-4 py-3">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <Skeleton key={i} className="h-4 flex-1" />
+          ))}
+        </div>
+        {Array.from({ length: 8 }).map((_, r) => (
+          <div key={r} className="flex items-center gap-4 border-b px-4 py-4 last:border-0">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <Skeleton key={i} className="h-4 flex-1" />
+            ))}
+          </div>
+        ))}
+      </div>
+      <Skeleton className="h-28 w-full rounded-md" />
+    </div>
   );
 }
