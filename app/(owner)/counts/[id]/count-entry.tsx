@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { Loader2, Printer, Save, Send } from "lucide-react";
+import { Loader2, Printer, Save, Search, Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +51,86 @@ const REASONS = [
   { value: "correction", label: "Correction" },
 ] as const;
 
+// A count sheet can hold hundreds of lines; reveal in batches so the first
+// paint is instant and scrolling adds more.
+const COUNT_PAGE = 60;
+
+// One count row, memoized so typing in a single input re-renders only that row
+// — not the whole (potentially 400-line) sheet.
+const CountRow = React.memo(function CountRow({
+  line,
+  value,
+  reason,
+  onCountChange,
+  onReasonChange,
+}: {
+  line: CountLine;
+  value: string;
+  reason: string;
+  onCountChange: (id: string, val: string) => void;
+  onReasonChange: (id: string, val: string) => void;
+}) {
+  const n = value === "" ? NaN : parseInt(value, 10);
+  const v = isNaN(n) ? null : n - line.expected_qty;
+  return (
+    <TableRow className={v !== null && v < 0 ? "bg-destructive/5" : undefined}>
+      <TableCell>
+        <div className="font-medium">{line.part_name}</div>
+        {line.barcode && (
+          <div className="font-mono text-xs text-muted-foreground">
+            {line.barcode}
+          </div>
+        )}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {line.expected_qty} {line.unit}
+      </TableCell>
+      <TableCell>
+        <Input
+          inputMode="numeric"
+          value={value}
+          onChange={(e) => onCountChange(line.id, e.target.value)}
+          placeholder="—"
+          disabled={line.sent}
+          aria-label={`Counted quantity for ${line.part_name}`}
+        />
+      </TableCell>
+      <TableCell className="text-right">
+        {line.sent ? (
+          <Badge>Sent to queue</Badge>
+        ) : v === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : v === 0 ? (
+          <Badge variant="secondary">Match</Badge>
+        ) : v < 0 ? (
+          <Badge variant="destructive">{v}</Badge>
+        ) : (
+          <Badge variant="outline">+{v}</Badge>
+        )}
+      </TableCell>
+      <TableCell>
+        {v !== null && v < 0 && !line.sent && (
+          <Select
+            value={reason || "nawala"}
+            onValueChange={(val) => onReasonChange(line.id, val)}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {REASONS.map((r) => (
+                <SelectItem key={r.value} value={r.value}>
+                  {r.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+});
+
 export function CountEntry({
   snapshotId,
   shopName,
@@ -73,6 +153,46 @@ export function CountEntry({
   const [saving, setSaving] = React.useState(false);
   const [sending, setSending] = React.useState(false);
   const [confirmSend, setConfirmSend] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [visibleCount, setVisibleCount] = React.useState(COUNT_PAGE);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Stable callbacks so a memoized CountRow only re-renders when its own value
+  // changes — typing one count doesn't touch the other rows.
+  const onCountChange = React.useCallback((id: string, val: string) => {
+    setCounts((c) => ({ ...c, [id]: val }));
+  }, []);
+  const onReasonChange = React.useCallback((id: string, val: string) => {
+    setReasons((r) => ({ ...r, [id]: val }));
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? lines.filter(
+        (l) =>
+          l.part_name.toLowerCase().includes(q) ||
+          (l.barcode ?? "").toLowerCase().includes(q)
+      )
+    : lines;
+  // visible always takes the first N of whatever's filtered, so searching just
+  // shows the first matches and the sentinel reveals more — no reset needed.
+  const visible = filtered.slice(0, visibleCount);
+
+  // Reveal the next batch as the sentinel scrolls into view.
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || visibleCount >= filtered.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((n) => Math.min(n + COUNT_PAGE, filtered.length));
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount, filtered.length]);
 
   function varianceOf(l: CountLine): number | null {
     const raw = counts[l.id];
@@ -195,9 +315,20 @@ export function CountEntry({
         </Card>
       )}
 
+      <div className="relative w-full max-w-xs">
+        <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Find an item…"
+          className="pl-8"
+          aria-label="Find an item to count"
+        />
+      </div>
+
       <div className="rounded-md border">
         <Table>
-          <TableHeader className="sticky top-0 bg-card">
+          <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow>
               <TableHead>Item</TableHead>
               <TableHead className="text-right">Expected</TableHead>
@@ -207,73 +338,38 @@ export function CountEntry({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {lines.map((l) => {
-              const v = varianceOf(l);
-              return (
-                <TableRow
-                  key={l.id}
-                  className={v !== null && v < 0 ? "bg-destructive/5" : undefined}
+            {visible.map((l) => (
+              <CountRow
+                key={l.id}
+                line={l}
+                value={counts[l.id] ?? ""}
+                reason={reasons[l.id] ?? ""}
+                onCountChange={onCountChange}
+                onReasonChange={onReasonChange}
+              />
+            ))}
+            {filtered.length === 0 && (
+              <TableRow className="hover:bg-transparent">
+                <TableCell
+                  colSpan={5}
+                  className="py-10 text-center text-sm text-muted-foreground"
                 >
-                  <TableCell>
-                    <div className="font-medium">{l.part_name}</div>
-                    {l.barcode && (
-                      <div className="font-mono text-xs text-muted-foreground">
-                        {l.barcode}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {l.expected_qty} {l.unit}
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      inputMode="numeric"
-                      value={counts[l.id] ?? ""}
-                      onChange={(e) =>
-                        setCounts((c) => ({ ...c, [l.id]: e.target.value }))
-                      }
-                      placeholder="—"
-                      disabled={l.sent}
-                      aria-label={`Counted quantity for ${l.part_name}`}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {l.sent ? (
-                      <Badge>Sent to queue</Badge>
-                    ) : v === null ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : v === 0 ? (
-                      <Badge variant="secondary">Match</Badge>
-                    ) : v < 0 ? (
-                      <Badge variant="destructive">{v}</Badge>
-                    ) : (
-                      <Badge variant="outline">+{v}</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {v !== null && v < 0 && !l.sent && (
-                      <Select
-                        value={reasons[l.id] ?? "nawala"}
-                        onValueChange={(val) =>
-                          setReasons((r) => ({ ...r, [l.id]: val }))
-                        }
-                      >
-                        <SelectTrigger className="h-8">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {REASONS.map((r) => (
-                            <SelectItem key={r.value} value={r.value}>
-                              {r.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+                  Nothing matches “{query}”.
+                </TableCell>
+              </TableRow>
+            )}
+            {visibleCount < filtered.length && (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={5} className="py-4">
+                  <div
+                    ref={sentinelRef}
+                    className="text-center text-xs text-muted-foreground"
+                  >
+                    Loading more… ({visible.length} of {filtered.length})
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </div>

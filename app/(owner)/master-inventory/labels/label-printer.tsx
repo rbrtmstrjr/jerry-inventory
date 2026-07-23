@@ -21,6 +21,10 @@ import { Label } from "@/components/ui/label";
  *  previews and freezes the browser. */
 const MAX_COPIES = 20;
 
+/** Reveal the pick list in batches so a large catalog paints instantly and
+ *  scrolling the list adds more. */
+const LABEL_PAGE = 40;
+
 interface LabelPart {
   id: string;
   name: string;
@@ -61,12 +65,35 @@ export function LabelPrinter({
   );
   const [copies, setCopies] = React.useState<Record<string, number>>({});
   const [search, setSearch] = React.useState("");
+  const [visibleCount, setVisibleCount] = React.useState(LABEL_PAGE);
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
 
   const filtered = parts.filter(
     (p) =>
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       (p.barcode ?? "").toLowerCase().includes(search.toLowerCase())
   );
+  // First N of whatever's filtered; the sentinel reveals more as you scroll the
+  // list, so searching just shows the first matches — no reset needed.
+  const visibleParts = filtered.slice(0, visibleCount);
+
+  // Reveal the next batch as the sentinel scrolls into view WITHIN the bounded
+  // pick list (root = the scroll container, not the viewport).
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || visibleCount >= filtered.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((n) => Math.min(n + LABEL_PAGE, filtered.length));
+        }
+      },
+      { root: scrollRef.current, rootMargin: "200px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount, filtered.length]);
 
   const labels: LabelPart[] = [];
   for (const p of parts) {
@@ -132,13 +159,16 @@ export function LabelPrinter({
                 {selected.size} selected
               </span>
             </div>
-            <div className="thin-scrollbar max-h-96 overflow-auto rounded-md border">
+            <div
+              ref={scrollRef}
+              className="thin-scrollbar max-h-96 overflow-auto rounded-md border"
+            >
               {filtered.length === 0 && (
                 <p className="p-4 text-sm text-muted-foreground">
                   No barcoded items found.
                 </p>
               )}
-              {filtered.map((p) => (
+              {visibleParts.map((p) => (
                 <div
                   key={p.id}
                   className="flex items-center gap-3 border-b px-3 py-2 last:border-b-0"
@@ -176,6 +206,14 @@ export function LabelPrinter({
                   )}
                 </div>
               ))}
+              {visibleCount < filtered.length && (
+                <div
+                  ref={sentinelRef}
+                  className="px-3 py-2 text-center text-xs text-muted-foreground"
+                >
+                  Loading more… ({visibleParts.length} of {filtered.length})
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

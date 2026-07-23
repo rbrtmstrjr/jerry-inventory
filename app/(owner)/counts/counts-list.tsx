@@ -138,14 +138,6 @@ export function CountsList({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Monthly Count</h1>
-        <p className="text-sm text-muted-foreground">
-          Freeze a shop&apos;s expected stock, print the sheet, count physically,
-          enter results — shortages go through the normal approval queue.
-        </p>
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">

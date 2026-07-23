@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
 import { createClient } from "@/lib/supabase/server";
 import { ph_today } from "@/lib/ph-date";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MovementTabs } from "./movement-tabs";
 import { JournalView } from "./journal-view";
 import { StockCardView } from "./stock-card-view";
@@ -9,6 +12,16 @@ import { EngineHistoryView } from "./engine-history-view";
 import type { EngineLife, JournalRow, StockCardRow } from "./types";
 
 export const metadata: Metadata = { title: "Movements" };
+
+type MovementsSearchParams = {
+  tab?: string;
+  from?: string; to?: string;
+  location?: string; type?: string; product?: string; actor?: string; q?: string;
+  page?: string;
+  part?: string; shop?: string; serial?: string;
+};
+
+type MovementTab = "journal" | "ledger" | "engines";
 
 const PAGE_SIZE = 50;
 
@@ -26,32 +39,48 @@ const isDate = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
  * that writes. `stock_movements` has no INSERT/UPDATE/DELETE policy for anyone
  * — not even the owner — so this could not mutate the ledger even if it tried.
  */
+/**
+ * Shell: the heading + tab bar paint instantly; the active tab's data streams
+ * in behind a matching skeleton — only the data area shows a skeleton, never the
+ * whole page. Reading searchParams is cheap (no DB), so the shell never blocks.
+ */
 export default async function MovementsPage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    tab?: string;
-    from?: string; to?: string;
-    location?: string; type?: string; product?: string; actor?: string; q?: string;
-    page?: string;
-    part?: string; shop?: string; serial?: string;
-  }>;
+  searchParams: Promise<MovementsSearchParams>;
 }) {
   const sp = await searchParams;
-  const tab =
+  const tab: MovementTab =
     sp.tab === "ledger" ? "ledger" : sp.tab === "engines" ? "engines" : "journal";
-  const supabase = await createClient();
-  const today = ph_today();
 
-  const heading = (
-    <div className="print:hidden">
-      <h1 className="text-2xl font-semibold tracking-tight">Movements</h1>
-      <p className="text-sm text-muted-foreground">
-        Every stock movement ever recorded. Append-only — nothing here can be
-        edited or deleted.
-      </p>
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="print:hidden">
+        <h1 className="text-2xl font-semibold tracking-tight">Movements</h1>
+        <p className="text-sm text-muted-foreground">
+          Every stock movement ever recorded. Append-only — nothing here can be
+          edited or deleted.
+        </p>
+      </div>
+      <MovementTabs active={tab} />
+      {/* Re-suspend on any filter/page/tab change so the skeleton shows again
+          while the new data loads. */}
+      <Suspense key={JSON.stringify(sp)} fallback={<MovementsSkeleton tab={tab} />}>
+        <MovementsBody sp={sp} tab={tab} />
+      </Suspense>
     </div>
   );
+}
+
+async function MovementsBody({
+  sp,
+  tab,
+}: {
+  sp: MovementsSearchParams;
+  tab: MovementTab;
+}) {
+  const supabase = await createClient();
+  const today = ph_today();
 
   // ── Stock Card ──────────────────────────────────────────────────────────
   if (tab === "ledger") {
@@ -83,21 +112,17 @@ export default async function MovementsPage({
     }
 
     return (
-      <div className="flex flex-col gap-4">
-        {heading}
-        <MovementTabs active="ledger" />
-        <StockCardView
-          from={from}
-          to={to}
-          partId={partId}
-          shopParam={shopParam}
-          parts={partsRes.data ?? []}
-          shops={(shopsRes.data ?? []).map((s) => ({ ...s, closed: !!s.deleted_at }))}
-          rows={(cardRes.data ?? []) as StockCardRow[]}
-          liveQty={liveQty}
-          today={today}
-        />
-      </div>
+      <StockCardView
+        from={from}
+        to={to}
+        partId={partId}
+        shopParam={shopParam}
+        parts={partsRes.data ?? []}
+        shops={(shopsRes.data ?? []).map((s) => ({ ...s, closed: !!s.deleted_at }))}
+        rows={(cardRes.data ?? []) as StockCardRow[]}
+        liveQty={liveQty}
+        today={today}
+      />
     );
   }
 
@@ -162,13 +187,7 @@ export default async function MovementsPage({
       }
     }
 
-    return (
-      <div className="flex flex-col gap-4">
-        {heading}
-        <MovementTabs active="engines" />
-        <EngineHistoryView serial={serial} life={life} today={today} />
-      </div>
-    );
+    return <EngineHistoryView serial={serial} life={life} today={today} />;
   }
 
   // ── Journal ─────────────────────────────────────────────────────────────
@@ -209,26 +228,76 @@ export default async function MovementsPage({
   ]);
 
   return (
+    <JournalView
+      rows={(journalRes.data ?? []) as JournalRow[]}
+      total={journalRes.count ?? 0}
+      page={page}
+      pageSize={PAGE_SIZE}
+      filters={{
+        from, to,
+        location: sp.location ?? "all",
+        type: sp.type ?? "all",
+        product: sp.product ?? "",
+        actor: sp.actor ?? "all",
+        q: sp.q ?? "",
+      }}
+      shops={shopsRes.data ?? []}
+      parts={partsRes.data ?? []}
+      actors={actorsRes.data ?? []}
+    />
+  );
+}
+
+function MovementsSkeleton({ tab }: { tab: MovementTab }) {
+  if (tab === "engines") {
+    return (
+      <div className="flex flex-col gap-4">
+        <Card className="print:hidden">
+          <CardContent className="pt-6">
+            <Skeleton className="h-3 w-24" />
+            <div className="mt-1 flex gap-2">
+              <Skeleton className="h-9 flex-1" />
+              <Skeleton className="h-9 w-9" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-12">
+            <Skeleton className="mx-auto h-4 w-64" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // journal + ledger share a filter card over a table
+  const filterCount = tab === "ledger" ? 4 : 6;
+  return (
     <div className="flex flex-col gap-4">
-      {heading}
-      <MovementTabs active="journal" />
-      <JournalView
-        rows={(journalRes.data ?? []) as JournalRow[]}
-        total={journalRes.count ?? 0}
-        page={page}
-        pageSize={PAGE_SIZE}
-        filters={{
-          from, to,
-          location: sp.location ?? "all",
-          type: sp.type ?? "all",
-          product: sp.product ?? "",
-          actor: sp.actor ?? "all",
-          q: sp.q ?? "",
-        }}
-        shops={shopsRes.data ?? []}
-        parts={partsRes.data ?? []}
-        actors={actorsRes.data ?? []}
-      />
+      <Card className="print:hidden">
+        <CardContent className="flex flex-wrap items-end gap-3 pt-6">
+          {Array.from({ length: filterCount }).map((_, i) => (
+            <div key={i} className="grid min-w-44 flex-1 gap-1">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      <div className="overflow-hidden rounded-md border">
+        <div className="flex gap-4 border-b bg-muted/30 px-4 py-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-4 flex-1" />
+          ))}
+        </div>
+        {Array.from({ length: 12 }).map((_, r) => (
+          <div key={r} className="flex items-center gap-4 border-b px-4 py-3.5 last:border-0">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-4 flex-1" />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

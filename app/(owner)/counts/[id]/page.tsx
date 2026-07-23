@@ -1,11 +1,25 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CountEntry, type CountLine } from "./count-entry";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata: Metadata = { title: "Count Entry" };
 
-export default async function CountDetailPage({
+export default function CountDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  return (
+    <Suspense fallback={<CountDetailSkeleton />}>
+      <CountDetailBody params={params} />
+    </Suspense>
+  );
+}
+
+async function CountDetailBody({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -49,5 +63,37 @@ export default async function CountDetailPage({
       note={s.note}
       lines={lines}
     />
+  );
+}
+
+function CountDetailSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <Skeleton className="h-8 w-56" />
+          <Skeleton className="mt-2 h-3 w-72" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-28" />
+          <Skeleton className="h-9 w-28" />
+        </div>
+      </div>
+      <Skeleton className="h-9 w-full max-w-xs" />
+      <div className="overflow-hidden rounded-md border">
+        <div className="flex gap-4 border-b bg-muted/30 px-4 py-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-4 flex-1" />
+          ))}
+        </div>
+        {Array.from({ length: 10 }).map((_, r) => (
+          <div key={r} className="flex items-center gap-4 border-b px-4 py-3.5 last:border-0">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-4 flex-1" />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
