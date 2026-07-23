@@ -1,27 +1,21 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Category, EngineModel, EngineRow, PartRow } from "@/lib/db-types";
-import { PartsTable } from "./parts-table";
-import { EnginesTable } from "./engines-table";
-import type { ComparisonRow } from "./supplier-prices-dialog";
 
+/**
+ * The catalog tab shell. It renders the Parts/Engines tab bar INSTANTLY and
+ * takes each tab's table as a slot — the slots are <Suspense> boundaries in the
+ * server page, so the tab bar paints immediately while the (heavy) tables stream
+ * in behind their own skeletons. Same idea as the Suppliers tabs: don't skeleton
+ * the whole page, only the data.
+ */
 export function CatalogTabs({
-  parts,
-  engines,
-  categories,
-  models,
-  suppliers,
-  fitmentsByPart,
-  pricesByPart,
+  partsSlot,
+  enginesSlot,
 }: {
-  parts: PartRow[];
-  engines: EngineRow[];
-  categories: Category[];
-  models: EngineModel[];
-  suppliers: { id: string; name: string }[];
-  fitmentsByPart: Record<string, string[]>;
-  pricesByPart: Record<string, ComparisonRow[]>;
+  partsSlot: ReactNode;
+  enginesSlot: ReactNode;
 }) {
   return (
     <Tabs defaultValue="parts">
@@ -30,17 +24,10 @@ export function CatalogTabs({
         <TabsTrigger value="engines">Engines</TabsTrigger>
       </TabsList>
       <TabsContent value="parts" className="pt-2">
-        <PartsTable
-          parts={parts}
-          categories={categories}
-          models={models}
-          suppliers={suppliers}
-          fitmentsByPart={fitmentsByPart}
-          pricesByPart={pricesByPart}
-        />
+        {partsSlot}
       </TabsContent>
       <TabsContent value="engines" className="pt-2">
-        <EnginesTable engines={engines} models={models} suppliers={suppliers} />
+        {enginesSlot}
       </TabsContent>
     </Tabs>
   );

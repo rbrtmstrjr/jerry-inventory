@@ -51,6 +51,9 @@ import {
 } from "./supplier-prices-dialog";
 // Category management moved to its own tab (/master-inventory/categories).
 
+/** Product cards revealed per scroll batch (the grid can hold 400+). */
+const CARD_PAGE = 48;
+
 export function PartsTable({
   parts,
   categories,
@@ -75,6 +78,8 @@ export function PartsTable({
   const [mergeOpen, setMergeOpen] = React.useState(false);
   const [view, setView] = usePersistedView("jm-view-owner-parts");
   const [cardSearch, setCardSearch] = React.useState("");
+  const [cardVisible, setCardVisible] = React.useState(CARD_PAGE);
+  const cardSentinelRef = React.useRef<HTMLDivElement | null>(null);
 
   async function onGenerateBarcode(part: PartRow) {
     const res = await generateInternalBarcode(part.id);
@@ -159,6 +164,26 @@ export function PartsTable({
           (p.category_name ?? "").toLowerCase().includes(q)
       )
     : parts;
+  const cardVisibleParts = cardParts.slice(0, cardVisible);
+
+  // Scroll-down reveal for the card grid — 400+ product cards shouldn't all
+  // paint at once. Reset the batch on search or view change; reveal the next
+  // batch as the sentinel nears the viewport.
+  React.useEffect(() => {
+    setCardVisible(CARD_PAGE);
+  }, [cardSearch, view]);
+  React.useEffect(() => {
+    const el = cardSentinelRef.current;
+    if (!el || cardVisible >= cardParts.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) setCardVisible((v) => v + CARD_PAGE);
+      },
+      { rootMargin: "800px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [cardVisible, cardParts.length, view]);
 
   const columns: ColumnDef<PartRow>[] = [
     {
@@ -348,7 +373,7 @@ export function PartsTable({
             </Empty>
           ) : (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {cardParts.map((p) => {
+              {cardVisibleParts.map((p) => {
                 const out = p.master_qty === 0;
                 const low = !out && p.reorder_level > 0 && p.master_qty <= p.reorder_level;
                 const margin =
@@ -411,6 +436,14 @@ export function PartsTable({
                   </div>
                 );
               })}
+            </div>
+          )}
+          {cardVisible < cardParts.length && (
+            <div
+              ref={cardSentinelRef}
+              className="py-3 text-center text-xs text-muted-foreground"
+            >
+              Loading more…
             </div>
           )}
           <p className="text-xs text-muted-foreground tabular-nums">

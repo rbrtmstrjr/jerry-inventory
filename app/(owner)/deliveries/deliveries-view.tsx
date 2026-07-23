@@ -792,16 +792,8 @@ export function DeliveriesView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Deliveries &amp; Returns
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Move stock between master and shops. Stock leaves master into transit
-          and lands only once the shop confirms what actually arrived.
-        </p>
-      </div>
-
+      {/* The heading lives in the server page shell (so it paints instantly
+          while this streams); this view starts at the transit banner + tabs. */}
       {transit.length > 0 && <TransitBanner transit={transit} />}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)}>

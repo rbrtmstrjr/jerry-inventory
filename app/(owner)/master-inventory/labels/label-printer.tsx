@@ -17,6 +17,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+/** Max label copies per item — a bigger count renders thousands of barcode
+ *  previews and freezes the browser. */
+const MAX_COPIES = 20;
+
 interface LabelPart {
   id: string;
   name: string;
@@ -67,7 +71,7 @@ export function LabelPrinter({
   const labels: LabelPart[] = [];
   for (const p of parts) {
     if (!selected.has(p.id)) continue;
-    const n = Math.max(1, copies[p.id] ?? 1);
+    const n = Math.min(MAX_COPIES, Math.max(1, copies[p.id] ?? 1));
     for (let i = 0; i < n; i++) labels.push(p);
   }
 
@@ -154,16 +158,20 @@ export function LabelPrinter({
                     <Input
                       type="number"
                       min={1}
-                      max={200}
+                      max={MAX_COPIES}
                       className="w-20"
                       value={copies[p.id] ?? 1}
-                      onChange={(e) =>
-                        setCopies((c) => ({
-                          ...c,
-                          [p.id]: parseInt(e.target.value || "1", 10),
-                        }))
-                      }
-                      aria-label={`Copies of ${p.name}`}
+                      onChange={(e) => {
+                        // Clamp to 1–20: `max` alone doesn't stop typing, and a
+                        // huge count renders thousands of barcode previews and
+                        // freezes the browser.
+                        const raw = parseInt(e.target.value, 10);
+                        const n = Number.isNaN(raw)
+                          ? 1
+                          : Math.min(MAX_COPIES, Math.max(1, raw));
+                        setCopies((c) => ({ ...c, [p.id]: n }));
+                      }}
+                      aria-label={`Copies of ${p.name} (max ${MAX_COPIES})`}
                     />
                   )}
                 </div>

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { classifyRequestLines, type ClassifiedRequest } from "@/lib/request-fulfillment";
 import { DeliveriesView } from "./deliveries-view";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata: Metadata = { title: "Deliveries & Returns" };
 
@@ -106,7 +108,35 @@ export type DeliveryPrefill = {
   note: string;
 } & ClassifiedRequest;
 
-export default async function DeliveriesPage({
+/**
+ * Deliveries streams: the heading paints instantly and the body (tab bar +
+ * content) loads behind a matching skeleton — only the data area shows a
+ * skeleton, not the whole page.
+ */
+export default function DeliveriesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ request?: string; tab?: string }>;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Deliveries &amp; Returns
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Move stock between master and shops. Stock leaves master into transit
+          and lands only once the shop confirms what actually arrived.
+        </p>
+      </div>
+      <Suspense fallback={<DeliveriesBodySkeleton />}>
+        <DeliveriesBody searchParams={searchParams} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function DeliveriesBody({
   searchParams,
 }: {
   searchParams: Promise<{ request?: string; tab?: string }>;
@@ -406,5 +436,18 @@ export default async function DeliveriesPage({
       returns={pendingReturns}
       initialTab={tab}
     />
+  );
+}
+
+function DeliveriesBodySkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-2">
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-24" />
+        <Skeleton className="h-9 w-44" />
+      </div>
+      <Skeleton className="h-96 w-full rounded-xl" />
+    </div>
   );
 }

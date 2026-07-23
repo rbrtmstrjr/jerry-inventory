@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { AlertTriangle, Loader2, Package, Truck, Warehouse } from "lucide-react";
+import { AlertTriangle, ChevronDown, Loader2, Package, Truck, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -85,14 +85,45 @@ export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
   const awaiting = transit.filter((t) => t.status === "in_transit");
   const short = transit.filter((t) => t.status === "discrepancy");
 
+  // Two collapsible, height-bounded sections so the tab doesn't stack into one
+  // endless scroll: the ACTIONABLE discrepancies open by default; the (long,
+  // animated) awaiting list collapsed until wanted.
+  const [showDecision, setShowDecision] = React.useState(true);
+  const [showAwaiting, setShowAwaiting] = React.useState(false);
+
   return (
     <div className="flex flex-col gap-4">
       {short.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <AlertTriangle className="size-4 text-warning-foreground" />
-            Needs your decision ({short.length})
-          </h2>
+        <section className="overflow-hidden rounded-xl border border-warning/50 bg-warning/[0.06] shadow-sm">
+          <button
+            type="button"
+            onClick={() => setShowDecision((v) => !v)}
+            aria-expanded={showDecision}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-warning/10"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning text-warning-foreground">
+              <AlertTriangle className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold">Needs your decision</span>
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning px-1.5 text-xs font-bold tabular-nums text-warning-foreground">
+                  {short.length}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Shortfalls a shop reported — resolve each to settle the delivery.
+              </p>
+            </div>
+            <ChevronDown
+              className={cn(
+                "size-5 shrink-0 text-muted-foreground transition-transform duration-200",
+                !showDecision && "-rotate-90"
+              )}
+            />
+          </button>
+          {showDecision && (
+          <div className="flex max-h-[26rem] flex-col gap-2 overflow-y-auto border-t border-warning/30 p-3">
           {short.map((t) => {
             const missing = Math.max(0, t.qty_outstanding - t.qty_damaged);
             return (
@@ -146,19 +177,47 @@ export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
               </div>
             );
           })}
-        </div>
+          </div>
+          )}
+        </section>
       )}
 
-      <div className="flex flex-col gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <Truck className="size-4" /> Awaiting shop confirmation ({awaiting.length})
-        </h2>
-        {awaiting.length === 0 ? (
-          <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-            Nothing waiting to be confirmed.
-          </p>
-        ) : (
-          awaiting.map((t) => (
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <button
+          type="button"
+          onClick={() => setShowAwaiting((v) => !v)}
+          aria-expanded={showAwaiting}
+          className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Truck className="size-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold">Awaiting shop confirmation</span>
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
+                {awaiting.length}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              On the road — waiting for shops to confirm what arrived.
+            </p>
+          </div>
+          <ChevronDown
+            className={cn(
+              "size-5 shrink-0 text-muted-foreground transition-transform duration-200",
+              !showAwaiting && "-rotate-90"
+            )}
+          />
+        </button>
+        {showAwaiting &&
+          (awaiting.length === 0 ? (
+            <p className="border-t p-6 text-center text-sm text-muted-foreground">
+              Nothing waiting to be confirmed.
+            </p>
+          ) : (
+            <div className="flex max-h-[32rem] flex-col gap-2 overflow-y-auto border-t p-3">
+            {awaiting.map((t) => (
             <div key={t.delivery_line_id} className="rounded-lg border bg-card p-3">
               {/* header: what + how many */}
               <div className="flex items-center gap-3">
@@ -208,9 +267,10 @@ export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
                 />
               </div>
             </div>
-          ))
-        )}
-      </div>
+            ))}
+            </div>
+          ))}
+        </section>
 
       <ResolveDialog row={target} onClose={() => setTarget(null)} />
     </div>
