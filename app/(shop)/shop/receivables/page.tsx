@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/pnl";
 import type { ReceivableRow } from "@/lib/db-types";
 import { ShopReceivablesView, type PaymentRow } from "./receivables-view";
 
@@ -8,12 +9,11 @@ export const metadata: Metadata = { title: "Receivables" };
 export default async function ShopReceivablesPage() {
   const supabase = await createClient();
 
-  const [openRes, paymentsRes] = await Promise.all([
-    // shop_receivables is already scoped to the caller's shop
-    supabase
-      .from("shop_receivables")
-      .select("*")
-      .order("created_at", { ascending: false }),
+  const [rows, paymentsRes] = await Promise.all([
+    // shop_receivables is already scoped to the caller's shop. Paginated by
+    // sale_id and fail-loud, same as the owner page — one busy shop can still
+    // outgrow PostgREST's 1,000-row cap.
+    fetchAll<ReceivableRow>(() => supabase.from("shop_receivables").select("*"), "sale_id"),
     // full history: posted + voided (voided rows are soft-deleted)
     supabase
       .from("utang_payments")
@@ -41,7 +41,7 @@ export default async function ShopReceivablesPage() {
 
   return (
     <ShopReceivablesView
-      rows={(openRes.data ?? []) as ReceivableRow[]}
+      rows={rows}
       payments={payments}
     />
   );

@@ -143,18 +143,33 @@ section("Σ movements = stock_levels, per product × location");
     .from("parts").select("id").is("deleted_at", null);
   const live = new Set((liveParts ?? []).map((p) => p.id));
 
-  const { data: allMv } = await owner
-    .from("movement_journal")
-    .select("part_id, shop_id, qty_change, location_kind")
-    .not("part_id", "is", null);
+  // Paginated — a single select is silently truncated at the API's max-rows
+  // (fine at demo scale, wrong the moment the journal outgrows it; found by
+  // the 300k-row load test, where the cap shorted 3 pairs' ledger sums).
+  const allMv = [];
+  for (let off = 0; ; off += 1000) {
+    const { data: page } = await owner
+      .from("movement_journal")
+      .select("part_id, shop_id, qty_change, location_kind")
+      .not("part_id", "is", null)
+      .range(off, off + 999);
+    allMv.push(...(page ?? []));
+    if ((page ?? []).length < 1000) break;
+  }
   const all = new Map();
   for (const r of allMv ?? []) {
     if (r.location_kind === "transit" || !live.has(r.part_id)) continue;
     const k = `${r.part_id}|${r.shop_id ?? "master"}`;
     all.set(k, (all.get(k) ?? 0) + r.qty_change);
   }
-  const { data: allLv } = await owner.from("stock_levels").select("part_id, shop_id, qty");
-  const shelves = new Map((allLv ?? []).map((l) => [`${l.part_id}|${l.shop_id ?? "master"}`, l.qty]));
+  const allLv = [];
+  for (let off = 0; ; off += 1000) {
+    const { data: page } = await owner
+      .from("stock_levels").select("part_id, shop_id, qty").range(off, off + 999);
+    allLv.push(...(page ?? []));
+    if ((page ?? []).length < 1000) break;
+  }
+  const shelves = new Map(allLv.map((l) => [`${l.part_id}|${l.shop_id ?? "master"}`, l.qty]));
   const bad = [...all.entries()].filter(([k, v]) => (shelves.get(k) ?? 0) !== v);
   check(
     `EVERY live product × location in the database reconciles (${all.size} checked)`,

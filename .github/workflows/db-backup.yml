@@ -1,0 +1,45 @@
+# Nightly off-site DB backup — makes the Supabase FREE tier (no automated
+# backups) a responsible home for live business data. Runs at 2:00 AM PH,
+# keeps 90 rolling days of gzipped JSON dumps as workflow artifacts, and the
+# nightly API traffic doubles as a keep-warm against the free tier's 7-day
+# inactivity pause.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_URL                e.g. https://<ref>.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY   service role (bypasses RLS — secrets only,
+#                               never in code)
+#
+# Restore: download the artifact, gunzip, re-insert with the service role in
+# FK order (reverse of scripts/db-fresh-start.mjs WIPE_ORDER).
+name: DB backup (nightly)
+
+on:
+  schedule:
+    - cron: "0 18 * * *" # 18:00 UTC = 2:00 AM Asia/Manila
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Zero npm dependencies — the script uses Node's built-in fetch/zlib.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Dump every table (service role, paginated)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/backup-db.mjs
+
+      - name: Keep 90 rolling days
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: backups/*.json.gz
+          retention-days: 90
+          if-no-files-found: error

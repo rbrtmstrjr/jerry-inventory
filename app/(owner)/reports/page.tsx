@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { ph_today } from "@/lib/ph-date";
+import { fetchAll } from "@/lib/pnl";
 import { ReportsView, type ReportData } from "./reports-view";
 import { ReportTabs } from "./report-tabs";
 import { PnlTab } from "./pnl-tab";
@@ -59,7 +60,8 @@ export default async function ReportsPage({
 
   const supabase = await createClient();
 
-  let salesQuery = supabase
+  const buildSales = () => {
+    let q = supabase
     .from("sales")
     .select(
       `id, shop_id, business_date, total_centavos, shops(name),
@@ -69,39 +71,52 @@ export default async function ReportsPage({
     .gte("business_date", from)
     .lte("business_date", to)
     .is("deleted_at", null);
-  if (shopFilter) salesQuery = salesQuery.eq("shop_id", shopFilter);
+    if (shopFilter) q = q.eq("shop_id", shopFilter);
+    return q;
+  };
 
-  let lossesQuery = supabase
+  const buildLosses = () => {
+    let q = supabase
     .from("losses")
     .select("id, shop_id, business_date, reason, qty, value_centavos, description, shops(name)")
     .eq("status", "approved")
     .gte("business_date", from)
     .lte("business_date", to)
     .is("deleted_at", null);
-  if (shopFilter) lossesQuery = lossesQuery.eq("shop_id", shopFilter);
+    if (shopFilter) q = q.eq("shop_id", shopFilter);
+    return q;
+  };
 
   // Stock lost BETWEEN master and a shop. Deliberately a different thing from
   // a shop loss (nasira/nawala at the branch) and from a return (arrived fine,
   // sent back later) — Jerry needs to see transit shrinkage on its own.
-  const transitQuery = supabase
+  const buildTransit = () => supabase
     .from("stock_movements")
     .select(
-      "id, qty_change, created_at, note, part_id, engine_id, parts(name, cost_centavos), engines(serial_number, cost_centavos), deliveries(shops(name))"
+      // shops must name the FK: deliveries has TWO relationships to shops
+      // since 0054 (shop_id = destination, from_shop_id = transfer source) and
+      // a bare embed is ambiguous. The old code swallowed this error and
+      // silently rendered an empty transit list; fetchAll throws it instead.
+      "id, qty_change, created_at, note, part_id, engine_id, parts(name, cost_centavos), engines(serial_number, cost_centavos), deliveries(shops!deliveries_shop_id_fkey(name))"
     )
     .eq("movement_type", "transit_writeoff")
     .gte("created_at", from)
     .lte("created_at", `${to}T23:59:59.999Z`)
-    .order("created_at", { ascending: false });
+    ;
 
-  const [salesRes, lossesRes, shopsRes, stockRes, pendingS, pendingL, transitRes] =
+  // Paginated via fetchAll — a bare select is silently capped at the API's
+  // 1,000-row max, which at load-test scale undercounted every total here.
+  const [allSales, allLosses, shopsRes, allStock, pendingS, pendingL, allTransit] =
     await Promise.all([
-      salesQuery,
-      lossesQuery,
+      fetchAll(buildSales),
+      fetchAll(buildLosses),
       supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
-      supabase
-        .from("stock_levels")
-        .select("qty, shop_id, shops(name), parts!inner(name, reorder_level, deleted_at)")
-        .not("shop_id", "is", null),
+      fetchAll(() =>
+        supabase
+          .from("stock_levels")
+          .select("id, qty, shop_id, shops(name), parts!inner(name, reorder_level, deleted_at)")
+          .not("shop_id", "is", null)
+      ),
       supabase
         .from("sales")
         .select("id", { count: "exact", head: true })
@@ -112,11 +127,11 @@ export default async function ReportsPage({
         .select("id", { count: "exact", head: true })
         .in("status", ["pending", "questioned"])
         .is("deleted_at", null),
-      transitQuery,
+      fetchAll(buildTransit),
     ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const transitLosses = (transitRes.data ?? []).map((m: any) => {
+  const transitLosses = (allTransit as any[]).map((m: any) => {
     const qty = Math.abs(m.qty_change);
     const cost = m.parts?.cost_centavos ?? m.engines?.cost_centavos ?? 0;
     return {
@@ -128,8 +143,8 @@ export default async function ReportsPage({
       reason: m.note ?? "",
     };
   });
-  const sales = (salesRes.data ?? []) as any[];
-  const losses = (lossesRes.data ?? []) as any[];
+  const sales = allSales as any[];
+  const losses = allLosses as any[];
   const shops = shopsRes.data ?? [];
 
   // ---- aggregate: trend by day per shop ----
@@ -199,7 +214,7 @@ export default async function ReportsPage({
     .slice(0, 10);
 
   // ---- low stock (current, not range-bound) ----
-  const lowStock = (stockRes.data ?? [])
+  const lowStock = (allStock as any[])
     .filter(
       (r: any) =>
         !r.parts.deleted_at && r.parts.reorder_level > 0 && r.qty <= r.parts.reorder_level

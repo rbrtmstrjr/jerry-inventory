@@ -160,6 +160,51 @@ async function requireOwner(supabase: SupabaseClient): Promise<void> {
 }
 
 /**
+ * Fetch EVERY row of a query, 1,000 at a time.
+ *
+ * PostgREST silently caps an un-ranged select at the API's max-rows (1,000).
+ * At demo scale that was invisible; the 300k-row load test showed the P&L
+ * quietly computing from the first 1,000 of ~29,000 sales — a confidently
+ * wrong number, the exact thing this module refuses to be. The builder is a
+ * FACTORY because a supabase query is consumed on await; each page needs a
+ * fresh one. A page error throws — partial money math is not money math.
+ */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export async function fetchAll<T = any>(
+  build: () => any,
+  key = "id"
+): Promise<T[]> {
+  // KEYSET pagination, not offset: `.range(25000, …)` makes Postgres walk and
+  // discard 25k rows per page, which blows the free tier's statement timeout
+  // on deep pages. A `> cursor` on the PK is an index seek — every page costs
+  // the same. The builder must NOT set its own order/limit; this owns both.
+  const out: T[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    let page: T[] = [];
+    for (let attempt = 1; ; attempt++) {
+      let q = build().order(key, { ascending: true }).limit(1000);
+      if (cursor !== null) q = q.gt(key, cursor);
+      const { data, error } = await q;
+      if (!error) {
+        page = (data ?? []) as T[];
+        break;
+      }
+      // transient on the shared nano instance — brief backoff, then retry
+      if (attempt < 4 && /timeout|pool/i.test(error.message)) {
+        await new Promise((r) => setTimeout(r, attempt * 1500));
+        continue;
+      }
+      throw new Error(`P&L query failed: ${error.message}`);
+    }
+    out.push(...page);
+    if (page.length < 1000) return out;
+    cursor = (page[page.length - 1] as any)[key];
+  }
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/**
  * Did this shop earn or cost anything in the period?
  *
  * The money-only test. An OPEN shop always deserves a row even at zero — it's
@@ -212,67 +257,78 @@ export async function computePnl(
 
   const [
     shopsRes,
-    salesRes,
-    lossesRes,
-    expensesRes,
-    companyExpensesRes,
-    payrollRes,
-    transitRes,
+    allSales,
+    allLosses,
+    allShopExpenses,
+    allCompanyExpenses,
+    allPayroll,
+    allTransit,
   ] = await Promise.all([
     // No deleted_at filter, on purpose — see the closed-shops rule above.
     supabase.from("shops").select("id, name, deleted_at").order("name"),
 
     // Lines and their frozen costs are paired by sale_line_id below, so engine
-    // and part margins can be told apart.
-    supabase
-      .from("sales")
-      .select(
-        `shop_id, total_centavos,
-         sale_lines(id, qty, engine_id, line_total_centavos,
-                    agreed_price_centavos, list_reference_centavos, discount_centavos),
-         sale_line_costs(sale_line_id, line_cost_centavos)`
-      )
-      .eq("status", "approved")
-      .gte("business_date", from)
-      .lte("business_date", to)
-      .is("deleted_at", null),
+    // and part margins can be told apart. Paginated (fetchAll) — pages walk
+    // the PARENT sales rows, so nested lines/costs arrive whole per sale.
+    fetchAll(() =>
+      supabase
+        .from("sales")
+        .select(
+          `id, shop_id, total_centavos,
+           sale_lines(id, qty, engine_id, line_total_centavos,
+                      agreed_price_centavos, list_reference_centavos, discount_centavos),
+           sale_line_costs(sale_line_id, line_cost_centavos)`
+        )
+        .eq("status", "approved")
+        .gte("business_date", from)
+        .lte("business_date", to)
+        .is("deleted_at", null)
+    ),
 
-    supabase
-      .from("losses")
-      .select("shop_id, value_centavos")
-      .eq("status", "approved")
-      .gte("business_date", from)
-      .lte("business_date", to)
-      .is("deleted_at", null),
+    fetchAll(() =>
+      supabase
+        .from("losses")
+        .select("id, shop_id, value_centavos")
+        .eq("status", "approved")
+        .gte("business_date", from)
+        .lte("business_date", to)
+        .is("deleted_at", null)
+    ),
 
     // status='approved' (0051): shop-recorded expenses only count once the
     // owner approves — a pending claim must never inflate costs.
-    supabase
-      .from("expenses")
-      .select("shop_id, amount")
-      .eq("scope", "shop")
-      .eq("status", "approved")
-      .gte("expense_date", from)
-      .lte("expense_date", to)
-      .is("deleted_at", null),
+    fetchAll(() =>
+      supabase
+        .from("expenses")
+        .select("id, shop_id, amount")
+        .eq("scope", "shop")
+        .eq("status", "approved")
+        .gte("expense_date", from)
+        .lte("expense_date", to)
+        .is("deleted_at", null)
+    ),
 
-    supabase
-      .from("expenses")
-      .select("amount")
-      .eq("scope", "company")
-      .eq("status", "approved")
-      .gte("expense_date", from)
-      .lte("expense_date", to)
-      .is("deleted_at", null),
+    fetchAll(() =>
+      supabase
+        .from("expenses")
+        .select("id, amount")
+        .eq("scope", "company")
+        .eq("status", "approved")
+        .gte("expense_date", from)
+        .lte("expense_date", to)
+        .is("deleted_at", null)
+    ),
 
-    supabase
-      .from("payroll_entries")
-      .select(
-        "shop_id, gross_pay, payroll_entry_contributions(er_amount_centavos), pay_periods!inner(start_date, end_date, deleted_at)"
-      )
-      .lte("pay_periods.start_date", to)
-      .gte("pay_periods.end_date", from)
-      .is("pay_periods.deleted_at", null),
+    fetchAll(() =>
+      supabase
+        .from("payroll_entries")
+        .select(
+          "id, shop_id, gross_pay, payroll_entry_contributions(er_amount_centavos), pay_periods!inner(start_date, end_date, deleted_at)"
+        )
+        .lte("pay_periods.start_date", to)
+        .gte("pay_periods.end_date", from)
+        .is("pay_periods.deleted_at", null)
+    ),
 
     // Transit write-offs are business-level shrinkage, never a shop's number.
     // A master delivery's write-off carries shop_id = NULL; a shop-to-shop
@@ -286,12 +342,14 @@ export async function computePnl(
     // valued from the CURRENT parts/engines cost. Editing a part's cost
     // therefore moves the value of a write-off that already happened. Correct
     // at cost, but not frozen; worth a `value_centavos` column of its own.
-    supabase
-      .from("stock_movements")
-      .select("qty_change, parts(cost_centavos), engines(cost_centavos)")
-      .eq("movement_type", "transit_writeoff")
-      .gte("created_at", from)
-      .lte("created_at", `${to}T23:59:59.999`),
+    fetchAll(() =>
+      supabase
+        .from("stock_movements")
+        .select("id, qty_change, parts(cost_centavos), engines(cost_centavos)")
+        .eq("movement_type", "transit_writeoff")
+        .gte("created_at", from)
+        .lte("created_at", `${to}T23:59:59.999`)
+    ),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -313,7 +371,7 @@ export async function computePnl(
   let engineDiscountLines = 0;
   let engineDiscountUnknownLines = 0;
 
-  for (const s of (salesRes.data ?? []) as any[]) {
+  for (const s of allSales as any[]) {
     // Everything runs inside bump(), so a row for a shop outside the current
     // scope contributes to nothing — the per-shop totals and the engines/parts
     // breakdown can never disagree about which sales they counted.
@@ -369,13 +427,13 @@ export async function computePnl(
     });
   }
 
-  for (const l of lossesRes.data ?? []) {
+  for (const l of allLosses) {
     bump(l.shop_id, (a) => (a.losses += l.value_centavos ?? 0));
   }
-  for (const e of expensesRes.data ?? []) {
+  for (const e of allShopExpenses) {
     bump(e.shop_id, (a) => (a.opex += e.amount));
   }
-  for (const p of (payrollRes.data ?? []) as any[]) {
+  for (const p of allPayroll as any[]) {
     bump(p.shop_id, (a) => {
       a.payroll_gross += p.gross_pay ?? 0;
       for (const c of p.payroll_entry_contributions ?? []) {
@@ -384,7 +442,7 @@ export async function computePnl(
     });
   }
 
-  const transitWriteoffs = ((transitRes.data ?? []) as any[]).reduce((t, m) => {
+  const transitWriteoffs = (allTransit as any[]).reduce((t, m) => {
     const unitCost = m.parts?.cost_centavos ?? m.engines?.cost_centavos ?? 0;
     return t + Math.abs(m.qty_change ?? 0) * unitCost;
   }, 0);
@@ -431,7 +489,7 @@ export async function computePnl(
   const shopLosses = sum("losses");
   const shrinkage = shopLosses + transitWriteoffs;
   const shopOpex = sum("opex");
-  const companyOverhead = (companyExpensesRes.data ?? []).reduce(
+  const companyOverhead = allCompanyExpenses.reduce(
     (t, e) => t + (e.amount ?? 0),
     0
   );
@@ -503,32 +561,38 @@ export async function computeCashPosition(
   // branch and call it the business's.
   await requireOwner(supabase);
 
-  const [salesRes, paymentsRes, receivablesRes, payablesRes] = await Promise.all([
-    supabase
-      .from("sales")
-      .select("payment_type, total_centavos, amount_paid_centavos")
-      .eq("status", "approved")
-      .gte("business_date", from)
-      .lte("business_date", to)
-      .is("deleted_at", null),
+  const [sales, allPayments, allReceivables, payablesRes] = await Promise.all([
+    fetchAll(() =>
+      supabase
+        .from("sales")
+        .select("id, payment_type, total_centavos, amount_paid_centavos")
+        .eq("status", "approved")
+        .gte("business_date", from)
+        .lte("business_date", to)
+        .is("deleted_at", null)
+    ),
 
     // `business_date` — utang_payments has no paid_on. And voided payments are
     // soft-deleted, so they drop out here on their own: the balance they gave
     // back is real, and so is their absence from cash in.
-    supabase
-      .from("utang_payments")
-      .select("amount_centavos")
-      .eq("status", "approved")
-      .gte("business_date", from)
-      .lte("business_date", to)
-      .is("deleted_at", null),
+    fetchAll(() =>
+      supabase
+        .from("utang_payments")
+        .select("id, amount_centavos")
+        .eq("status", "approved")
+        .gte("business_date", from)
+        .lte("business_date", to)
+        .is("deleted_at", null)
+    ),
 
-    supabase.from("receivables").select("balance_centavos"),
+    fetchAll(
+      () => supabase.from("receivables").select("sale_id, balance_centavos"),
+      "sale_id"
+    ),
 
+    // one row per supplier — cannot outgrow the page size
     supabase.from("supplier_payables").select("outstanding"),
   ]);
-
-  const sales = salesRes.data ?? [];
   const earned = sales.reduce((t, s) => t + (s.total_centavos ?? 0), 0);
 
   // Cash taken at the till.
@@ -547,7 +611,7 @@ export async function computeCashPosition(
         : (s.total_centavos ?? 0)),
     0
   );
-  const since = (paymentsRes.data ?? []).reduce(
+  const since = allPayments.reduce(
     (t, p) => t + (p.amount_centavos ?? 0),
     0
   );
@@ -555,7 +619,7 @@ export async function computeCashPosition(
   return {
     earned,
     collected: atSale + since,
-    outstanding: (receivablesRes.data ?? []).reduce(
+    outstanding: allReceivables.reduce(
       (t, r) => t + Math.max(0, r.balance_centavos ?? 0),
       0
     ),

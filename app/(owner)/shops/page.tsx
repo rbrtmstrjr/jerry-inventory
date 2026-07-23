@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAll } from "@/lib/pnl";
 import { ShopsView, type EmployeeRow, type ShopRow } from "./shops-view";
 
 export const metadata: Metadata = { title: "Shops & Employees" };
@@ -8,7 +9,7 @@ export const metadata: Metadata = { title: "Shops & Employees" };
 export default async function ShopsPage() {
   const supabase = await createClient();
 
-  const [shopsRes, profilesRes, stockRes, enginesRes, pendSalesRes, pendLossesRes, staffRes] = await Promise.all([
+  const [shopsRes, profilesRes, allStock, allEngines, pendSalesRes, pendLossesRes, staffRes] = await Promise.all([
     supabase
       .from("shops")
       .select("id, name, location, latitude, longitude, active, color_key, logo_path")
@@ -19,16 +20,18 @@ export default async function ShopsPage() {
       .select("id, full_name, role, shop_id, active, shops(name)")
       .is("deleted_at", null)
       .order("full_name"),
-    supabase
-      .from("stock_levels")
-      .select("shop_id, qty")
-      .not("shop_id", "is", null)
-      .gt("qty", 0),
-    supabase
-      .from("engines")
-      .select("shop_id")
-      .eq("status", "delivered")
-      .is("deleted_at", null),
+    // Paginated: one row per (part, shop) — 400 parts × N shops outgrows the
+    // 1,000-row cap, which was silently zeroing the units count for whichever
+    // shops fell past row 1,000.
+    fetchAll<{ id: string; shop_id: string | null; qty: number }>(
+      () => supabase.from("stock_levels").select("id, shop_id, qty").not("shop_id", "is", null).gt("qty", 0),
+      "id"
+    ),
+    // one row per on-hand engine across every shop — likewise page it.
+    fetchAll<{ id: string; shop_id: string | null }>(
+      () => supabase.from("engines").select("id, shop_id").eq("status", "delivered").is("deleted_at", null),
+      "id"
+    ),
     supabase
       .from("sales")
       .select("shop_id")
@@ -49,11 +52,11 @@ export default async function ShopsPage() {
 
   // per-shop stock summaries
   const unitsByShop: Record<string, number> = {};
-  for (const r of stockRes.data ?? []) {
+  for (const r of allStock) {
     unitsByShop[r.shop_id!] = (unitsByShop[r.shop_id!] ?? 0) + r.qty;
   }
   const enginesByShop: Record<string, number> = {};
-  for (const e of enginesRes.data ?? []) {
+  for (const e of allEngines) {
     if (e.shop_id) enginesByShop[e.shop_id] = (enginesByShop[e.shop_id] ?? 0) + 1;
   }
   const pendingByShop: Record<string, number> = {};

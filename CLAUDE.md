@@ -75,7 +75,10 @@ Submission statuses: `recorded → pending → questioned → approved / rejecte
 
 ## Page Inventory (billable pages)
 
-**44 distinct routes** (+6 redirect stubs). `[id]`/`[entryId]`/`[saleId]` are dynamic detail routes. "Print" pages are standalone print-optimized documents.
+**54 distinct screens/documents** on disk (plus the root redirect, the
+`/auth/callback` route handler, 5 page-level redirect stubs, and 1 next.config
+redirect — 60 `page.tsx` files total). `[id]`/`[entryId]`/`[saleId]` are
+dynamic detail routes. "Print" pages are standalone print-optimized documents.
 
 **The sidebar reads like the business works** (IA reorg, 2026-07): OVERVIEW →
 INVENTORY in stock-flow order (Suppliers → Master Inventory → Deliveries →
@@ -105,10 +108,12 @@ meta-refresh — `?view=<id>` passes through).
 | `/dashboard` | Dashboard | KPIs, charts, live snapshot of the whole business |
 | `/reports` | Reports | Three tabs (`?tab=`): **Sales & Inventory** (sales/loss/top-parts, date filters, CSV) · **P&L / Net Income** (consolidated statement, cost-vs-selling, cash-vs-accrual, CSV + print) · **Per-Shop Profitability** (moved in from /shops/reports — same body, same `lib/pnl.ts`) |
 
-### Owner — Suppliers (1)
+### Owner — Suppliers (2)
 | Route | Page | Purpose |
 |-------|------|---------|
 | `/suppliers` | Suppliers | Four tabs (`?tab=`) — **order it · receive it · owe it · compare it**: **Directory** (supplier records, credit limits, terms, outstanding inline) · **Receiving** (moved unchanged from /master-inventory/receiving — **the single entry point for stock**: supplier required with live outstanding/utilisation, lines existing-or-inline-new (bulk grid, serial per engine, last-paid context), payment paid/partial/unpaid with due-date presets where the picked date is stored, atomic `fn_receive_stock`, post-save print-labels; `?view=<id>` deep-links a receiving's detail) · **Payables** (what Admin owes: aging buckets, per-receiving balances, Record Payment targeted/FIFO, private receipts) · **Price Comparison** (per product × supplier, always-visible side-by-side, cheapest-first. **Automatic-only** — prices come from receivings (last-PAID); the owner-entered **quote UI was removed** (Record-quote button, per-product quote buttons, Has-quotes/Stale-only filters all gone) at the owner's request: a product appears here purely once it's been RECEIVED from 2+ suppliers, compared by what was actually paid. Every price still carries source + date; **comparable-only always** (2+ suppliers — single-supplier products are never shown, since a real catalog could be thousands); newest product first (by catalog creation ts); "Preferred is ₱X more" badge; **★ Make preferred** per row; a same-SKU/name **duplicate nudge** opens the merge dialog prefilled. NOTE: the `supplier_quotes` table + `recordSupplierQuote` action + quote arm of `supplier_price_comparison` still exist in the DB/backend — only the UI was dropped, so re-enabling is UI-only. Merged duplicates roll up to one product via 0052) |
+
+| `/suppliers/receiving/[id]/print` | Receiving Voucher | Printable record of one supplier receiving — letterhead via `getBusinessIdentity`, lines + costs, payment status; the paper copy of a stock-entry event (owner-only) |
 
 ### Owner — Master Inventory (2)
 | Route | Page | Purpose |

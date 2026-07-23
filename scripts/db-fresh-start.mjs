@@ -48,15 +48,15 @@ const WIPE_ORDER = [
   "count_snapshots",
   "losses",
   "sales",
+  "expenses", // FK deliveries AND (0051) submission_batches → before both
   "submission_batches",
   "delivery_discrepancies",
-  "expenses", // FK deliveries
+  "delivery_request_lines",
+  "delivery_requests", // fulfilled_delivery_id FK → before deliveries
   "delivery_lines",
   "deliveries",
   "return_lines",
   "returns",
-  "delivery_request_lines",
-  "delivery_requests",
   "supplier_payments",
   "receiving_lines",
   "receivings",
@@ -65,11 +65,14 @@ const WIPE_ORDER = [
   "shop_reorder_levels",
   "part_fitments",
   "engines",
+  "part_merges", // 0052: FKs parts → before parts
   "parts",
   "engine_models",
+  "discount_cards", // 0072: FK customers → before customers (sales already gone)
   "customers",
   "suppliers",
   "payroll_entry_contributions",
+  "staff_advances", // 0071: FK staff → before staff
   "payroll_entries",
   "pay_periods",
   "staff",
@@ -116,10 +119,50 @@ if (!YES) process.exit(0);
 // Two tables have no `id` column: sale_line_costs (PK = sale_line_id) and
 // part_fitments (composite PK) — the delete filter must name a real column.
 const FILTER_COL = { sale_line_costs: "sale_line_id", part_fitments: "part_id" };
+// Load-test volumes (100k+ rows) blow the statement timeout on a whole-table
+// DELETE. Strategy: try the full created_at range in one statement (fast for
+// small tables); on statement timeout, split the window in half and recurse;
+// on pool timeout, wait and retry the same window.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Not every table carries created_at: batches stamp submitted_at,
+// discrepancies resolved_at, and part_fitments has no timestamp (tiny —
+// whole-table delete via its FK column instead).
+const TIME_COL = {
+  submission_batches: "submitted_at",
+  delivery_discrepancies: "resolved_at",
+  part_merges: "merged_at",
+  part_fitments: null,
+};
+async function delRange(t, fromIso, toIso, depth = 0) {
+  const col = TIME_COL[t] === undefined ? "created_at" : TIME_COL[t];
+  if (col === null) {
+    const { error } = await admin.from(t).delete().not(FILTER_COL[t] ?? "id", "is", null);
+    if (error) throw new Error(`${t}: ${error.message}`);
+    return;
+  }
+  for (let attempt = 1; ; attempt++) {
+    const { error } = await admin.from(t).delete()
+      .gte(col, fromIso).lt(col, toIso);
+    if (!error) return;
+    if (/pool/i.test(error.message) && attempt < 6) {
+      await sleep(attempt * 3000);
+      continue;
+    }
+    if (/timeout/i.test(error.message) && depth < 14) {
+      const a = Date.parse(fromIso), b = Date.parse(toIso);
+      const mid = new Date((a + b) / 2).toISOString();
+      await delRange(t, fromIso, mid, depth + 1);
+      await delRange(t, mid, toIso, depth + 1);
+      return;
+    }
+    throw new Error(`${t}: ${error.message}`);
+  }
+}
 for (const t of WIPE_ORDER) {
-  const { error } = await admin.from(t).delete().not(FILTER_COL[t] ?? "id", "is", null);
-  if (error) {
-    console.error(`FAILED at ${t}: ${error.message} — nothing after this was deleted.`);
+  try {
+    await delRange(t, "2015-01-01T00:00:00Z", "2035-01-01T00:00:00Z");
+  } catch (e) {
+    console.error(`FAILED at ${t}: ${e.message} — nothing after this was deleted.`);
     process.exit(1);
   }
 }
@@ -132,6 +175,11 @@ for (const t of WIPE_ORDER) {
     if (u.id === adminUser.id) continue;
     await admin.auth.admin.deleteUser(u.id).catch((e) => console.error(`auth ${u.email}: ${e.message}`));
   }
+  // 0051: shop-proposed expense categories pin their shop via FK — proposals
+  // are operational data (drop), and any stray pointer is nulled.
+  await admin.from("expense_categories").delete().eq("status", "proposed");
+  await admin.from("expense_categories")
+    .update({ proposed_by_shop_id: null }).not("proposed_by_shop_id", "is", null);
   const { error: shopErr } = await admin.from("shops").delete().not("id", "is", null);
   if (shopErr) { console.error(`shops: ${shopErr.message}`); process.exit(1); }
 }
@@ -142,7 +190,14 @@ for (const bucket of ["product-images", "receipts"]) {
   for (;;) {
     const { data: objs, error } = await admin.storage.from(bucket).list("", { limit: 100 });
     if (error) { console.error(`storage ${bucket}: ${error.message}`); break; }
-    const names = (objs ?? []).filter((o) => o.name).map((o) => o.name);
+    // FILES have an id; FOLDER entries don't — remove() can't delete a folder,
+    // so keeping them in the list loops forever (e.g. shop-logos/).
+    const folders = (objs ?? []).filter((o) => o.name && !o.id).map((o) => o.name);
+    let names = (objs ?? []).filter((o) => o.name && o.id).map((o) => o.name);
+    for (const dir of folders) {
+      const { data: inner } = await admin.storage.from(bucket).list(dir, { limit: 1000 });
+      names = names.concat((inner ?? []).filter((o) => o.id).map((o) => `${dir}/${o.name}`));
+    }
     if (!names.length) break;
     await admin.storage.from(bucket).remove(names);
     removed += names.length;
