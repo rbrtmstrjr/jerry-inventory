@@ -18,6 +18,9 @@ import { MergeDuplicatesDialog, type MergePart } from "../master-inventory/merge
 import { setPreferredSupplier } from "./actions";
 import type { ComparisonRow } from "./types";
 
+/** Product cards revealed per scroll batch. */
+const PAGE = 40;
+
 const phShort = (iso: string) =>
   new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-PH", {
     timeZone: "UTC", month: "short", day: "numeric",
@@ -83,6 +86,15 @@ export function ComparisonView({
   const [mergePrefill, setMergePrefill] =
     React.useState<{ targetId: string; sourceIds: string[] } | null>(null);
 
+  // Scroll-down reveal: render a batch of product cards, load more as a sentinel
+  // nears the viewport. The list can be ~500+ products — painting them all at
+  // once is the slow part. Reset the batch whenever the filters change.
+  const [visibleCount, setVisibleCount] = React.useState(PAGE);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    setVisibleCount(PAGE);
+  }, [q, category, kind, onlyDearPreferred]);
+
   const groups = React.useMemo(() => {
     const byProduct = new Map<string, ComparisonRow[]>();
     for (const r of rows) {
@@ -141,6 +153,23 @@ export function ComparisonView({
   // paid supplier + a quote from a different one is 2 — exactly the point). A
   // full catalog could be thousands of rows, so single-supplier items are out.
   const filtered = matched.filter((g) => g.supplierCount >= 2);
+  const visible = filtered.slice(0, visibleCount);
+
+  // Reveal the next batch when the sentinel nears the viewport. Re-attaching on
+  // every count change re-checks intersection, so a tall viewport keeps filling
+  // until the sentinel is pushed out of view.
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || visibleCount >= filtered.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) setVisibleCount((v) => v + PAGE);
+      },
+      { rootMargin: "800px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount, filtered.length]);
 
   // Duplicate nudge: among VISIBLE distinct parts, cluster those sharing a
   // normalised SKU OR an exact (case-insensitive) name via union-find. Engines
@@ -196,7 +225,7 @@ export function ComparisonView({
   return (
     <div className="flex flex-col gap-4">
       <Card>
-        <CardContent className="flex flex-wrap items-end gap-x-6 gap-y-3 pt-6">
+        <CardContent className="flex flex-wrap items-end gap-x-6 gap-y-3">
           <div className="grid gap-1">
             <Label htmlFor="cmp-q" className="text-xs">Search</Label>
             <Input
@@ -240,7 +269,7 @@ export function ComparisonView({
         </Card>
       ) : (
         <div className="flex flex-col gap-3">
-          {filtered.map((g) => {
+          {visible.map((g) => {
             const cluster = g.part_id ? dupClusters.get(g.part_id) : undefined;
             return (
               <Card key={g.key}>
@@ -340,6 +369,14 @@ export function ComparisonView({
               </Card>
             );
           })}
+          {visibleCount < filtered.length && (
+            <div
+              ref={sentinelRef}
+              className="py-4 text-center text-xs text-muted-foreground"
+            >
+              Loading more… ({visible.length} of {filtered.length})
+            </div>
+          )}
         </div>
       )}
 

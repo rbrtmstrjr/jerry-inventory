@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import type { ReceivingBalanceRow, SupplierPayableRow } from "@/lib/db-types";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -286,24 +287,17 @@ export function PayablesView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Supplier Payables</h1>
-        <p className="text-sm text-muted-foreground">
-          What you owe suppliers for stock. Debt starts when you receive on
-          credit.
-        </p>
-      </div>
-
       {/* The one thing that quietly ruins the books if we don't say it */}
-      <p className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        <Info className="mt-0.5 size-3.5 shrink-0" />
-        <span>
-          Supplier payments are <span className="font-medium">stock cost (COGS)</span> and
+      <Alert className="border-warning/40 bg-warning/10">
+        <Info className="size-4 text-warning-foreground" />
+        <AlertDescription>
+          Supplier payments are{" "}
+          <span className="font-medium text-foreground">stock cost (COGS)</span> and
           belong here — don&apos;t also log them in Expenses (that&apos;s for fuel,
           labour, rent). Recording them twice overstates expenses and hides your
           real margin.
-        </span>
-      </p>
+        </AlertDescription>
+      </Alert>
 
       {/* Summary */}
       <div className="grid gap-4 sm:grid-cols-3">
