@@ -42,7 +42,14 @@ export interface RequestRow {
   created_at: string;
   fulfilled_at: string | null;
   fulfilled_delivery_id: string | null;
-  items: { qty: number; name: string; unit: string; note: string | null; is_engine: boolean }[];
+  items: {
+    qty: number;
+    name: string;
+    unit: string;
+    note: string | null;
+    is_engine: boolean;
+    is_custom: boolean;
+  }[];
 }
 
 const STATUS: Record<
@@ -160,6 +167,11 @@ export function RequestsPanel({
                       {i.is_engine && (
                         <Badge variant="secondary" className="mr-1">
                           Engine
+                        </Badge>
+                      )}
+                      {i.is_custom && (
+                        <Badge variant="outline" className="mr-1 border-primary text-primary">
+                          New product
                         </Badge>
                       )}
                       {i.name}

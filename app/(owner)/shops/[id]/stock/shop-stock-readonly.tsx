@@ -45,6 +45,10 @@ export function ShopStockReadonly({
   const stockValue =
     stock.reduce((s, r) => s + r.qty * r.price_centavos, 0) +
     engines.reduce((s, e) => s + e.price_centavos, 0);
+  const stockCost =
+    stock.reduce((s, r) => s + r.qty * r.cost_centavos, 0) +
+    engines.reduce((s, e) => s + e.cost_centavos, 0);
+  const stockGross = stockValue - stockCost;
   const lowCount = stock.filter(
     (s) => s.reorder_level > 0 && s.qty <= s.reorder_level
   ).length;
@@ -65,7 +69,7 @@ export function ShopStockReadonly({
     {
       label: "Stock value (at selling price)",
       value: formatCentavos(stockValue),
-      hint: "parts + engines",
+      hint: `at cost ${formatCentavos(stockCost)} · gross ${formatCentavos(stockGross)}`,
       icon: PhilippinePeso,
     },
   ];
@@ -104,13 +108,46 @@ export function ShopStockReadonly({
       },
     },
     {
+      accessorKey: "cost_centavos",
+      header: ({ column }) => <SortableHeader column={column}>Cost</SortableHeader>,
+      cell: ({ getValue }) => (
+        <span className="tabular-nums text-muted-foreground">
+          {formatCentavos(getValue<number>())}
+        </span>
+      ),
+    },
+    {
       accessorKey: "price_centavos",
-      header: ({ column }) => <SortableHeader column={column}>Price</SortableHeader>,
+      header: ({ column }) => <SortableHeader column={column}>Selling</SortableHeader>,
       cell: ({ getValue }) => (
         <span className="tabular-nums font-medium">
           {formatCentavos(getValue<number>())}
         </span>
       ),
+    },
+    {
+      id: "gross",
+      accessorFn: (r) => r.price_centavos - r.cost_centavos,
+      header: ({ column }) => <SortableHeader column={column}>Gross</SortableHeader>,
+      cell: ({ row }) => {
+        const g = row.original.price_centavos - row.original.cost_centavos;
+        const pct =
+          row.original.price_centavos > 0
+            ? Math.round((g / row.original.price_centavos) * 1000) / 10
+            : 0;
+        return (
+          <span className="tabular-nums">
+            <span
+              className={
+                g < 0 ? "font-medium text-destructive" : "font-medium text-success"
+              }
+            >
+              {formatCentavos(g)}
+            </span>
+            <span className="ml-1 text-xs text-muted-foreground">{pct}%</span>
+          </span>
+        );
+      },
     },
     {
       id: "value",
@@ -151,13 +188,46 @@ export function ShopStockReadonly({
         getValue<string>() === "brand_new" ? "Brand new" : "Second hand",
     },
     {
+      accessorKey: "cost_centavos",
+      header: ({ column }) => <SortableHeader column={column}>Cost</SortableHeader>,
+      cell: ({ getValue }) => (
+        <span className="tabular-nums text-muted-foreground">
+          {formatCentavos(getValue<number>())}
+        </span>
+      ),
+    },
+    {
       accessorKey: "price_centavos",
-      header: ({ column }) => <SortableHeader column={column}>Price</SortableHeader>,
+      header: ({ column }) => <SortableHeader column={column}>Selling</SortableHeader>,
       cell: ({ getValue }) => (
         <span className="tabular-nums font-medium">
           {formatCentavos(getValue<number>())}
         </span>
       ),
+    },
+    {
+      id: "gross",
+      accessorFn: (e) => e.price_centavos - e.cost_centavos,
+      header: ({ column }) => <SortableHeader column={column}>Gross</SortableHeader>,
+      cell: ({ row }) => {
+        const g = row.original.price_centavos - row.original.cost_centavos;
+        const pct =
+          row.original.price_centavos > 0
+            ? Math.round((g / row.original.price_centavos) * 1000) / 10
+            : 0;
+        return (
+          <span className="tabular-nums">
+            <span
+              className={
+                g < 0 ? "font-medium text-destructive" : "font-medium text-success"
+              }
+            >
+              {formatCentavos(g)}
+            </span>
+            <span className="ml-1 text-xs text-muted-foreground">{pct}%</span>
+          </span>
+        );
+      },
     },
   ];
 
@@ -271,6 +341,20 @@ export function ShopStockReadonly({
                               {s.qty} {s.unit}
                             </span>
                           </div>
+                          <div className="flex items-center justify-between text-xs tabular-nums">
+                            <span className="text-muted-foreground">
+                              Cost {formatCentavos(s.cost_centavos)}
+                            </span>
+                            <span
+                              className={`font-medium ${
+                                s.price_centavos - s.cost_centavos < 0
+                                  ? "text-destructive"
+                                  : "text-success"
+                              }`}
+                            >
+                              Gross {formatCentavos(s.price_centavos - s.cost_centavos)}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );
@@ -333,6 +417,20 @@ export function ShopStockReadonly({
                           </span>
                           <span className="text-xs text-muted-foreground">
                             {e.condition === "brand_new" ? "Brand new" : "Second hand"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs tabular-nums">
+                          <span className="text-muted-foreground">
+                            Cost {formatCentavos(e.cost_centavos)}
+                          </span>
+                          <span
+                            className={`font-medium ${
+                              e.price_centavos - e.cost_centavos < 0
+                                ? "text-destructive"
+                                : "text-success"
+                            }`}
+                          >
+                            Gross {formatCentavos(e.price_centavos - e.cost_centavos)}
                           </span>
                         </div>
                       </div>

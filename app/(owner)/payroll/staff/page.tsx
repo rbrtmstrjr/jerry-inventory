@@ -18,16 +18,28 @@ export default function StaffPage() {
 async function StaffBody() {
   const supabase = await createClient();
 
-  const [staffRes, shopsRes, positionsRes] = await Promise.all([
-    supabase
+  // birthday + image_path arrived with 0079. Try them, but fall back to the base
+  // columns if the migration hasn't been applied yet — a missing column errors
+  // the WHOLE PostgREST query, and that must never blank out the staff list.
+  const STAFF_BASE = `id, full_name, shop_id, position_id, pay_type, pay_rate, date_hired, active, notes,
+     sss_no, philhealth_no, pagibig_no, contributions_enabled,
+     shops(name, color_key), positions(title)`;
+  const fetchStaff = async () => {
+    const withNew = await supabase
       .from("staff")
-      .select(
-        `id, full_name, shop_id, position_id, pay_type, pay_rate, date_hired, active, notes,
-         sss_no, philhealth_no, pagibig_no, contributions_enabled,
-         shops(name, color_key), positions(title)`
-      )
+      .select(`${STAFF_BASE}, birthday, image_path`)
       .is("deleted_at", null)
-      .order("full_name"),
+      .order("created_at", { ascending: false });
+    if (!withNew.error) return withNew;
+    return supabase
+      .from("staff")
+      .select(STAFF_BASE)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
+  };
+
+  const [staffRes, shopsRes, positionsRes] = await Promise.all([
+    fetchStaff(),
     supabase.from("shops").select("id, name").is("deleted_at", null).order("name"),
     supabase
       .from("positions")
@@ -55,6 +67,8 @@ async function StaffBody() {
     philhealth_no: s.philhealth_no,
     pagibig_no: s.pagibig_no,
     contributions_enabled: s.contributions_enabled,
+    birthday: s.birthday ?? null,
+    image_path: s.image_path ?? null,
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 

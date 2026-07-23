@@ -47,7 +47,7 @@ async function ShopLowStockBody() {
     supabase
       .from("delivery_requests")
       .select(
-        "id, status, note, owner_note, created_at, fulfilled_at, delivery_request_lines(qty_requested, parts(name), engine_models(brand, model))"
+        "id, status, note, owner_note, created_at, fulfilled_at, delivery_request_lines(qty_requested, custom_name, parts(name), engine_models(brand, model))"
       )
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
@@ -64,7 +64,12 @@ async function ShopLowStockBody() {
     fulfilled_at: r.fulfilled_at,
     items: (r.delivery_request_lines ?? []).map((l: any) => ({
       qty: l.qty_requested,
-      name: l.parts?.name ?? `${l.engine_models?.brand ?? ""} ${l.engine_models?.model ?? ""}`.trim(),
+      name:
+        l.parts?.name ??
+        (l.engine_models
+          ? `${l.engine_models.brand ?? ""} ${l.engine_models.model ?? ""}`.trim()
+          : l.custom_name ?? "New product"),
+      is_custom: !l.parts && !l.engine_models,
     })),
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */

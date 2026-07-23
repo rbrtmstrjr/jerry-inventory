@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -64,6 +65,9 @@ export function PeriodsList({
   const [end, setEnd] = React.useState("");
   const [frequency, setFrequency] =
     React.useState<PeriodRow["frequency"]>("semi_monthly");
+  // does THIS semi-monthly run withhold gov benefits? (they deduct once a month)
+  const [deduct, setDeduct] = React.useState(true);
+  const deductTouched = React.useRef(false);
   const [busy, setBusy] = React.useState(false);
 
   // suggest a label from the picked dates
@@ -82,6 +86,13 @@ export function PeriodsList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start, end]);
 
+  // Smart default: the month-end run (starts after the 15th) is the usual one
+  // to withhold on. The owner can still flip it. Stops once they touch it.
+  React.useEffect(() => {
+    if (deductTouched.current || !start) return;
+    setDeduct(new Date(start + "T00:00:00").getDate() > 15);
+  }, [start]);
+
   async function onCreate() {
     if (!start || !end) {
       toast.error("Pick the period dates");
@@ -93,6 +104,8 @@ export function PeriodsList({
       start_date: start,
       end_date: end,
       frequency,
+      // the choice only applies to semi-monthly; monthly/weekly use the default
+      deduct_contributions: frequency === "semi_monthly" ? deduct : null,
     });
     setBusy(false);
     if (res.ok && res.id) {
@@ -101,6 +114,7 @@ export function PeriodsList({
       setLabel("");
       setStart("");
       setEnd("");
+      deductTouched.current = false;
       router.push(`/payroll/${res.id}`);
     } else if (!res.ok) {
       toast.error(res.error);
@@ -230,6 +244,31 @@ export function PeriodsList({
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Semi-monthly runs twice a month, but gov benefits are a MONTHLY
+                obligation — withheld once, in full, on one of the two runs. */}
+            {frequency === "semi_monthly" && (
+              <label className="flex items-start gap-3 rounded-md border bg-muted/30 p-3">
+                <Checkbox
+                  checked={deduct}
+                  onCheckedChange={(v) => {
+                    deductTouched.current = true;
+                    setDeduct(v === true);
+                  }}
+                  className="mt-0.5"
+                />
+                <span className="grid gap-0.5">
+                  <span className="text-sm font-medium">
+                    Deduct government benefits on this run
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    SSS / PhilHealth / Pag-IBIG are withheld once a month, in
+                    full. Turn this ON for the one run that deducts and OFF for
+                    the other, so nobody is charged twice.
+                  </span>
+                </span>
+              </label>
+            )}
             <div className="grid gap-2">
               <Label htmlFor="pp-label">Label</Label>
               <Input

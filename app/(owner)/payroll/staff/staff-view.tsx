@@ -7,6 +7,7 @@ import { Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ShopBadge } from "@/components/shop-badge";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { DataTable, SortableHeader } from "@/components/data-table/data-table";
 import { DatePicker } from "@/components/date-picker";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import {
+  ImageUploadField,
+  type ImageAction,
+} from "@/components/image-upload-field";
+import { PRODUCT_IMAGE_BUCKET, productImageUrl } from "@/lib/product-image";
+import { createClient } from "@/lib/supabase/client";
 import { softDeleteStaff, upsertStaff } from "../actions";
 
 export interface StaffRow {
@@ -58,6 +65,8 @@ export interface StaffRow {
   philhealth_no: string | null;
   pagibig_no: string | null;
   contributions_enabled: boolean;
+  birthday: string | null;
+  image_path: string | null;
 }
 
 export interface PositionOption {
@@ -93,6 +102,8 @@ export function StaffView({
   const [philhealthNo, setPhilhealthNo] = React.useState("");
   const [pagibigNo, setPagibigNo] = React.useState("");
   const [contributionsEnabled, setContributionsEnabled] = React.useState(true);
+  const [birthday, setBirthday] = React.useState("");
+  const [photo, setPhoto] = React.useState<ImageAction>({ type: "keep" });
 
   function openDialog(s: StaffRow | null) {
     setEditing(s);
@@ -108,6 +119,8 @@ export function StaffView({
     setPhilhealthNo(s?.philhealth_no ?? "");
     setPagibigNo(s?.pagibig_no ?? "");
     setContributionsEnabled(s?.contributions_enabled ?? true);
+    setBirthday(s?.birthday ?? "");
+    setPhoto({ type: "keep" });
     setDialogOpen(true);
   }
 
@@ -123,6 +136,31 @@ export function StaffView({
       return;
     }
     setBusy(true);
+
+    // Photo → the public product-images bucket (same pipeline as shop logos).
+    // Uploaded BEFORE the upsert under a random name, so we never depend on a
+    // not-yet-created staff id.
+    const supabase = createClient();
+    const oldPath = editing?.image_path ?? null;
+    let imagePath = oldPath; // "keep" default
+    if (photo.type === "set") {
+      const objectPath = `staff-photos/${crypto.randomUUID()}.webp`;
+      const { error } = await supabase.storage
+        .from(PRODUCT_IMAGE_BUCKET)
+        .upload(objectPath, photo.image.blob, {
+          contentType: "image/webp",
+          cacheControl: "31536000",
+        });
+      if (error) {
+        setBusy(false);
+        toast.error(`Photo upload failed: ${error.message}`);
+        return;
+      }
+      imagePath = objectPath;
+    } else if (photo.type === "remove") {
+      imagePath = null;
+    }
+
     const res = await upsertStaff({
       id: editing?.id,
       full_name: name,
@@ -137,9 +175,15 @@ export function StaffView({
       philhealth_no: philhealthNo || null,
       pagibig_no: pagibigNo || null,
       contributions_enabled: contributionsEnabled,
+      birthday: birthday || null,
+      image_path: imagePath,
     });
     setBusy(false);
     if (res.ok) {
+      // Replaced or cleared → delete the old object (best-effort).
+      if (oldPath && oldPath !== imagePath) {
+        await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+      }
       toast.success(editing ? "Staff updated" : "Staff added");
       setDialogOpen(false);
     } else toast.error(res.error);
@@ -150,10 +194,25 @@ export function StaffView({
       accessorKey: "full_name",
       header: ({ column }) => <SortableHeader column={column}>Name</SortableHeader>,
       cell: ({ row }) => (
-        <div className={!row.original.active ? "opacity-60" : undefined}>
-          <div className="font-medium">{row.original.full_name}</div>
-          <div className="text-xs text-muted-foreground">
-            {row.original.position ?? "No position"}
+        <div
+          className={`flex items-center gap-2.5 ${
+            !row.original.active ? "opacity-60" : ""
+          }`}
+        >
+          <Avatar className="size-9">
+            <AvatarImage
+              src={productImageUrl(row.original.image_path) ?? undefined}
+              alt={row.original.full_name}
+            />
+            <AvatarFallback className="text-xs">
+              {row.original.full_name.slice(0, 2).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <div className="font-medium">{row.original.full_name}</div>
+            <div className="text-xs text-muted-foreground">
+              {row.original.position ?? "No position"}
+            </div>
           </div>
         </div>
       ),
@@ -189,6 +248,18 @@ export function StaffView({
         const v = getValue<string | null>();
         return v ? (
           format(new Date(v), "MMM d, yyyy")
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      },
+    },
+    {
+      accessorKey: "birthday",
+      header: "Birthday",
+      cell: ({ getValue }) => {
+        const v = getValue<string | null>();
+        return v ? (
+          format(new Date(v + "T00:00:00"), "MMM d")
         ) : (
           <span className="text-muted-foreground">—</span>
         );
@@ -260,7 +331,7 @@ export function StaffView({
       />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="thin-scrollbar max-h-[92svh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editing ? "Edit Staff" : "Add Staff"}</DialogTitle>
             <DialogDescription>
@@ -276,6 +347,14 @@ export function StaffView({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Juan Dela Cruz"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Photo (optional)</Label>
+              <ImageUploadField
+                currentPath={editing?.image_path ?? null}
+                action={photo}
+                onActionChange={setPhoto}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -326,7 +405,7 @@ export function StaffView({
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="grid min-w-0 gap-2">
                 <Label>Pay type</Label>
                 <Select
@@ -354,9 +433,19 @@ export function StaffView({
                   placeholder="0.00"
                 />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Date hired</Label>
                 <DatePicker value={hired} onChange={setHired} className="w-full" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Birthday</Label>
+                <DatePicker
+                  value={birthday}
+                  onChange={setBirthday}
+                  className="w-full"
+                />
               </div>
             </div>
             {/* Government contributions — IDs + enrollment. The rates behind

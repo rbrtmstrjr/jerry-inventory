@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { getBusinessIdentity } from "@/lib/business-identity";
 import { TableSkeleton } from "@/components/shell/streaming-skeletons";
 import {
   ExpensesView,
@@ -23,7 +24,8 @@ export default function ExpensesPage() {
 async function ExpensesBody() {
   const supabase = await createClient();
 
-  const [expensesRes, categoriesRes, shopsRes, deliveriesRes] = await Promise.all([
+  const [expensesRes, categoriesRes, shopsRes, deliveriesRes, business] =
+    await Promise.all([
     supabase
       .from("expenses")
       .select(
@@ -50,6 +52,7 @@ async function ExpensesBody() {
       .is("deleted_at", null)
       .order("delivered_at", { ascending: false })
       .limit(50),
+    getBusinessIdentity(supabase),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -91,6 +94,7 @@ async function ExpensesBody() {
       categories={(categoriesRes.data ?? []) as CategoryOption[]}
       shops={shopsRes.data ?? []}
       deliveries={deliveries}
+      business={business}
     />
   );
 }

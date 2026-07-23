@@ -106,6 +106,9 @@ export type DeliveryPrefill = {
   requestId: string;
   shopId: string;
   note: string;
+  /** free-text products the shop requested that aren't in the catalog (0077) —
+   *  informational: the owner creates them via Receiving, then delivers. */
+  customItems: { name: string; qty_requested: number }[];
 } & ClassifiedRequest;
 
 /**
@@ -260,7 +263,7 @@ async function DeliveriesBody({
       .select(
         // parts(name, sku, unit) so an out-of-stock requested part still shows
         // its name in the disabled "No master stock" block.
-        "id, shop_id, status, note, delivery_request_lines(part_id, engine_model_id, qty_requested, parts(name, sku, unit), engine_models(brand, model))"
+        "id, shop_id, status, note, delivery_request_lines(part_id, engine_model_id, custom_name, qty_requested, parts(name, sku, unit), engine_models(brand, model))"
       )
       .eq("id", requestId)
       .is("deleted_at", null)
@@ -287,10 +290,15 @@ async function DeliveriesBody({
         inMaster
       );
 
+      const customItems = (r.delivery_request_lines ?? [])
+        .filter((l: any) => !l.part_id && !l.engine_model_id && l.custom_name)
+        .map((l: any) => ({ name: l.custom_name as string, qty_requested: l.qty_requested }));
+
       prefill = {
         requestId: r.id,
         shopId: r.shop_id,
         note: r.note ? `Request: ${r.note}` : "From delivery request",
+        customItems,
         ...classified,
       };
     }

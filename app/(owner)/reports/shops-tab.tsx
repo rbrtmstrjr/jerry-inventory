@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { computePnl } from "@/lib/pnl";
+import { computePnl, fetchAll } from "@/lib/pnl";
 import { ph_today } from "@/lib/ph-date";
 import { ShopReports, type ShopReportData } from "./shop-reports";
 
@@ -42,6 +42,7 @@ export async function ShopsTab({
     enginesRes,
     pendingSalesRes,
     pendingLossesRes,
+    shopExpenseRows,
   ] = await Promise.all([
     computePnl(supabase, { from, to, shopId: shopFilter }),
     // Unfiltered — the shop picker lists every branch, not just the selected one.
@@ -70,6 +71,24 @@ export async function ShopsTab({
       .select("shop_id")
       .in("status", ["pending", "questioned"])
       .is("deleted_at", null),
+    // Shop expenses by category — the breakdown behind each shop's opex. SAME
+    // filter as lib/pnl.ts's opex (scope=shop, approved, in range, live) so the
+    // matrix's column totals reconcile to the "Shop exp." figures.
+    fetchAll<{
+      id: string;
+      shop_id: string | null;
+      amount: number;
+      expense_categories: { name: string } | null;
+    }>(() =>
+      supabase
+        .from("expenses")
+        .select("id, shop_id, amount, expense_categories(name)")
+        .eq("scope", "shop")
+        .eq("status", "approved")
+        .gte("expense_date", from)
+        .lte("expense_date", to)
+        .is("deleted_at", null)
+    ),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -117,15 +136,12 @@ export async function ShopsTab({
     (shopsRes.data ?? []).map((s) => [s.id, s.color_key ?? null])
   );
 
-  const perShop = pnl.perShop
-    .map((r) => {
-      const { shop_id, ...rest } = r;
-      return {
-        ...rest,
-        color_key: colorByShopId.get(shop_id) ?? null,
-        ...(ctx.get(shop_id) ?? zeroCtx()),
-      };
-    })
+  const displayed = pnl.perShop
+    .map((r) => ({
+      ...r,
+      color_key: colorByShopId.get(r.shop_id) ?? null,
+      ...(ctx.get(r.shop_id) ?? zeroCtx()),
+    }))
     // An open shop always earns a row, even at zero. A closed one only if
     // something actually happened — including stock it still holds or units it
     // moved, which is why this test is wider than the P&L's money-only one.
@@ -137,6 +153,45 @@ export async function ShopsTab({
         r.stock_value !== 0 || r.delivered_units !== 0 ||
         r.returned_units !== 0 || r.pending !== 0
     );
+
+  // The matrix below needs shop_id for column alignment; the view rows carry it
+  // harmlessly (ShopReportData.perShop just doesn't declare the field).
+  const perShop = displayed;
+
+  // Expenses by shop (category × shop matrix). Columns = the displayed shops in
+  // the same order; each column total reconciles to that shop's opex ("Shop exp.").
+  const cols = displayed.map((d) => ({
+    shop_id: d.shop_id,
+    name: d.shop,
+    color_key: d.color_key,
+  }));
+  const byCategory = new Map<string, Map<string, number>>();
+  for (const e of shopExpenseRows) {
+    if (!e.shop_id) continue;
+    const cat = e.expense_categories?.name ?? "Uncategorized";
+    const inner = byCategory.get(cat) ?? new Map<string, number>();
+    inner.set(e.shop_id, (inner.get(e.shop_id) ?? 0) + e.amount);
+    byCategory.set(cat, inner);
+  }
+  const expenseCategories = [...byCategory.entries()]
+    .map(([name, inner]) => {
+      const amounts = cols.map((c) => inner.get(c.shop_id) ?? 0);
+      return { name, amounts, total: amounts.reduce((a, b) => a + b, 0) };
+    })
+    .filter((c) => c.total > 0)
+    .sort((a, b) => b.total - a.total);
+  const shopExpenseTotals = cols.map((_, i) =>
+    expenseCategories.reduce((t, c) => t + c.amounts[i], 0)
+  );
+  const expensesByShop = {
+    shops: cols.map((c, i) => ({
+      name: c.name,
+      color_key: c.color_key,
+      total: shopExpenseTotals[i],
+    })),
+    categories: expenseCategories,
+    grandTotal: shopExpenseTotals.reduce((a, b) => a + b, 0),
+  };
 
   const sum = (k: keyof (typeof perShop)[number]) =>
     perShop.reduce((t, r) => t + (r[k] as number), 0);
@@ -180,6 +235,7 @@ export async function ShopsTab({
       pending: sum("pending"),
     },
     perShop,
+    expensesByShop,
   };
 
   return <ShopReports data={data} />;

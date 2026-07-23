@@ -55,6 +55,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   approvePayPeriod,
   markPayrollPaid,
+  saveEntryContributions,
   savePayrollDays,
   savePayrollVale,
   setPayPeriodStatus,
@@ -67,6 +68,9 @@ export interface PeriodInfo {
   end_date: string;
   frequency: "weekly" | "semi_monthly" | "monthly";
   status: "open" | "finalized";
+  /** semi-monthly per-run choice: does this run withhold gov benefits? null =
+   *  legacy (date/split setting). */
+  deduct_contributions: boolean | null;
 }
 
 export interface EntryRow {
@@ -121,6 +125,7 @@ export function PeriodDetail({
   const [busy, setBusy] = React.useState<string | null>(null);
   const [confirmFinalize, setConfirmFinalize] = React.useState(false);
   const [valeFor, setValeFor] = React.useState<EntryRow | null>(null);
+  const [contribFor, setContribFor] = React.useState<EntryRow | null>(null);
 
   const visible =
     shopFilter === "all"
@@ -294,6 +299,14 @@ export function PeriodDetail({
         </span>
       </div>
 
+      {period.deduct_contributions === false && (
+        <p className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Government benefits are <span className="font-medium">not withheld</span>{" "}
+          on this run — they&apos;re deducted in full on the month&apos;s other
+          semi-monthly run.
+        </p>
+      )}
+
       <div className="thin-scrollbar max-h-[62vh] overflow-auto rounded-md border">
         <Table>
           {/* The grouped header carries the whole point: the middle three
@@ -390,6 +403,16 @@ export function PeriodDetail({
                   </TableCell>
                   {AGENCY_ORDER.map((a, i) => {
                     const c = contrib[a];
+                    // enrolled staff with a snapshot row can have this edited
+                    const canEditContrib =
+                      !locked && e.status !== "paid" && !!c;
+                    const label = c ? (
+                      c.ee_amount_centavos > 0 ? (
+                        `−${formatCentavos(c.ee_amount_centavos)}`
+                      ) : (
+                        formatCentavos(0)
+                      )
+                    ) : null;
                     return (
                       <TableCell
                         key={a}
@@ -397,10 +420,19 @@ export function PeriodDetail({
                           i === 0 ? "border-l" : ""
                         } ${i === AGENCY_ORDER.length - 1 ? "border-r" : ""}`}
                       >
-                        {c && c.ee_amount_centavos > 0 ? (
-                          <span>−{formatCentavos(c.ee_amount_centavos)}</span>
-                        ) : (
+                        {label === null ? (
                           <span className="text-muted-foreground">—</span>
+                        ) : canEditContrib ? (
+                          <button
+                            type="button"
+                            className="tabular-nums underline decoration-dotted underline-offset-2 hover:text-primary"
+                            onClick={() => setContribFor(e)}
+                            title="Edit government contribution"
+                          >
+                            {label}
+                          </button>
+                        ) : (
+                          <span>{label}</span>
                         )}
                       </TableCell>
                     );
@@ -602,7 +634,108 @@ export function PeriodDetail({
         periodId={period.id}
         onClose={() => setValeFor(null)}
       />
+
+      <ContributionsDialog
+        entry={contribFor}
+        periodId={period.id}
+        onClose={() => setContribFor(null)}
+      />
     </div>
+  );
+}
+
+/** Edit the three government employee-share amounts for one enrolled staffer —
+ *  the probationary override. Prefilled from the current snapshot; Save writes
+ *  all three (₱0 = withheld nothing this period), and net recomputes. */
+function ContributionsDialog({
+  entry,
+  periodId,
+  onClose,
+}: {
+  entry: EntryRow | null;
+  periodId: string;
+  onClose: () => void;
+}) {
+  const [amounts, setAmounts] = React.useState<Record<string, string>>({});
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!entry) return;
+    const c = byAgency(entry.contributions);
+    setAmounts(
+      Object.fromEntries(
+        AGENCY_ORDER.map((a) => [
+          a,
+          ((c[a]?.ee_amount_centavos ?? 0) / 100).toFixed(2),
+        ])
+      )
+    );
+  }, [entry]);
+
+  async function onSave() {
+    if (!entry) return;
+    const payload: Record<string, number> = {};
+    for (const a of AGENCY_ORDER) {
+      payload[a] = parsePesosToCentavos(amounts[a] || "0") ?? 0;
+    }
+    setBusy(true);
+    const res = await saveEntryContributions(entry.id, periodId, payload);
+    setBusy(false);
+    if (res.ok) {
+      toast.success("Contributions updated — net recomputed");
+      onClose();
+    } else toast.error(res.error);
+  }
+
+  return (
+    <Dialog open={entry !== null} onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Government contributions — {entry?.staff_name}</DialogTitle>
+          <DialogDescription>
+            Employee share deducted this period. Set to ₱0 for a staffer still on
+            probation. Employer share and the rate book are unchanged.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          {AGENCY_ORDER.map((a) => (
+            <div key={a} className="grid grid-cols-[7rem_1fr] items-center gap-2">
+              <Label htmlFor={`contrib-${a}`}>{AGENCY_LABEL[a]} ₱</Label>
+              <Input
+                id={`contrib-${a}`}
+                inputMode="decimal"
+                value={amounts[a] ?? ""}
+                onChange={(ev) =>
+                  setAmounts((m) => ({
+                    ...m,
+                    [a]: ev.target.value.replace(/[^\d.]/g, ""),
+                  }))
+                }
+                className="tabular-nums"
+              />
+            </div>
+          ))}
+          <button
+            type="button"
+            className="self-start text-xs text-primary underline-offset-2 hover:underline"
+            onClick={() =>
+              setAmounts(Object.fromEntries(AGENCY_ORDER.map((a) => [a, "0.00"])))
+            }
+          >
+            Set all to ₱0 (probation)
+          </button>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={busy}>
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -150,6 +150,23 @@ export function SuppliersBadge({ active, initialCount }: { active?: boolean; ini
   return <CountBadge count={useNavCount(loadOverduePayables, SUPPLIERS_TABLES, initialCount)} active={active} />;
 }
 
+// ── Birthdays (Dashboard) ───────────────────────────────────────────────────
+// Staff whose birthday is TODAY (PH month-day, from staff_birthdays_today / 0079)
+// — the celebrant card lives on the Dashboard. Date-based, so no table event
+// fires: it rides the focus/visibility refresh (plus a staff edit if `staff` is
+// in the realtime publication). Missing view (migration not applied) → the count
+// query errors → useNavCount keeps null → no badge, so it degrades gracefully.
+const BIRTHDAY_TABLES = ["staff"] as const;
+async function loadBirthdays(sb: SupabaseClient) {
+  const { count } = await sb
+    .from("staff_birthdays_today")
+    .select("id", { count: "exact", head: true });
+  return count ?? 0;
+}
+export function BirthdayBadge({ active, initialCount }: { active?: boolean; initialCount?: number }) {
+  return <CountBadge count={useNavCount(loadBirthdays, BIRTHDAY_TABLES, initialCount)} active={active} />;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Shop (employee) badges. The safe views are already RLS-scoped to the caller's
 // own shop, so a plain count is shop-specific. These render only in an employee

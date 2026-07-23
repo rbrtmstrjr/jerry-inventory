@@ -1,12 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, Printer } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, Printer } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from "@/components/ui/command";
 import { Label } from "@/components/ui/label";
+import {
+  Popover, PopoverContent, PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -33,6 +41,7 @@ export function StockCardView({
   today: string;
 }) {
   const router = useRouter();
+  const [productOpen, setProductOpen] = useState(false);
 
   function apply(next: { part?: string; shop?: string; from?: string; to?: string }) {
     const p = new URLSearchParams({ tab: "ledger" });
@@ -66,16 +75,61 @@ export function StockCardView({
         <CardContent className="flex flex-wrap items-end gap-3 pt-6">
           <div className="grid min-w-44 flex-1 gap-1">
             <Label className="text-xs">Product</Label>
-            <Select value={partId ?? ""} onValueChange={(v) => apply({ part: v })}>
-              <SelectTrigger className="w-full"><SelectValue placeholder="Pick a product" /></SelectTrigger>
-              <SelectContent>
-                {parts.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}{p.sku ? ` · ${p.sku}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Searchable: with hundreds of products a plain dropdown is
+                unusable, so this is a Command combobox filtering name + SKU. */}
+            <Popover open={productOpen} onOpenChange={setProductOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={productOpen}
+                  className="w-full justify-between font-normal"
+                >
+                  <span className="truncate">
+                    {part
+                      ? `${part.name}${part.sku ? ` · ${part.sku}` : ""}`
+                      : "Pick a product"}
+                  </span>
+                  <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-[var(--radix-popover-trigger-width)] min-w-72 p-0"
+                align="start"
+              >
+                <Command>
+                  <CommandInput placeholder="Search name or SKU…" />
+                  <CommandList>
+                    <CommandEmpty>No product found.</CommandEmpty>
+                    <CommandGroup>
+                      {parts.map((p) => (
+                        <CommandItem
+                          key={p.id}
+                          value={`${p.name} ${p.sku ?? ""}`}
+                          onSelect={() => {
+                            apply({ part: p.id });
+                            setProductOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "size-4",
+                              p.id === partId ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          <span className="flex-1 truncate">{p.name}</span>
+                          {p.sku && (
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {p.sku}
+                            </span>
+                          )}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="grid min-w-44 flex-1 gap-1">
             <Label className="text-xs">Location</Label>

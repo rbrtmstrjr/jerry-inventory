@@ -33,7 +33,7 @@ async function PayPeriodBody({
     await Promise.all([
       supabase
         .from("pay_periods")
-        .select("id, label, start_date, end_date, frequency, status")
+        .select("id, label, start_date, end_date, frequency, status, deduct_contributions")
         .eq("id", id)
         .is("deleted_at", null)
         .single(),

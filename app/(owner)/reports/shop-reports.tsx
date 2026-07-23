@@ -105,6 +105,16 @@ export interface ShopReportData {
     stock_value: number;
     pending: number;
   }[];
+  /**
+   * Category × shop matrix behind the "Shop exp." column. `shops` are the same
+   * columns (order) as `perShop`; each `categories[].amounts[i]` aligns to
+   * `shops[i]`, and `shops[i].total` reconciles to that shop's `opex`.
+   */
+  expensesByShop: {
+    shops: { name: string; color_key: string | null; total: number }[];
+    categories: { name: string; amounts: number[]; total: number }[];
+    grandTotal: number;
+  };
 }
 
 const SHOP_COLORS = [
@@ -502,6 +512,73 @@ export function ShopReports({ data }: { data: ShopReportData }) {
             are tracked separately and are <strong>not</strong> subtracted here —
             they are stock that never sold, not a cost of what did.
           </p>
+        </CardContent>
+      </Card>
+
+      {/* Expenses by shop — the breakdown behind the "Shop exp." column */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Expenses by shop</CardTitle>
+          <CardDescription>
+            Approved shop expenses in range, by category. Each shop&apos;s column
+            sums to its <strong>Shop exp.</strong> total above.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="thin-scrollbar overflow-x-auto">
+          {data.expensesByShop.categories.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No shop expenses recorded in this range.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Category</TableHead>
+                  {data.expensesByShop.shops.map((s) => (
+                    <TableHead key={s.name} className="text-right">
+                      <ShopBadge
+                        shop={{ name: s.name, color_key: s.color_key }}
+                        variant="text"
+                      />
+                    </TableHead>
+                  ))}
+                  <TableHead className="text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.expensesByShop.categories.map((c) => (
+                  <TableRow key={c.name}>
+                    <TableCell className="font-medium">{c.name}</TableCell>
+                    {c.amounts.map((a, i) => (
+                      <TableCell
+                        key={data.expensesByShop.shops[i].name}
+                        className="text-right tabular-nums text-muted-foreground"
+                      >
+                        {a > 0 ? formatCentavos(a) : "—"}
+                      </TableCell>
+                    ))}
+                    <TableCell className="text-right font-medium tabular-nums">
+                      {formatCentavos(c.total)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="border-t-2 bg-muted/40">
+                  <TableCell className="font-semibold">Total</TableCell>
+                  {data.expensesByShop.shops.map((s) => (
+                    <TableCell
+                      key={s.name}
+                      className="text-right font-semibold tabular-nums"
+                    >
+                      {formatCentavos(s.total)}
+                    </TableCell>
+                  ))}
+                  <TableCell className="text-right font-semibold tabular-nums">
+                    {formatCentavos(data.expensesByShop.grandTotal)}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 

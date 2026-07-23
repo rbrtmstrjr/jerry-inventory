@@ -313,12 +313,19 @@ export async function createDeliveryRequest(input: unknown): Promise<ActionResul
             .object({
               part_id: z.uuid().nullable().default(null),
               engine_model_id: z.uuid().nullable().default(null),
+              // a free-text product the shop doesn't carry yet (0077)
+              custom_name: z.string().trim().min(1).max(200).nullable().default(null),
               qty_requested: z.number().int().positive(),
               note: z.string().trim().max(500).optional().nullable(),
             })
-            .refine((l) => (l.part_id === null) !== (l.engine_model_id === null), {
-              message: "Each line needs exactly one product",
-            })
+            .refine(
+              (l) =>
+                (l.part_id !== null ? 1 : 0) +
+                  (l.engine_model_id !== null ? 1 : 0) +
+                  (l.custom_name !== null ? 1 : 0) ===
+                1,
+              { message: "Each line needs exactly one product" }
+            )
         )
         .min(1, "Add at least one item"),
       note: z.string().trim().max(2000).optional().nullable(),

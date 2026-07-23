@@ -11,6 +11,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Printer,
   ReceiptText,
   Trash2,
   Truck,
@@ -20,6 +21,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 
 import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
+import type { BusinessIdentity } from "@/lib/db-types";
 import { ph_today } from "@/lib/ph-date";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -126,11 +128,13 @@ export function ExpensesView({
   categories,
   shops,
   deliveries,
+  business,
 }: {
   expenses: ExpenseRow[];
   categories: CategoryOption[];
   shops: { id: string; name: string }[];
   deliveries: DeliveryOption[];
+  business: BusinessIdentity;
 }) {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<ExpenseRow | null>(null);
@@ -144,6 +148,9 @@ export function ExpensesView({
   const [sourceFilter, setSourceFilter] = React.useState("all"); // all | owner | shop
   const [fromDate, setFromDate] = React.useState("");
   const [toDate, setToDate] = React.useState("");
+
+  // Stamped on the printed sheet — set on click so SSR can't mismatch.
+  const [printedAt, setPrintedAt] = React.useState("");
 
   const filtered = expenses.filter((e) => {
     if (catFilter !== "all" && e.category_id !== catFilter) return false;
@@ -191,6 +198,40 @@ export function ExpensesView({
     }
     return [...m.entries()].sort((a, b) => b[1].amount - a[1].amount);
   })();
+
+  // Human-readable list of the active filters, printed on the sheet header so
+  // the paper says exactly which slice it represents.
+  const activeFilters: string[] = [];
+  if (fromDate || toDate)
+    activeFilters.push(`Dates ${fromDate || "start"} → ${toDate || "today"}`);
+  if (catFilter !== "all")
+    activeFilters.push(
+      `Category: ${categories.find((c) => c.id === catFilter)?.name ?? "?"}`
+    );
+  if (scopeFilter !== "all")
+    activeFilters.push(
+      `Scope: ${
+        scopeFilter === "company"
+          ? "Company-wide"
+          : shops.find((s) => s.id === scopeFilter)?.name ?? "?"
+      }`
+    );
+  if (statusFilter !== "all")
+    activeFilters.push(
+      `Status: ${
+        (
+          {
+            approved: "Approved",
+            review: "Pending / questioned",
+            rejected: "Rejected",
+          } as Record<string, string>
+        )[statusFilter] ?? statusFilter
+      }`
+    );
+  if (sourceFilter !== "all")
+    activeFilters.push(
+      `Source: ${sourceFilter === "owner" ? "Owner-recorded" : "Shop-recorded"}`
+    );
 
   // recently-used categories first in the dialog
   const recentCatIds: string[] = [];
@@ -349,7 +390,8 @@ export function ExpensesView({
   ];
 
   return (
-    <div className="flex flex-col gap-3">
+    <>
+    <div className="flex flex-col gap-3 print:hidden">
       {/* Shop claims waiting on the owner — decided on /approvals, never here */}
       {awaitingReview > 0 && (
         <Link
@@ -485,14 +527,27 @@ export function ExpensesView({
         searchPlaceholder="Search description, paid to…"
         emptyMessage="No expenses recorded yet — log the first one."
         toolbar={
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setDialogOpen(true);
-            }}
-          >
-            <Plus className="size-4" /> Record expense
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPrintedAt(format(new Date(), "MMM d, yyyy h:mm a"));
+                // let React commit the timestamp before the print snapshot
+                requestAnimationFrame(() => window.print());
+              }}
+              title="Print the rows currently shown"
+            >
+              <Printer className="size-4" /> Print
+            </Button>
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setDialogOpen(true);
+              }}
+            >
+              <Plus className="size-4" /> Record expense
+            </Button>
+          </div>
         }
       />
 
@@ -541,6 +596,147 @@ export function ExpensesView({
           else toast.error(res.error);
         }}
       />
+    </div>
+
+    <ExpensesPrintSheet
+      business={business}
+      rows={filtered}
+      approvedTotal={filteredTotal}
+      companyTotal={companyTotal}
+      shopTotal={shopTotal}
+      unapprovedCount={unapprovedCount}
+      activeFilters={activeFilters}
+      printedAt={printedAt}
+    />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Print sheet — hidden on screen, the ONLY thing that prints. Renders the exact
+// rows the filters currently show (all of them, unpaginated), so a filtered
+// view prints filtered. Money totals mirror the on-screen summary: approved
+// rows only.
+// ---------------------------------------------------------------------------
+function ExpensesPrintSheet({
+  business,
+  rows,
+  approvedTotal,
+  companyTotal,
+  shopTotal,
+  unapprovedCount,
+  activeFilters,
+  printedAt,
+}: {
+  business: BusinessIdentity;
+  rows: ExpenseRow[];
+  approvedTotal: number;
+  companyTotal: number;
+  shopTotal: number;
+  unapprovedCount: number;
+  activeFilters: string[];
+  printedAt: string;
+}) {
+  return (
+    <div id="expenses-print" className="hidden print:block text-black">
+      {/* Print in isolation: the layout heading + tabs are ancestors of this
+          view, so display:none on a sibling can't reach them. Hiding everything
+          and re-showing only this sheet does — scoped to @media print. */}
+      <style>{`@media print {
+        body * { visibility: hidden !important; }
+        #expenses-print, #expenses-print * { visibility: visible !important; }
+        #expenses-print { position: absolute; left: 0; top: 0; width: 100%; }
+      }`}</style>
+      <header className="mb-4 border-b border-black pb-2 text-center">
+        <h1 className="text-lg font-bold">{business.business_name}</h1>
+        {business.address && <p className="text-xs">{business.address}</p>}
+        {business.phone && <p className="text-xs">{business.phone}</p>}
+        <p className="mt-2 text-base font-semibold">Expense Report</p>
+      </header>
+
+      <div className="mb-3 flex items-start justify-between text-xs">
+        <div>
+          <span className="font-semibold">Filters: </span>
+          {activeFilters.length ? activeFilters.join(" · ") : "All expenses"}
+        </div>
+        {printedAt && <div>Printed {printedAt}</div>}
+      </div>
+
+      <table className="w-full border-collapse text-xs">
+        <thead>
+          <tr className="border-y border-black text-left">
+            <th className="py-1 pr-2 font-semibold">Date</th>
+            <th className="py-1 pr-2 font-semibold">Category</th>
+            <th className="py-1 pr-2 font-semibold">Scope</th>
+            <th className="py-1 pr-2 font-semibold">Description</th>
+            <th className="py-1 pr-2 font-semibold">Paid to</th>
+            <th className="py-1 pr-2 font-semibold">Status</th>
+            <th className="py-1 pl-2 text-right font-semibold">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((e) => (
+            <tr key={e.id} className="border-b border-black/20 align-top">
+              <td className="py-1 pr-2 whitespace-nowrap">
+                {format(new Date(e.expense_date), "MMM d, yyyy")}
+              </td>
+              <td className="py-1 pr-2">{e.category_name}</td>
+              <td className="py-1 pr-2">
+                {e.scope === "company" ? "Company-wide" : e.shop_name ?? "—"}
+              </td>
+              <td className="py-1 pr-2">{e.description}</td>
+              <td className="py-1 pr-2">{e.paid_to ?? "—"}</td>
+              <td className="py-1 pr-2 capitalize">{e.status}</td>
+              <td className="py-1 pl-2 text-right tabular-nums">
+                {formatCentavos(e.amount)}
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={7} className="py-3 text-center">
+                No expenses match the current filters.
+              </td>
+            </tr>
+          )}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-black font-semibold">
+            <td colSpan={6} className="py-1 pr-2 text-right">
+              Approved total ({rows.length} row{rows.length === 1 ? "" : "s"} shown)
+            </td>
+            <td className="py-1 pl-2 text-right tabular-nums">
+              {formatCentavos(approvedTotal)}
+            </td>
+          </tr>
+          <tr>
+            <td colSpan={6} className="py-1 pr-2 text-right text-xs">
+              Company-wide
+            </td>
+            <td className="py-1 pl-2 text-right text-xs tabular-nums">
+              {formatCentavos(companyTotal)}
+            </td>
+          </tr>
+          <tr>
+            <td colSpan={6} className="py-1 pr-2 text-right text-xs">
+              Per-shop
+            </td>
+            <td className="py-1 pl-2 text-right text-xs tabular-nums">
+              {formatCentavos(shopTotal)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <p className="mt-3 text-[10px]">
+        Approved expenses only
+        {unapprovedCount > 0 &&
+          ` — ${unapprovedCount} pending/rejected row${
+            unapprovedCount === 1 ? "" : "s"
+          } shown above don't count toward the totals`}
+        . Operating costs only; supplier payments are stock cost (COGS) and are
+        not included here.
+      </p>
     </div>
   );
 }

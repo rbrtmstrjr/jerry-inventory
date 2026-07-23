@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { ApprovalsBadge } from "@/components/shell/approvals-badge";
 import {
+  BirthdayBadge,
   DeliveriesBadge,
   ReceivablesBadge,
   ShopDeliveriesBadge,
@@ -68,6 +69,7 @@ type NavItem = {
 
 /** Owner sidebar count badges, keyed by the nav href they attach to. */
 const OWNER_BADGES: Record<string, React.FC<{ active?: boolean; initialCount?: number }>> = {
+  "/dashboard": BirthdayBadge,
   "/approvals": ApprovalsBadge,
   "/deliveries": DeliveriesBadge,
   "/stock-alerts": StockAlertsBadge,

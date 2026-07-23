@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import {
   ArrowRight,
   Boxes,
+  Cake,
   ClipboardCheck,
   Coins,
   HandCoins,
@@ -20,8 +21,11 @@ import { createClient } from "@/lib/supabase/server";
 import { ph_today } from "@/lib/ph-date";
 import { formatCentavos } from "@/lib/format";
 import { computePnl } from "@/lib/pnl";
+import { productImageUrl } from "@/lib/product-image";
 import { getDashboardSummary, getTopProducts } from "@/lib/dashboard";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { ConfettiBurst } from "@/components/confetti-burst";
 import {
   Card,
   CardContent,
@@ -54,6 +58,11 @@ export default function OwnerDashboardPage() {
         </p>
       </div>
 
+      {/* Birthday celebrant(s) — only appears on a day someone has a birthday. */}
+      <Suspense fallback={null}>
+        <BirthdayCard />
+      </Suspense>
+
       <Suspense fallback={<StatsSkeleton />}>
         <StatsCards />
       </Suspense>
@@ -71,6 +80,82 @@ export default function OwnerDashboardPage() {
         <OpsCards />
       </Suspense>
     </div>
+  );
+}
+
+// ── birthdays today (celebrant card) ─────────────────────────────────────────
+interface Celebrant {
+  id: string;
+  full_name: string;
+  image_path: string | null;
+}
+
+async function BirthdayCard() {
+  const supabase = await createClient();
+  // staff_birthdays_today (0079) is owner-only + already scoped to PH-today's
+  // month-day. Missing (migration not applied yet) → no rows → card hidden.
+  const { data } = await supabase
+    .from("staff_birthdays_today")
+    .select("id, full_name, image_path");
+  const celebrants = (data ?? []) as Celebrant[];
+  if (celebrants.length === 0) return null;
+
+  // First name only, joined naturally: "Maria", "Maria and Boyet",
+  // "Maria, Boyet and Bobot".
+  const firstNames = celebrants.map((c) => c.full_name.trim().split(/\s+/)[0]);
+  const nameLine =
+    firstNames.length <= 1
+      ? (firstNames[0] ?? "")
+      : `${firstNames.slice(0, -1).join(", ")} and ${firstNames[firstNames.length - 1]}`;
+
+  return (
+    <Card className="relative overflow-hidden border-pink-400/40 bg-gradient-to-br from-pink-400/25 via-fuchsia-300/10 to-transparent">
+      {/* Soft festive glow, decorative only. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-16 -top-16 size-56 rounded-full bg-fuchsia-400/20 blur-3xl"
+      />
+      {/* Exploding confetti behind the content. */}
+      <ConfettiBurst />
+      <CardContent className="relative flex flex-col items-start gap-6 p-6 sm:flex-row sm:items-center sm:gap-8">
+        {/* Larger, overlapping stacked photos */}
+        <div className="flex shrink-0 -space-x-7">
+          {celebrants.map((c) => (
+            <Avatar
+              key={c.id}
+              className="size-24 border-4 border-background shadow-md ring-2 ring-pink-400/60 sm:size-28"
+            >
+              <AvatarImage
+                src={productImageUrl(c.image_path) ?? undefined}
+                alt={c.full_name}
+              />
+              <AvatarFallback className="bg-pink-100 text-2xl font-semibold text-pink-700 dark:bg-pink-950 dark:text-pink-300">
+                {c.full_name.slice(0, 2).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+          ))}
+        </div>
+
+        {/* Left-aligned greeting */}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-pink-600 dark:text-pink-300">
+            <Cake className="size-5" />
+            <span className="text-xs font-bold uppercase tracking-[0.2em]">
+              Birthday today 🎉
+            </span>
+          </div>
+          <h2 className="mt-2 text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl">
+            Happy Birthday{" "}
+            <span className="bg-gradient-to-r from-pink-600 to-fuchsia-500 bg-clip-text text-transparent dark:from-pink-400 dark:to-fuchsia-300">
+              {nameLine}
+            </span>
+          </h2>
+          <p className="mt-2.5 text-lg font-medium text-muted-foreground sm:text-xl">
+            Patagay ka naman 😂
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

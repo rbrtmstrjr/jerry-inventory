@@ -250,7 +250,7 @@ export function PayablesView({
       cell: ({ row }) => (
         <div className="flex justify-end gap-1">
           <Button variant="ghost" size="sm" onClick={() => setDetail(row.original)}>
-            Detail
+            View details
           </Button>
           <Button
             size="sm"
@@ -471,10 +471,26 @@ function SupplierDetail({
   onPay: (r: ReceivingBalanceRow | null) => void;
 }) {
   if (!supplier) return null;
-  const open = balances.filter(
-    (b) => b.supplier_id === supplier.supplier_id && b.balance > 0
-  );
-  const hist = payments.filter((p) => p.supplier_id === supplier.supplier_id);
+
+  // Full ledger: EVERY receiving from this supplier — paid and unpaid — newest
+  // first, so the detail shows the whole transaction history of the owe.
+  const rows = balances
+    .filter((b) => b.supplier_id === supplier.supplier_id)
+    .slice()
+    .sort((a, b) =>
+      a.received_at < b.received_at ? 1 : a.received_at > b.received_at ? -1 : 0
+    );
+  const openCount = rows.filter((b) => b.balance > 0).length;
+
+  // Each supplier payment carries the receiving_id it was allocated to (FIFO
+  // splits one payment into several such rows), so group them per transaction.
+  const paysByReceiving = new Map<string, PaymentHistoryRow[]>();
+  for (const p of payments) {
+    if (p.supplier_id !== supplier.supplier_id || !p.receiving_id) continue;
+    const list = paysByReceiving.get(p.receiving_id) ?? [];
+    list.push(p);
+    paysByReceiving.set(p.receiving_id, list);
+  }
 
   return (
     <Dialog open={!!supplier} onOpenChange={(o) => !o && onClose()}>
@@ -491,93 +507,131 @@ function SupplierDetail({
           </DialogDescription>
         </DialogHeader>
 
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">
+            {rows.length} transaction{rows.length === 1 ? "" : "s"} · {openCount}{" "}
+            open
+          </span>
+          <Button
+            size="sm"
+            onClick={() => onPay(null)}
+            disabled={supplier.outstanding <= 0}
+          >
+            <HandCoins className="size-3.5" /> Record payment (FIFO)
+          </Button>
+        </div>
+
         <section className="flex flex-col gap-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Open receivings ({open.length})
+            Transaction history
           </h3>
-          {open.length === 0 && (
+          {rows.length === 0 && (
             <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-              Nothing outstanding — all settled.
+              No receivings from this supplier yet.
             </p>
           )}
-          {open.map((b) => (
-            <div
-              key={b.receiving_id}
-              className={cn(
-                "flex flex-wrap items-center gap-3 rounded-md border px-3 py-2",
-                b.overdue && "border-destructive bg-destructive/5"
-              )}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">
-                  {format(new Date(b.received_at), "MMM d, yyyy")}
-                  {b.limit_override && (
-                    <Badge variant="outline" className="ml-2 border-warning/50">
-                      over-limit override
-                    </Badge>
-                  )}
+          {rows.map((b) => {
+            const paid = b.amount_paid + b.paid_since;
+            const st =
+              b.balance <= 0
+                ? { label: "Paid", variant: "secondary" as const }
+                : b.overdue
+                  ? { label: "Overdue", variant: "destructive" as const }
+                  : paid > 0
+                    ? { label: "Partial", variant: "outline" as const }
+                    : { label: "Open", variant: "outline" as const };
+            const rp = paysByReceiving.get(b.receiving_id) ?? [];
+            return (
+              <div
+                key={b.receiving_id}
+                className={cn(
+                  "rounded-md border px-3 py-2",
+                  b.overdue && "border-destructive bg-destructive/5",
+                  b.balance <= 0 && "opacity-70"
+                )}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                      {format(new Date(b.received_at), "MMM d, yyyy")}
+                      <Badge variant={st.variant}>{st.label}</Badge>
+                      {b.limit_override && (
+                        <Badge variant="outline" className="border-warning/50">
+                          over-limit
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {b.note ?? "Receiving"}
+                      {b.due_date &&
+                        ` · due ${format(new Date(b.due_date), "MMM d")}`}
+                      {b.overdue && (
+                        <span className="ml-1 font-medium text-destructive">
+                          · {b.days_overdue}d overdue
+                        </span>
+                      )}
+                    </div>
+                    {b.limit_override_reason && (
+                      <div className="text-xs italic text-muted-foreground">
+                        “{b.limit_override_reason}”
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right text-xs text-muted-foreground">
+                    <div>
+                      {formatCentavos(b.total_amount)} total ·{" "}
+                      {formatCentavos(paid)} paid
+                    </div>
+                    <div
+                      className={cn(
+                        "text-base font-semibold tabular-nums",
+                        b.balance > 0 ? "text-foreground" : "text-success"
+                      )}
+                    >
+                      {formatCentavos(Math.max(0, b.balance))}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {b.note ?? "Receiving"}
-                  {b.due_date && ` · due ${format(new Date(b.due_date), "MMM d")}`}
-                  {b.overdue && (
-                    <span className="ml-1 font-medium text-destructive">
-                      · {b.days_overdue}d overdue
-                    </span>
-                  )}
-                </div>
-                {b.limit_override_reason && (
-                  <div className="text-xs italic text-muted-foreground">
-                    “{b.limit_override_reason}”
+
+                {/* Payments applied to THIS transaction (downpayment + ledger). */}
+                {(b.amount_paid > 0 || rp.length > 0) && (
+                  <div className="mt-2 flex flex-col gap-1 border-t pt-2 text-xs">
+                    {b.amount_paid > 0 && (
+                      <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                        <span>Downpayment at receiving</span>
+                        <span className="tabular-nums text-success">
+                          {formatCentavos(b.amount_paid)}
+                        </span>
+                      </div>
+                    )}
+                    {rp.map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <span className="text-muted-foreground">
+                          {format(new Date(p.paid_at), "MMM d, yyyy")} ·{" "}
+                          <Badge variant="outline">{p.method}</Badge>
+                          {p.reference_no && ` · ${p.reference_no}`}
+                        </span>
+                        <span className="tabular-nums text-success">
+                          {formatCentavos(p.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {b.balance > 0 && (
+                  <div className="mt-2 flex justify-end">
+                    <Button size="sm" variant="outline" onClick={() => onPay(b)}>
+                      Pay this
+                    </Button>
                   </div>
                 )}
               </div>
-              <div className="text-right text-xs text-muted-foreground">
-                <div>
-                  {formatCentavos(b.total_amount)} total ·{" "}
-                  {formatCentavos(b.amount_paid + b.paid_since)} paid
-                </div>
-                <div className="text-base font-semibold tabular-nums text-foreground">
-                  {formatCentavos(b.balance)}
-                </div>
-              </div>
-              <Button size="sm" variant="outline" onClick={() => onPay(b)}>
-                Pay this
-              </Button>
-            </div>
-          ))}
-          <div className="flex justify-end">
-            <Button size="sm" onClick={() => onPay(null)} disabled={open.length === 0}>
-              <HandCoins className="size-3.5" /> Pay oldest first (FIFO)
-            </Button>
-          </div>
-        </section>
-
-        <section className="flex flex-col gap-2 border-t pt-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Payment history ({hist.length})
-          </h3>
-          {hist.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No payments yet.</p>
-          ) : (
-            <div className="flex flex-col gap-1 text-xs">
-              {hist.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5"
-                >
-                  <span className="text-muted-foreground">
-                    {format(new Date(p.paid_at), "MMM d, yyyy")} ·{" "}
-                    <Badge variant="outline">{p.method}</Badge>
-                    {p.reference_no && ` · ${p.reference_no}`}
-                  </span>
-                  <span className="font-medium tabular-nums text-success">
-                    {formatCentavos(p.amount)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+            );
+          })}
         </section>
       </DialogContent>
     </Dialog>
@@ -610,6 +664,39 @@ function PayDialog({
       setReceipt({ type: "keep" });
     }
   }, [target]);
+
+  // FIFO preview for a supplier-level lump sum — mirrors the RPC's oldest-first
+  // (received_at, id) allocation so the owner sees exactly where a partial
+  // payment lands before confirming.
+  const fifoPreview = React.useMemo(() => {
+    if (!target || target.receiving) return null;
+    const amt = parsePesosToCentavos(amount || "0") ?? 0;
+    if (amt <= 0) return null;
+    const open = balances
+      .filter(
+        (b) => b.supplier_id === target.supplier.supplier_id && b.balance > 0
+      )
+      .slice()
+      .sort((a, b) =>
+        a.received_at < b.received_at
+          ? -1
+          : a.received_at > b.received_at
+            ? 1
+            : a.receiving_id < b.receiving_id
+              ? -1
+              : 1
+      );
+    let left = amt;
+    const allocs: { b: ReceivingBalanceRow; take: number }[] = [];
+    for (const b of open) {
+      if (left <= 0) break;
+      const take = Math.min(left, b.balance);
+      if (take <= 0) continue;
+      allocs.push({ b, take });
+      left -= take;
+    }
+    return allocs;
+  }, [target, balances, amount]);
 
   if (!target) return null;
   const max = target.receiving ? target.receiving.balance : target.supplier.outstanding;
@@ -730,6 +817,35 @@ function PayDialog({
               )}
             </div>
           </div>
+
+          {fifoPreview && fifoPreview.length > 0 && (
+            <div className="rounded-md border bg-muted/30 p-2 text-xs">
+              <div className="mb-1 font-medium">Applied oldest-first (FIFO)</div>
+              <div className="flex flex-col gap-1">
+                {fifoPreview.map(({ b, take }) => (
+                  <div
+                    key={b.receiving_id}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      {format(new Date(b.received_at), "MMM d, yyyy")}
+                      {b.note ? ` · ${b.note}` : ""}
+                    </span>
+                    <span className="shrink-0 tabular-nums">
+                      {formatCentavos(take)}
+                      {take >= b.balance ? (
+                        <span className="ml-1 text-success">paid off</span>
+                      ) : (
+                        <span className="ml-1 text-muted-foreground">
+                          ({formatCentavos(b.balance - take)} left)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">

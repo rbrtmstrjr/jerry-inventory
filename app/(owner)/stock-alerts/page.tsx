@@ -77,7 +77,7 @@ async function StockAlertsBody({
           `id, shop_id, status, note, owner_note, created_at, fulfilled_at, fulfilled_delivery_id,
            shops(name, color_key),
            profiles!delivery_requests_requested_by_fkey(full_name),
-           delivery_request_lines(qty_requested, note, parts(name, unit), engine_models(brand, model))`
+           delivery_request_lines(qty_requested, note, custom_name, parts(name, unit), engine_models(brand, model))`
         )
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -137,9 +137,12 @@ async function StockAlertsBody({
       note: l.note,
       name:
         l.parts?.name ??
-        `${l.engine_models?.brand ?? ""} ${l.engine_models?.model ?? ""}`.trim(),
+        (l.engine_models
+          ? `${l.engine_models.brand ?? ""} ${l.engine_models.model ?? ""}`.trim()
+          : l.custom_name ?? "New product"),
       unit: l.parts?.unit ?? "unit",
-      is_engine: !l.parts,
+      is_engine: !l.parts && !!l.engine_models,
+      is_custom: !l.parts && !l.engine_models,
     })),
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */

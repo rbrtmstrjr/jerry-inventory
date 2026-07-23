@@ -31,7 +31,7 @@ export default async function StockRequestReceiptPage({
         `id, created_at, status, note,
          shops(name, location),
          profiles!delivery_requests_requested_by_fkey(full_name),
-         delivery_request_lines(qty_requested, note,
+         delivery_request_lines(qty_requested, note, custom_name,
            parts(name, sku, unit),
            engine_models(brand, model, horsepower))`
       )
@@ -48,6 +48,8 @@ export default async function StockRequestReceiptPage({
   const lines = (r.delivery_request_lines ?? []) as any[];
   const partLines = lines.filter((l) => l.parts);
   const engineLines = lines.filter((l) => l.engine_models);
+  // free-text products the shop doesn't carry yet (0077) — no catalog row
+  const customLines = lines.filter((l) => !l.parts && !l.engine_models);
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   const refNo = `SR-${r.id.slice(0, 8).toUpperCase()}`;
@@ -144,6 +146,23 @@ export default async function StockRequestReceiptPage({
                   )}
                 </td>
                 <td className="py-2 text-right tabular-nums">{l.qty_requested} unit</td>
+              </tr>
+            ))}
+            {customLines.map((l: any, i: number) => (
+              <tr key={`c-${i}`} className="border-b">
+                <td className="py-2 text-muted-foreground">
+                  {partLines.length + engineLines.length + i + 1}
+                </td>
+                <td className="py-2">
+                  {l.custom_name}
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    (new product — not in catalog)
+                  </span>
+                  {l.note && (
+                    <span className="ml-2 text-xs text-muted-foreground">({l.note})</span>
+                  )}
+                </td>
+                <td className="py-2 text-right tabular-nums">{l.qty_requested}</td>
               </tr>
             ))}
             {/* eslint-enable @typescript-eslint/no-explicit-any */}

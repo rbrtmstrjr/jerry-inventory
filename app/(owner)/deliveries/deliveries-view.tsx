@@ -633,6 +633,30 @@ function TransferForm({
                 </div>
               </div>
             )}
+            {prefill && prefill.customItems.length > 0 && (
+              <div className="border-t px-4 py-3">
+                <p className="mb-2 text-xs font-medium text-primary">
+                  New products requested — not in the catalog
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {prefill.customItems.map((c, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between gap-2 rounded-md border border-dashed border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+                    >
+                      <span className="truncate">{c.name}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        requested {c.qty_requested}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Add these to the catalog via Suppliers → Receiving first, then
+                  deliver them on a later request.
+                </p>
+              </div>
+            )}
           </div>
 
           {prefill && nothingToDeliver && (

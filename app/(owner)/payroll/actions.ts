@@ -79,6 +79,11 @@ const staffSchema = z.object({
   pagibig_no: govIdSchema,
   /** Casual helpers who aren't enrolled → false → zero contributions. */
   contributions_enabled: z.boolean().default(true),
+  birthday: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
+  image_path: z.string().nullable(),
 });
 
 export async function upsertStaff(input: unknown): Promise<ActionResult> {
@@ -125,6 +130,9 @@ const periodSchema = z.object({
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a start date"),
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick an end date"),
   frequency: z.enum(["weekly", "semi_monthly", "monthly"]),
+  // whether THIS run withholds gov benefits — semi-monthly only (null = the
+  // legacy date/split behavior; monthly/weekly stay null)
+  deduct_contributions: z.boolean().nullable().default(null),
 });
 
 export async function createPayPeriod(input: unknown): Promise<ActionResult> {
@@ -138,6 +146,7 @@ export async function createPayPeriod(input: unknown): Promise<ActionResult> {
     p_start: parsed.data.start_date,
     p_end: parsed.data.end_date,
     p_frequency: parsed.data.frequency,
+    p_deduct_contributions: parsed.data.deduct_contributions,
   });
   if (error) return { ok: false, error: error.message };
   revalidate();
@@ -269,4 +278,34 @@ export async function savePayrollVale(
   revalidatePath(`/payroll/${periodId}`);
   revalidate();
   return { ok: true, count: data as number };
+}
+
+/** Override the three government employee-share amounts (centavos) on one
+ *  payslip — for enrolled staff on probation, typically ₱0. A present agency is
+ *  overridden; net recomputes as gross − Σee − vale. */
+export async function saveEntryContributions(
+  entryId: string,
+  periodId: string,
+  amounts: { sss?: number; philhealth?: number; pagibig?: number }
+): Promise<ActionResult> {
+  const parsed = z
+    .object({
+      sss: z.number().int().min(0).optional(),
+      philhealth: z.number().int().min(0).optional(),
+      pagibig: z.number().int().min(0).optional(),
+    })
+    .safeParse(amounts);
+  if (!z.uuid().safeParse(entryId).success) return { ok: false, error: "Invalid entry" };
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid amounts" };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_save_entry_contributions", {
+    p_entry_id: entryId,
+    p_amounts: parsed.data,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/payroll/${periodId}`);
+  revalidate();
+  return { ok: true };
 }

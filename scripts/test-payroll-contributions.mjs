@@ -348,6 +348,67 @@ const entryFor = async (staffId) => {
     p_period_id: periodId, p_lines: [{ entry_id: e.id, days_worked: 20 }],
   });
 }
+
+// ── Editable contributions (0078): the probationary override ─────────────────
+section("Editable government contributions (probation override, 0078):");
+{
+  const e = await entryFor(dailyStaff.id);
+  const eeBefore = e.payroll_entry_contributions.reduce((s, c) => s + c.ee_amount_centavos, 0);
+  check("enrolled staffer starts with a computed employee share", eeBefore > 0, P(eeBefore));
+
+  // Override all three to zero — a staffer still on probation.
+  const { error: zErr } = await owner.rpc("fn_save_entry_contributions", {
+    p_entry_id: e.id, p_amounts: { sss: 0, philhealth: 0, pagibig: 0 },
+  });
+  check("owner zeroed the three fields", !zErr, zErr?.message);
+
+  const zeroed = await entryFor(dailyStaff.id);
+  const eeZero = zeroed.payroll_entry_contributions.reduce((s, c) => s + c.ee_amount_centavos, 0);
+  check("all three employee shares are now 0", eeZero === 0);
+  check("employer share is untouched (still computed)",
+    zeroed.payroll_entry_contributions.some((c) => c.er_amount_centavos > 0));
+  check("net recomputed to gross (nothing withheld)", zeroed.net_pay === zeroed.gross_pay, P(zeroed.net_pay));
+
+  // The override SURVIVES a later recompute — the whole reason it persists.
+  await owner.rpc("fn_save_payroll_days", {
+    p_period_id: periodId, p_lines: [{ entry_id: e.id, days_worked: 20 }],
+  });
+  const after = await entryFor(dailyStaff.id);
+  const eeAfter = after.payroll_entry_contributions.reduce((s, c) => s + c.ee_amount_centavos, 0);
+  check("override persists through Save days (not recomputed from the book)", eeAfter === 0);
+
+  // A partial override: set only SSS; the omitted agencies revert to computed.
+  await owner.rpc("fn_save_entry_contributions", {
+    p_entry_id: e.id, p_amounts: { sss: 12345 },
+  });
+  const partial = await entryFor(dailyStaff.id);
+  const sss = partial.payroll_entry_contributions.find((c) => c.agency === "sss");
+  const ph = partial.payroll_entry_contributions.find((c) => c.agency === "philhealth");
+  check("SSS took the override amount", sss.ee_amount_centavos === 12345, P(sss.ee_amount_centavos));
+  check("an omitted agency reverts to the computed amount", ph.ee_amount_centavos > 0, P(ph.ee_amount_centavos));
+
+  // Guardrails.
+  const { error: negErr } = await owner.rpc("fn_save_entry_contributions", {
+    p_entry_id: e.id, p_amounts: { sss: -100 },
+  });
+  check("negative amount refused", !!negErr);
+
+  const casual = await entryFor(casualStaff.id);
+  const { error: enrErr } = await owner.rpc("fn_save_entry_contributions", {
+    p_entry_id: casual.id, p_amounts: { sss: 0 },
+  });
+  check("not-enrolled staffer has no contributions to edit",
+    !!enrErr && /no contributions/i.test(enrErr.message));
+
+  const { error: authErr } = await emp.rpc("fn_save_entry_contributions", {
+    p_entry_id: e.id, p_amounts: { sss: 0 },
+  });
+  check("employee cannot edit contributions (owner-only)", !!authErr);
+
+  // Clear the override so the remittance-totals section below sees real amounts.
+  await owner.rpc("fn_save_entry_contributions", { p_entry_id: e.id, p_amounts: {} });
+}
+
 {
   // Earning less in a month than you owe in contributions is not a call payroll
   // software should quietly make (zero someone's pay? under-remit?). It stops
@@ -482,6 +543,43 @@ section("Editing the rate book does NOT rewrite history:");
   // put it back
   await owner.from("contribution_brackets").delete().eq("source_ref", `ZZ-TEST hypothetical 2027 ${RUN}`);
   await owner.from("contribution_brackets").update({ effective_to: null }).eq("id", ph.id);
+}
+
+// ── Per-run deduction choice (0080): deduct once a month ─────────────────────
+section("Per-run deduction choice (0080): semi-monthly withholds once a month:");
+{
+  // The full monthly employee share (from the monthly period, untouched).
+  const monthly = await entryFor(monthlyStaff.id);
+  const fullEe = monthly.payroll_entry_contributions.reduce((s, c) => s + c.ee_amount_centavos, 0);
+  check("baseline: monthly staffer has a full employee share", fullEe > 0, P(fullEe));
+
+  const semiEntry = async (periodId) =>
+    (await owner
+      .from("payroll_entries")
+      .select("id, gross_pay, net_pay, payroll_entry_contributions(ee_amount_centavos)")
+      .eq("pay_period_id", periodId).eq("staff_id", monthlyStaff.id).single()).data;
+
+  // A semi-monthly run that does NOT deduct → zero contributions for everyone.
+  const { data: pOff, error: offErr } = await owner.rpc("fn_create_pay_period", {
+    p_label: `ZZ-TEST semi off ${RUN}`, p_start: "2026-06-01", p_end: "2026-06-15",
+    p_frequency: "semi_monthly", p_deduct_contributions: false,
+  });
+  check("semi-monthly no-deduct period created", !offErr, offErr?.message);
+  const off = await semiEntry(pOff);
+  check("no-deduct run withholds nothing", off.payroll_entry_contributions.length === 0);
+  check("no-deduct run: net = gross", off.net_pay === off.gross_pay, P(off.net_pay));
+
+  // A semi-monthly run that DOES deduct → the FULL monthly amount (not ÷2).
+  const { data: pOn, error: onErr } = await owner.rpc("fn_create_pay_period", {
+    p_label: `ZZ-TEST semi on ${RUN}`, p_start: "2026-06-16", p_end: "2026-06-30",
+    p_frequency: "semi_monthly", p_deduct_contributions: true,
+  });
+  check("semi-monthly deducting period created", !onErr, onErr?.message);
+  const on = await semiEntry(pOn);
+  const onEe = on.payroll_entry_contributions.reduce((s, c) => s + c.ee_amount_centavos, 0);
+  check("deducting run withholds the FULL monthly amount (not half)",
+    onEe === fullEe, `${P(onEe)} vs full ${P(fullEe)}`);
+  check("deducting run: net = gross - full EE", on.net_pay === on.gross_pay - onEe);
 }
 
 // ── 10. Owner-only ───────────────────────────────────────────────────────────

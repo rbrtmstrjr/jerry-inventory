@@ -191,6 +191,30 @@ check("shop created a request", !reqErr, reqErr?.message);
   check("shop cannot dismiss (owner-only)", !!error && /owner/i.test(error.message));
 }
 
+// -- Custom (not-yet-in-catalog) request line (0077) --
+console.log("\nCustom product request (0077 - free-text, no catalog id):");
+{
+  const { data: cReqId, error: cErr } = await A.client.rpc("fn_create_delivery_request", {
+    p_lines: [{ custom_name: `ZZ-TEST custom widget ${RUN}`, qty_requested: 3, note: null }],
+    p_note: null,
+  });
+  check("shop created a custom-line request", !cErr, cErr?.message);
+  const { data: lines } = await owner
+    .from("delivery_request_lines")
+    .select("part_id, engine_model_id, custom_name, qty_requested")
+    .eq("delivery_request_id", cReqId);
+  const line = (lines ?? [])[0];
+  check("custom line carries no catalog id", !!line && !line.part_id && !line.engine_model_id);
+  check("custom line stored the free-text name", /custom widget/.test(line?.custom_name ?? ""));
+
+  // a line with NO identity at all (no part, no model, no name) is rejected
+  const { error: badErr } = await A.client.rpc("fn_create_delivery_request", {
+    p_lines: [{ qty_requested: 2 }],
+    p_note: null,
+  });
+  check("line with no product is rejected", !!badErr);
+}
+
 // Ã¢â€â‚¬Ã¢â€â‚¬ Convert Ã¢â€ â€™ existing delivery flow, then link Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("\nConvert to delivery (uses the EXISTING delivery flow):");
 {
