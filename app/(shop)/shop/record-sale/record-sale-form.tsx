@@ -538,14 +538,6 @@ export function RecordSaleForm({
   return (
     <div className="grid gap-4 lg:grid-cols-5">
       <div className="flex flex-col gap-4 lg:col-span-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Record Sale</h1>
-          <p className="text-sm text-muted-foreground">
-            Scan a barcode / engine serial, or search. Nothing deducts until
-            the owner approves.
-          </p>
-        </div>
-
         {/* One panel: scan on top, browse/search list below */}
         <Card className="overflow-hidden py-0 gap-0">
           <div className="border-b bg-muted/40 px-4 py-3">

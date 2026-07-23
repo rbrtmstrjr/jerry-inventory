@@ -141,16 +141,6 @@ export function ShopDeliveriesView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Incoming Deliveries
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Count what actually arrives and confirm it. Stock only joins your shop
-          once you confirm.
-        </p>
-      </div>
-
       <Tabs defaultValue="incoming">
         <TabsList>
           <TabsTrigger value="incoming">

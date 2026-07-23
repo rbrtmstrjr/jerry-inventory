@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   ShopExpensesView,
   type CategoryOption,
@@ -9,7 +12,45 @@ import {
 
 export const metadata: Metadata = { title: "Expenses" };
 
-export default async function ShopExpensesPage() {
+export default function ShopExpensesPage() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Expenses</h1>
+        <p className="text-sm text-muted-foreground">
+          Record what this shop spends — it goes to Admin with your next report
+          and only counts once approved.
+        </p>
+      </div>
+      <Suspense fallback={<ShopExpensesSkeleton />}>
+        <ShopExpensesBody />
+      </Suspense>
+    </div>
+  );
+}
+
+function ShopExpensesSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-end">
+        <Skeleton className="h-9 w-36" />
+      </div>
+      <Skeleton className="h-16 w-full rounded-lg" />
+      <Card>
+        <CardHeader className="pb-2">
+          <Skeleton className="h-5 w-40" />
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 w-full rounded-lg" />
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+async function ShopExpensesBody() {
   const supabase = await createClient();
   const profile = await getProfile();
 

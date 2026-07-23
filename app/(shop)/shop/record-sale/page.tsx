@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
 import { RecordSaleForm } from "./record-sale-form";
 
 export const metadata: Metadata = { title: "Record Sale" };
 
-export default async function RecordSalePage() {
+async function RecordSaleBody() {
   const supabase = await createClient();
 
   const [stockRes, enginesRes, fitmentsRes, modelsRes] = await Promise.all([
@@ -40,5 +42,31 @@ export default async function RecordSalePage() {
       engines={(enginesRes.data ?? []) as ShopEngineRow[]}
       fitmentHints={fitmentHints}
     />
+  );
+}
+
+function RecordSaleSkeleton() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-5">
+      <Skeleton className="h-[60vh] rounded-lg lg:col-span-3" />
+      <Skeleton className="h-[60vh] rounded-lg lg:col-span-2" />
+    </div>
+  );
+}
+
+export default function RecordSalePage() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Record Sale</h1>
+        <p className="text-sm text-muted-foreground">
+          Scan a barcode / engine serial, or search. Nothing deducts until
+          the owner approves.
+        </p>
+      </div>
+      <Suspense fallback={<RecordSaleSkeleton />}>
+        <RecordSaleBody />
+      </Suspense>
+    </div>
   );
 }

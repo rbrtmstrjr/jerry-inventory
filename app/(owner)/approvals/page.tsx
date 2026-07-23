@@ -22,9 +22,9 @@ function resolveTab(t?: string): QueueTab {
 /**
  * `?tab=` picks the queue view. The shell does NO DB work — it awaits only
  * searchParams — so the heading + tab bar paint instantly (no fall-back to the
- * whole-segment loader). Only the ACTIVE tab's data is fetched and streamed: the
- * type tabs pull just their own rows, "All" builds the per-shop batches. No tab
- * loads another tab's data.
+ * whole-segment loader). The tab COUNT badges and the ACTIVE tab's data each
+ * stream in behind their own `<Suspense>`: the type tabs pull just their own
+ * rows, "All" builds the per-shop batches. No tab loads another tab's data.
  */
 export default async function ApprovalsPage({
   searchParams,
@@ -43,12 +43,33 @@ export default async function ApprovalsPage({
           only moves when you approve. Updates live as shops submit.
         </p>
       </div>
-      <ApprovalTabs active={tab} />
+      {/* Tab labels paint instantly (fallback); the count badges stream in. */}
+      <Suspense fallback={<ApprovalTabs active={tab} />}>
+        <ApprovalTabsWithCounts active={tab} />
+      </Suspense>
       <Suspense key={tab} fallback={<ApprovalsSkeleton tab={tab} />}>
         <ApprovalsBody sp={sp} tab={tab} />
       </Suspense>
     </div>
   );
+}
+
+async function ApprovalTabsWithCounts({ active }: { active: QueueTab }) {
+  const supabase = await createClient();
+  // Count of items awaiting a decision (pending + questioned) per tab.
+  const pq = ["pending", "questioned"];
+  const [sc, lc, ec] = await Promise.all([
+    supabase.from("sales").select("id", { count: "exact", head: true }).in("status", pq).is("deleted_at", null),
+    supabase.from("losses").select("id", { count: "exact", head: true }).in("status", pq).is("deleted_at", null),
+    supabase.from("expenses").select("id", { count: "exact", head: true }).eq("source", "shop").in("status", pq).is("deleted_at", null),
+  ]);
+  const counts: Record<QueueTab, number> = {
+    sales: sc.count ?? 0,
+    losses: lc.count ?? 0,
+    expenses: ec.count ?? 0,
+    all: (sc.count ?? 0) + (lc.count ?? 0) + (ec.count ?? 0),
+  };
+  return <ApprovalTabs active={active} counts={counts} />;
 }
 
 async function ApprovalsBody({

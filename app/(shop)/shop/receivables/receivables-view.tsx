@@ -77,6 +77,23 @@ export function ShopReceivablesView({
   const [search, setSearch] = React.useState("");
   const [target, setTarget] = React.useState<ReceivableRow | null>(null);
 
+  const REVEAL_PAGE = 10;
+  const [visibleCount, setVisibleCount] = React.useState(REVEAL_PAGE);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setVisibleCount((n) => n + REVEAL_PAGE);
+      },
+      { rootMargin: "600px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount]);
+
   const historyBySale = React.useMemo(() => {
     const m = new Map<string, PaymentRow[]>();
     for (const p of payments) {
@@ -107,16 +124,6 @@ export function ShopReceivablesView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Receivables (Utang)
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Balances your customers still owe. Record a payment when they pay —
-          it applies straight away and Admin sees it in their receivables.
-        </p>
-      </div>
-
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -174,7 +181,7 @@ export function ShopReceivablesView({
                 : "No matches."}
             </p>
           )}
-          {openMatches.map((r) => (
+          {openMatches.slice(0, visibleCount).map((r) => (
             <ReceivableCard
               key={r.sale_id}
               row={r}
@@ -182,6 +189,11 @@ export function ShopReceivablesView({
               onRecord={() => setTarget(r)}
             />
           ))}
+          {visibleCount < openMatches.length && (
+            <div ref={sentinelRef} className="py-2 text-center text-xs text-muted-foreground">
+              Loading more… ({Math.min(visibleCount, openMatches.length)} of {openMatches.length})
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="settled" className="flex flex-col gap-3 pt-2">
@@ -190,13 +202,18 @@ export function ShopReceivablesView({
               Nothing fully paid yet.
             </p>
           )}
-          {settledMatches.map((r) => (
+          {settledMatches.slice(0, visibleCount).map((r) => (
             <ReceivableCard
               key={r.sale_id}
               row={r}
               history={historyBySale.get(r.sale_id) ?? []}
             />
           ))}
+          {visibleCount < settledMatches.length && (
+            <div ref={sentinelRef} className="py-2 text-center text-xs text-muted-foreground">
+              Loading more… ({Math.min(visibleCount, settledMatches.length)} of {settledMatches.length})
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 

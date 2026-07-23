@@ -77,35 +77,33 @@ async function PayrollAdvancesBody() {
 
 function AdvancesSkeleton() {
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <Card className="lg:col-span-1">
-        <CardHeader>
-          <Skeleton className="h-5 w-28" />
-          <Skeleton className="mt-2 h-3 w-48" />
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-9 w-full" />
-          ))}
-        </CardContent>
-      </Card>
-      <div className="flex flex-col gap-4 lg:col-span-2">
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-end">
+        <Skeleton className="h-9 w-32" />
+      </div>
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
             <Skeleton className="h-5 w-40" />
+            <Skeleton className="mt-2 h-3 w-56" />
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-9 w-full" />
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
             ))}
           </CardContent>
         </Card>
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-4 w-24" />
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full rounded-md" />
-          ))}
-        </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <Skeleton className="h-5 w-28" />
+            <Skeleton className="mt-2 h-3 w-48" />
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full rounded-md" />
+            ))}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

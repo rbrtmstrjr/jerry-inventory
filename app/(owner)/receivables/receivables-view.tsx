@@ -9,9 +9,6 @@ import {
   Download,
   Printer,
   Search,
-  Store,
-  Users,
-  Wallet,
 } from "lucide-react";
 
 import type { ReceivableRow, ShopOption } from "@/lib/db-types";
@@ -36,8 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TabCountBadge } from "@/components/ui/tab-count-badge";
+import type { ReceivableTab } from "./receivable-tabs";
 
 const METHOD_LABEL: Record<string, string> = {
   cash: "Cash",
@@ -45,6 +41,9 @@ const METHOD_LABEL: Record<string, string> = {
   bank: "Bank",
   other: "Other",
 };
+
+// Reveal the list in batches so a long ledger paints instantly.
+const RECEIVABLE_PAGE = 20;
 
 export interface PaymentHistoryRow {
   id: string;
@@ -60,11 +59,18 @@ export interface PaymentHistoryRow {
   recorded_by: string;
 }
 
-export function OwnerReceivablesView({
+/**
+ * One tab's list — the rows are ALREADY scoped to Open (balance > 0) or Fully
+ * paid (balance ≤ 0) by the server, so this only does the in-tab search / shop /
+ * date filtering, CSV of what's shown, and scroll reveal.
+ */
+export function ReceivablesList({
+  tab,
   rows,
   history,
   shops,
 }: {
+  tab: ReceivableTab;
   rows: ReceivableRow[];
   history: PaymentHistoryRow[];
   shops: ShopOption[];
@@ -103,48 +109,26 @@ export function OwnerReceivablesView({
     );
   });
 
-  const open = filtered.filter((r) => r.balance_centavos > 0);
-  const settled = filtered.filter((r) => r.balance_centavos <= 0);
+  // Scroll reveal — first N of whatever's filtered; the sentinel reveals more.
+  const [visibleCount, setVisibleCount] = React.useState(RECEIVABLE_PAGE);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const visibleRows = filtered.slice(0, visibleCount);
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || visibleCount >= filtered.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((n) => Math.min(n + RECEIVABLE_PAGE, filtered.length));
+        }
+      },
+      { rootMargin: "600px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount, filtered.length]);
 
-  const totalOutstanding = open.reduce((s, r) => s + r.balance_centavos, 0);
-
-  // per-shop and per-customer rollups (open only)
-  const byShop = React.useMemo(() => {
-    const m = new Map<
-      string,
-      { name: string; color_key: string | null; total: number; count: number }
-    >();
-    for (const r of open) {
-      const e = m.get(r.shop_id) ?? {
-        name: r.shop_name,
-        color_key: colorByShopId.get(r.shop_id) ?? null,
-        total: 0,
-        count: 0,
-      };
-      e.total += r.balance_centavos;
-      e.count += 1;
-      m.set(r.shop_id, e);
-    }
-    return [...m.values()].sort((a, b) => b.total - a.total);
-  }, [open, colorByShopId]);
-
-  const byCustomer = React.useMemo(() => {
-    const m = new Map<string, { name: string; total: number; count: number }>();
-    for (const r of open) {
-      const key = r.customer_id ?? `walkin-${r.sale_id}`;
-      const e = m.get(key) ?? {
-        name: r.customer_name ?? "Walk-in",
-        total: 0,
-        count: 0,
-      };
-      e.total += r.balance_centavos;
-      e.count += 1;
-      m.set(key, e);
-    }
-    return [...m.values()].sort((a, b) => b.total - a.total);
-  }, [open]);
-
-  const csvRows = open.map((r) => ({
+  const csvRows = filtered.map((r) => ({
     date: r.business_date,
     receipt_no: r.receipt_no ?? "",
     shop: r.shop_name,
@@ -158,53 +142,7 @@ export function OwnerReceivablesView({
   }));
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Totals */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardDescription>Total outstanding</CardDescription>
-            <Wallet className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold tabular-nums">
-              {formatCentavos(totalOutstanding)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              across {open.length} open sale{open.length === 1 ? "" : "s"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardDescription>Shops owing</CardDescription>
-            <Store className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold tabular-nums">{byShop.length}</div>
-            <p className="text-xs text-muted-foreground">
-              {byShop[0] ? `${byShop[0].name} highest` : "none"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardDescription>Customers owing</CardDescription>
-            <Users className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold tabular-nums">
-              {byCustomer.length}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {byCustomer[0]
-                ? `${byCustomer[0].name} owes ${formatCentavos(byCustomer[0].total)}`
-                : "none"}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
+    <div className="flex flex-col gap-3">
       {/* Filters + export */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button
@@ -253,19 +191,15 @@ export function OwnerReceivablesView({
         </div>
       </div>
 
-      <Tabs defaultValue="open">
-        <TabsList>
-          <TabsTrigger value="open">Open<TabCountBadge count={open.length} /></TabsTrigger>
-          <TabsTrigger value="settled">Fully paid</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="open" className="flex flex-col gap-3 pt-2">
-          {open.length === 0 && (
-            <p className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-              No outstanding balances.
-            </p>
-          )}
-          {open.map((r) => (
+      {filtered.length === 0 ? (
+        <p className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+          {tab === "paid"
+            ? "Nothing fully paid yet."
+            : "No outstanding balances."}
+        </p>
+      ) : (
+        <>
+          {visibleRows.map((r) => (
             <ReceivableCard
               key={r.sale_id}
               row={r}
@@ -273,24 +207,16 @@ export function OwnerReceivablesView({
               history={historyBySale.get(r.sale_id) ?? []}
             />
           ))}
-        </TabsContent>
-
-        <TabsContent value="settled" className="flex flex-col gap-3 pt-2">
-          {settled.length === 0 && (
-            <p className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Nothing fully paid yet.
-            </p>
+          {visibleCount < filtered.length && (
+            <div
+              ref={sentinelRef}
+              className="py-2 text-center text-xs text-muted-foreground"
+            >
+              Loading more… ({visibleRows.length} of {filtered.length})
+            </div>
           )}
-          {settled.map((r) => (
-            <ReceivableCard
-              key={r.sale_id}
-              row={r}
-              shopColorKey={colorByShopId.get(r.shop_id) ?? null}
-              history={historyBySale.get(r.sale_id) ?? []}
-            />
-          ))}
-        </TabsContent>
-      </Tabs>
+        </>
+      )}
     </div>
   );
 }

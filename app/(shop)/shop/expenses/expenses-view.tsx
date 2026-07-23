@@ -124,16 +124,25 @@ export function ShopExpensesView({
     .filter((e) => e.status === "approved")
     .reduce((s, e) => s + e.amount, 0);
 
+  const REVEAL_PAGE = 10;
+  const [visibleCount, setVisibleCount] = React.useState(REVEAL_PAGE);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setVisibleCount((n) => n + REVEAL_PAGE);
+      },
+      { rootMargin: "600px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount]);
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Expenses</h1>
-          <p className="text-sm text-muted-foreground">
-            Record what this shop spends — it goes to Admin with your next
-            report and only counts once approved.
-          </p>
-        </div>
+      <div className="flex justify-end">
         <Button onClick={() => setDialogOpen(true)}>
           <Plus className="size-4" /> Record expense
         </Button>
@@ -188,7 +197,7 @@ export function ShopExpensesView({
             </CardDescription>
           </CardHeader>
           <CardContent className="divide-y">
-            {shown.map((e) => {
+            {shown.slice(0, visibleCount).map((e) => {
               const s = STATUS_BADGE[e.status];
               return (
                 <div key={e.id} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
@@ -237,6 +246,15 @@ export function ShopExpensesView({
                 </div>
               );
             })}
+            {visibleCount < shown.length && (
+              <div
+                ref={sentinelRef}
+                className="py-2 text-center text-xs text-muted-foreground"
+              >
+                Loading more… ({Math.min(visibleCount, shown.length)} of{" "}
+                {shown.length})
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

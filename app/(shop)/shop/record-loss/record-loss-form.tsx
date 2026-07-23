@@ -120,17 +120,7 @@ export function RecordLossForm({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Record Loss / Adjustment
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Reason-tagged write-off request. It joins your batch and stock only
-          deducts when the owner approves.
-        </p>
-      </div>
-
+    <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">

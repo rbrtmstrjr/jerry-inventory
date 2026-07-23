@@ -1,11 +1,44 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { ShopLowStockRow } from "@/lib/db-types";
 import { ShopLowStockView, type MyRequestRow } from "./low-stock-view";
 
 export const metadata: Metadata = { title: "Low Stock" };
 
-export default async function ShopLowStockPage() {
+function ShopLowStockSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-2">
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-28" />
+      </div>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Skeleton key={i} className="h-28 w-full rounded-lg" />
+      ))}
+    </div>
+  );
+}
+
+export default function ShopLowStockPage() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Low Stock</h1>
+        <p className="text-sm text-muted-foreground">
+          Items at or below their reorder level. Ask Admin to deliver more —
+          shops don&apos;t order from suppliers.
+        </p>
+      </div>
+      <Suspense fallback={<ShopLowStockSkeleton />}>
+        <ShopLowStockBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function ShopLowStockBody() {
   const supabase = await createClient();
 
   const [lowRes, reqRes] = await Promise.all([

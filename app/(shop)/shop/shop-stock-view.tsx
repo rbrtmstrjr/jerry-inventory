@@ -50,6 +50,22 @@ export function ShopStockView({
   const [cardSearch, setCardSearch] = React.useState("");
   const [photoTarget, setPhotoTarget] = React.useState<PhotoTarget | null>(null);
 
+  const REVEAL_PAGE = 12;
+  const [visibleCount, setVisibleCount] = React.useState(REVEAL_PAGE);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setVisibleCount((n) => n + REVEAL_PAGE);
+      },
+      { rootMargin: "600px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount]);
+
   const q = cardSearch.trim().toLowerCase();
   const cardStock = q
     ? stock.filter(
@@ -235,26 +251,17 @@ export function ShopStockView({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">My Shop Stock</h1>
-          <p className="text-sm text-muted-foreground">
-            Everything delivered to your shop. Record sales and losses — the
-            owner approves before stock moves.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button asChild>
-            <Link href="/shop/record-sale">
-              <ShoppingCart className="size-4" /> Record Sale
-            </Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/shop/record-loss">
-              <AlertTriangle className="size-4" /> Record Loss
-            </Link>
-          </Button>
-        </div>
+      <div className="flex justify-end gap-2">
+        <Button asChild>
+          <Link href="/shop/record-sale">
+            <ShoppingCart className="size-4" /> Record Sale
+          </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link href="/shop/record-loss">
+            <AlertTriangle className="size-4" /> Record Loss
+          </Link>
+        </Button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -324,7 +331,7 @@ export function ShopStockView({
                 </Empty>
               ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                  {cardStock.map((s) => {
+                  {cardStock.slice(0, visibleCount).map((s) => {
                     const out = s.qty === 0;
                     const low = !out && s.reorder_level > 0 && s.qty <= s.reorder_level;
                     return (
@@ -404,6 +411,15 @@ export function ShopStockView({
                   })}
                 </div>
               )}
+              {visibleCount < cardStock.length && (
+                <div
+                  ref={sentinelRef}
+                  className="py-2 text-center text-xs text-muted-foreground"
+                >
+                  Loading more… ({Math.min(visibleCount, cardStock.length)} of{" "}
+                  {cardStock.length})
+                </div>
+              )}
               <p className="text-xs text-muted-foreground tabular-nums">
                 {cardStock.length} of {stock.length} items
               </p>
@@ -437,7 +453,7 @@ export function ShopStockView({
                 </Empty>
               ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                  {engines.map((e) => (
+                  {engines.slice(0, visibleCount).map((e) => (
                     <div
                       key={e.engine_id}
                       className="flex flex-col overflow-hidden rounded-lg border bg-card transition-shadow hover:shadow-md"
@@ -490,6 +506,15 @@ export function ShopStockView({
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+              {visibleCount < engines.length && (
+                <div
+                  ref={sentinelRef}
+                  className="py-2 text-center text-xs text-muted-foreground"
+                >
+                  Loading more… ({Math.min(visibleCount, engines.length)} of{" "}
+                  {engines.length})
                 </div>
               )}
             </div>

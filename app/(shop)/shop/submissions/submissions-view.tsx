@@ -174,6 +174,22 @@ export function SubmissionsView({
     };
   }, [sales, losses, expenses]);
 
+  const REVEAL_PAGE = 10;
+  const [visibleCount, setVisibleCount] = React.useState(REVEAL_PAGE);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setVisibleCount((n) => n + REVEAL_PAGE);
+      },
+      { rootMargin: "600px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount]);
+
   async function onSubmitBatch() {
     setSubmittingBatch(true);
     const res = await submitShopBatch();
@@ -397,14 +413,6 @@ export function SubmissionsView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Submissions</h1>
-        <p className="text-sm text-muted-foreground">
-          Record all day, then send everything to Admin as one report whenever
-          you&apos;re ready.
-        </p>
-      </div>
-
       {/* Batch submit banner */}
       {currentTotal > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
@@ -519,7 +527,16 @@ export function SubmissionsView({
               Nothing with Admin right now.
             </p>
           )}
-          {submitted.map(renderBatchCard)}
+          {submitted.slice(0, visibleCount).map(renderBatchCard)}
+          {visibleCount < submitted.length && (
+            <div
+              ref={sentinelRef}
+              className="py-2 text-center text-xs text-muted-foreground"
+            >
+              Loading more… ({Math.min(visibleCount, submitted.length)} of{" "}
+              {submitted.length})
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="reviewed" className="flex flex-col gap-3 pt-2">
@@ -528,7 +545,16 @@ export function SubmissionsView({
               No reviewed reports yet.
             </p>
           )}
-          {reviewed.map(renderBatchCard)}
+          {reviewed.slice(0, visibleCount).map(renderBatchCard)}
+          {visibleCount < reviewed.length && (
+            <div
+              ref={sentinelRef}
+              className="py-2 text-center text-xs text-muted-foreground"
+            >
+              Loading more… ({Math.min(visibleCount, reviewed.length)} of{" "}
+              {reviewed.length})
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 

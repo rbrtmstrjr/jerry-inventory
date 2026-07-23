@@ -176,6 +176,22 @@ export function ShopTransfersView({
     [lines]
   );
 
+  const REVEAL_PAGE = 10;
+  const [visibleCount, setVisibleCount] = React.useState(REVEAL_PAGE);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setVisibleCount((n) => n + REVEAL_PAGE);
+      },
+      { rootMargin: "600px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount]);
+
   const usedEngineIds = new Set(
     picked.filter((l) => l.kind === "engine").map((l) => (l as { engine_id: string }).engine_id)
   );
@@ -286,14 +302,6 @@ export function ShopTransfersView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Transfers</h1>
-        <p className="text-sm text-muted-foreground">
-          Send stock to another shop. Admin approves the request first; the
-          receiving shop then confirms what actually arrives.
-        </p>
-      </div>
-
       <Tabs defaultValue="send">
         <TabsList>
           <TabsTrigger value="send">Send to shop</TabsTrigger>
@@ -544,9 +552,18 @@ export function ShopTransfersView({
               You haven&apos;t sent any transfers yet.
             </p>
           )}
-          {transfers.map((t) => (
+          {transfers.slice(0, visibleCount).map((t) => (
             <TransferCard key={t.id} transfer={t} lines={linesFor(t.id)} />
           ))}
+          {visibleCount < transfers.length && (
+            <div
+              ref={sentinelRef}
+              className="py-2 text-center text-xs text-muted-foreground"
+            >
+              Loading more… ({Math.min(visibleCount, transfers.length)} of{" "}
+              {transfers.length})
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

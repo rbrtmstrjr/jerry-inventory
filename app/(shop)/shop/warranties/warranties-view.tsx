@@ -250,14 +250,6 @@ export function ShopWarrantiesView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Warranties</h1>
-        <p className="text-sm text-muted-foreground">
-          Engines your shop sold. Look up a serial when a customer comes in, and
-          file a warranty claim when one comes back — Admin approves it.
-        </p>
-      </div>
-
       <Tabs defaultValue="warranties">
         <TabsList>
           <TabsTrigger value="warranties">Warranties</TabsTrigger>

@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ph_today } from "@/lib/ph-date";
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
 import { ShopStockView } from "./shop-stock-view";
 
 export const metadata: Metadata = { title: "My Shop Stock" };
 
-export default async function ShopStockPage() {
+async function ShopStockBody() {
   const supabase = await createClient();
   const today = ph_today();
 
@@ -41,5 +43,43 @@ export default async function ShopStockPage() {
       )}
       receivablesCount={receivables.length}
     />
+  );
+}
+
+function ShopStockSkeleton() {
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 rounded-lg" />
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Skeleton className="h-9 w-28 rounded-md" />
+        <Skeleton className="h-9 w-24 rounded-md" />
+      </div>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton key={i} className="aspect-square rounded-lg" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function ShopStockPage() {
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">My Shop Stock</h1>
+        <p className="text-sm text-muted-foreground">
+          Everything delivered to your shop. Record sales and losses — the
+          owner approves before stock moves.
+        </p>
+      </div>
+      <Suspense fallback={<ShopStockSkeleton />}>
+        <ShopStockBody />
+      </Suspense>
+    </div>
   );
 }

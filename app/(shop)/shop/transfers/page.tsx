@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
 import {
   ShopTransfersView,
@@ -12,7 +14,39 @@ import type { ShopReturn, ShopReturnLine } from "./returns-panel";
 
 export const metadata: Metadata = { title: "Transfers" };
 
-export default async function ShopTransfersPage() {
+export default function ShopTransfersPage() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Transfers</h1>
+        <p className="text-sm text-muted-foreground">
+          Send stock to another shop. Admin approves the request first; the
+          receiving shop then confirms what actually arrives.
+        </p>
+      </div>
+      <Suspense fallback={<ShopTransfersSkeleton />}>
+        <ShopTransfersBody />
+      </Suspense>
+    </div>
+  );
+}
+
+function ShopTransfersSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-2">
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-28" />
+      </div>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Skeleton key={i} className="h-28 w-full rounded-lg" />
+      ))}
+    </div>
+  );
+}
+
+async function ShopTransfersBody() {
   const supabase = await createClient();
   const profile = await getProfile();
   const myShopId = profile?.shop_id ?? null;

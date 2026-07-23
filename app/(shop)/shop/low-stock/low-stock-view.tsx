@@ -116,14 +116,6 @@ export function ShopLowStockView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Low Stock</h1>
-        <p className="text-sm text-muted-foreground">
-          Items at or below their reorder level. Ask Admin to deliver more —
-          shops don&apos;t order from suppliers.
-        </p>
-      </div>
-
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="low">

@@ -1,12 +1,51 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAll } from "@/lib/pnl";
 import type { ReceivableRow } from "@/lib/db-types";
 import { ShopReceivablesView, type PaymentRow } from "./receivables-view";
 
 export const metadata: Metadata = { title: "Receivables" };
 
-export default async function ShopReceivablesPage() {
+function ShopReceivablesSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Skeleton className="h-28 w-full rounded-lg" />
+        <Skeleton className="h-28 w-full rounded-lg" />
+      </div>
+      <div className="flex gap-2">
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-28" />
+      </div>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Skeleton key={i} className="h-28 w-full rounded-lg" />
+      ))}
+    </div>
+  );
+}
+
+export default function ShopReceivablesPage() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Receivables (Utang)
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Balances your customers still owe. Record a payment when they pay —
+          it applies straight away and Admin sees it in their receivables.
+        </p>
+      </div>
+      <Suspense fallback={<ShopReceivablesSkeleton />}>
+        <ShopReceivablesBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function ShopReceivablesBody() {
   const supabase = await createClient();
 
   const [rows, paymentsRes] = await Promise.all([

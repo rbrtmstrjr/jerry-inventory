@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   SubmissionsView,
   type ExpenseSubmission,
@@ -9,7 +11,39 @@ import {
 
 export const metadata: Metadata = { title: "Submissions" };
 
-export default async function SubmissionsPage() {
+export default function SubmissionsPage() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Submissions</h1>
+        <p className="text-sm text-muted-foreground">
+          Record all day, then send everything to Admin as one report whenever
+          you&apos;re ready.
+        </p>
+      </div>
+      <Suspense fallback={<SubmissionsSkeleton />}>
+        <SubmissionsBody />
+      </Suspense>
+    </div>
+  );
+}
+
+function SubmissionsSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-2">
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-28" />
+      </div>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Skeleton key={i} className="h-28 w-full rounded-lg" />
+      ))}
+    </div>
+  );
+}
+
+async function SubmissionsBody() {
   const supabase = await createClient();
 
   const [salesRes, lossesRes, expensesRes] = await Promise.all([

@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
+import { TabCountBadge } from "@/components/ui/tab-count-badge";
 
 export type QueueTab = "all" | "sales" | "losses" | "expenses";
 
@@ -19,11 +20,19 @@ const TABS: { value: QueueTab; label: string }[] = [
  * per-shop batches from every type — so they are links, not client state:
  * switching a tab renders only that tab's data, never all of them at once.
  *
- * No counts here on purpose: a count needs a DB read, and doing that read in the
- * page shell would suspend it on I/O and fall back to the whole-segment loader
- * (heading + tabs included). Labels only keeps the shell instant.
+ * `counts` is OPTIONAL: the count of items awaiting a decision per tab needs a
+ * DB read, so the page renders this bar first WITHOUT counts (instant labels)
+ * and streams a second copy WITH counts into a `<Suspense>` — the badges appear
+ * a beat later without ever suspending the shell on I/O (which would fall back
+ * to the whole-segment loader, heading and tabs included).
  */
-export function ApprovalTabs({ active }: { active: QueueTab }) {
+export function ApprovalTabs({
+  active,
+  counts,
+}: {
+  active: QueueTab;
+  counts?: Record<QueueTab, number>;
+}) {
   return (
     <nav
       aria-label="Approval queue"
@@ -42,6 +51,7 @@ export function ApprovalTabs({ active }: { active: QueueTab }) {
           )}
         >
           {t.label}
+          {counts && <TabCountBadge count={counts[t.value]} />}
         </Link>
       ))}
     </nav>
