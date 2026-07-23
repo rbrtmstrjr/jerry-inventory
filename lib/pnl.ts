@@ -249,114 +249,129 @@ const zero = (): Agg => ({
  * consolidated P&L never passes it: company overhead belongs to no shop, so a
  * filtered "net income" would be a category error.
  */
-export async function computePnl(
+// ── P&L facts: the per-shop + global aggregates the statement is built from ──
+interface PnlFacts {
+  perShop: Map<string, Agg>;
+  engineRevenue: number;
+  engineCogs: number;
+  partRevenue: number;
+  partCogs: number;
+  engineDiscountLines: number;
+  engineDiscountUnknownLines: number;
+  companyOverhead: number;
+  transitWriteoffs: number;
+}
+
+const numOf = (v: unknown): number =>
+  typeof v === "number" ? v : Number((v as string | null) ?? 0);
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function factsFromRpc(data: any): PnlFacts {
+  const perShop = new Map<string, Agg>();
+  for (const r of data.per_shop ?? []) {
+    perShop.set(r.shop_id, {
+      revenue: numOf(r.revenue),
+      cogs: numOf(r.cogs),
+      losses: numOf(r.losses),
+      opex: numOf(r.opex),
+      payroll_gross: numOf(r.payroll_gross),
+      payroll_er: numOf(r.payroll_er),
+      sales_count: numOf(r.sales_count),
+      units_sold: numOf(r.units_sold),
+      engines_sold: numOf(r.engines_sold),
+      engine_discount: numOf(r.engine_discount),
+    });
+  }
+  return {
+    perShop,
+    engineRevenue: numOf(data.engine_revenue),
+    engineCogs: numOf(data.engine_cogs),
+    partRevenue: numOf(data.part_revenue),
+    partCogs: numOf(data.part_cogs),
+    engineDiscountLines: numOf(data.engine_discount_lines),
+    engineDiscountUnknownLines: numOf(data.engine_discount_unknown_lines),
+    companyOverhead: numOf(data.company_overhead),
+    transitWriteoffs: numOf(data.transit_writeoffs),
+  };
+}
+
+/**
+ * The original O(transactions) implementation — fetch every sale/line/cost in
+ * the range and sum in JS. Kept as the fallback (works before 0075 is applied)
+ * and as the reference the SQL path is proven byte-identical against.
+ */
+async function factsFromRowWalk(
   supabase: SupabaseClient,
-  { from, to, shopId = null }: { from: string; to: string; shopId?: string | null }
-): Promise<PnlResult> {
-  await requireOwner(supabase);
+  from: string,
+  to: string,
+  scope: Set<string>
+): Promise<PnlFacts> {
+  const [allSales, allLosses, allShopExpenses, allCompanyExpenses, allPayroll, allTransit] =
+    await Promise.all([
+      fetchAll(() =>
+        supabase
+          .from("sales")
+          .select(
+            `id, shop_id, total_centavos,
+             sale_lines(id, qty, engine_id, line_total_centavos,
+                        agreed_price_centavos, list_reference_centavos, discount_centavos),
+             sale_line_costs(sale_line_id, line_cost_centavos)`
+          )
+          .eq("status", "approved")
+          .gte("business_date", from)
+          .lte("business_date", to)
+          .is("deleted_at", null)
+      ),
+      fetchAll(() =>
+        supabase
+          .from("losses")
+          .select("id, shop_id, value_centavos")
+          .eq("status", "approved")
+          .gte("business_date", from)
+          .lte("business_date", to)
+          .is("deleted_at", null)
+      ),
+      fetchAll(() =>
+        supabase
+          .from("expenses")
+          .select("id, shop_id, amount")
+          .eq("scope", "shop")
+          .eq("status", "approved")
+          .gte("expense_date", from)
+          .lte("expense_date", to)
+          .is("deleted_at", null)
+      ),
+      fetchAll(() =>
+        supabase
+          .from("expenses")
+          .select("id, amount")
+          .eq("scope", "company")
+          .eq("status", "approved")
+          .gte("expense_date", from)
+          .lte("expense_date", to)
+          .is("deleted_at", null)
+      ),
+      fetchAll(() =>
+        supabase
+          .from("payroll_entries")
+          .select(
+            "id, shop_id, gross_pay, payroll_entry_contributions(er_amount_centavos), pay_periods!inner(start_date, end_date, deleted_at)"
+          )
+          .lte("pay_periods.start_date", to)
+          .gte("pay_periods.end_date", from)
+          .is("pay_periods.deleted_at", null)
+      ),
+      fetchAll(() =>
+        supabase
+          .from("stock_movements")
+          .select("id, qty_change, parts(cost_centavos), engines(cost_centavos)")
+          .eq("movement_type", "transit_writeoff")
+          .gte("created_at", from)
+          .lte("created_at", `${to}T23:59:59.999`)
+      ),
+    ]);
 
-  const [
-    shopsRes,
-    allSales,
-    allLosses,
-    allShopExpenses,
-    allCompanyExpenses,
-    allPayroll,
-    allTransit,
-  ] = await Promise.all([
-    // No deleted_at filter, on purpose — see the closed-shops rule above.
-    supabase.from("shops").select("id, name, deleted_at").order("name"),
-
-    // Lines and their frozen costs are paired by sale_line_id below, so engine
-    // and part margins can be told apart. Paginated (fetchAll) — pages walk
-    // the PARENT sales rows, so nested lines/costs arrive whole per sale.
-    fetchAll(() =>
-      supabase
-        .from("sales")
-        .select(
-          `id, shop_id, total_centavos,
-           sale_lines(id, qty, engine_id, line_total_centavos,
-                      agreed_price_centavos, list_reference_centavos, discount_centavos),
-           sale_line_costs(sale_line_id, line_cost_centavos)`
-        )
-        .eq("status", "approved")
-        .gte("business_date", from)
-        .lte("business_date", to)
-        .is("deleted_at", null)
-    ),
-
-    fetchAll(() =>
-      supabase
-        .from("losses")
-        .select("id, shop_id, value_centavos")
-        .eq("status", "approved")
-        .gte("business_date", from)
-        .lte("business_date", to)
-        .is("deleted_at", null)
-    ),
-
-    // status='approved' (0051): shop-recorded expenses only count once the
-    // owner approves — a pending claim must never inflate costs.
-    fetchAll(() =>
-      supabase
-        .from("expenses")
-        .select("id, shop_id, amount")
-        .eq("scope", "shop")
-        .eq("status", "approved")
-        .gte("expense_date", from)
-        .lte("expense_date", to)
-        .is("deleted_at", null)
-    ),
-
-    fetchAll(() =>
-      supabase
-        .from("expenses")
-        .select("id, amount")
-        .eq("scope", "company")
-        .eq("status", "approved")
-        .gte("expense_date", from)
-        .lte("expense_date", to)
-        .is("deleted_at", null)
-    ),
-
-    fetchAll(() =>
-      supabase
-        .from("payroll_entries")
-        .select(
-          "id, shop_id, gross_pay, payroll_entry_contributions(er_amount_centavos), pay_periods!inner(start_date, end_date, deleted_at)"
-        )
-        .lte("pay_periods.start_date", to)
-        .gte("pay_periods.end_date", from)
-        .is("pay_periods.deleted_at", null)
-    ),
-
-    // Transit write-offs are business-level shrinkage, never a shop's number.
-    // A master delivery's write-off carries shop_id = NULL; a shop-to-shop
-    // TRANSFER's write-off (0054) carries shop_id = the SOURCE shop (booked
-    // where it was debited). This query filters ONLY on movement_type, so it
-    // already counts both — and neither reaches a shop's Net Contribution,
-    // which is built from the `losses` table, not these ledger rows.
-    //
-    // KNOWN WEAKNESS: unlike a shop loss (value frozen at approval) and unlike
-    // COGS (frozen by 0038), a transit write-off has no stored value — it is
-    // valued from the CURRENT parts/engines cost. Editing a part's cost
-    // therefore moves the value of a write-off that already happened. Correct
-    // at cost, but not frozen; worth a `value_centavos` column of its own.
-    fetchAll(() =>
-      supabase
-        .from("stock_movements")
-        .select("id, qty_change, parts(cost_centavos), engines(cost_centavos)")
-        .eq("movement_type", "transit_writeoff")
-        .gte("created_at", from)
-        .lte("created_at", `${to}T23:59:59.999`)
-    ),
-  ]);
-
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  const allShops = shopsRes.data ?? [];
-  const shops = allShops.filter((s) => !shopId || s.id === shopId);
-
-  const agg = new Map<string, Agg>(shops.map((s) => [s.id, zero()]));
+  const agg = new Map<string, Agg>([...scope].map((id) => [id, zero()]));
   const bump = (id: string | null, fn: (a: Agg) => void) => {
     if (!id) return;
     const a = agg.get(id);
@@ -367,118 +382,135 @@ export async function computePnl(
   let engineCogs = 0;
   let partRevenue = 0;
   let partCogs = 0;
-  let engineDiscount = 0;
   let engineDiscountLines = 0;
   let engineDiscountUnknownLines = 0;
 
   for (const s of allSales as any[]) {
-    // Everything runs inside bump(), so a row for a shop outside the current
-    // scope contributes to nothing — the per-shop totals and the engines/parts
-    // breakdown can never disagree about which sales they counted.
     bump(s.shop_id, (a) => {
       a.revenue += s.total_centavos ?? 0;
       a.sales_count += 1;
-      for (const c of s.sale_line_costs ?? []) {
-        a.cogs += c.line_cost_centavos ?? 0;
-      }
+      for (const c of s.sale_line_costs ?? []) a.cogs += c.line_cost_centavos ?? 0;
 
       const costByLine = new Map<string, number>();
-      for (const c of s.sale_line_costs ?? []) {
+      for (const c of s.sale_line_costs ?? [])
         costByLine.set(c.sale_line_id, c.line_cost_centavos ?? 0);
-      }
 
       for (const l of s.sale_lines ?? []) {
         const cost = costByLine.get(l.id) ?? 0;
         const rev = l.line_total_centavos ?? 0;
-
         if (!l.engine_id) {
           a.units_sold += l.qty;
           partRevenue += rev;
           partCogs += cost;
           continue;
         }
-
         a.engines_sold += 1;
         engineRevenue += rev;
         engineCogs += cost;
-
-        // Prefer the STORED discount: it was frozen at record time against the
-        // engine's asking price as it stood then, and that engine may since
-        // have been re-margined. Recomputing from today's asking price would
-        // rewrite a negotiation that already happened.
         const d =
           l.discount_centavos ??
           (l.list_reference_centavos != null && l.agreed_price_centavos != null
             ? l.list_reference_centavos - l.agreed_price_centavos
             : null);
-
         if (d == null) {
-          // Sold before tier pricing existed (0020), so there was no asking
-          // price to negotiate against. Counted as UNKNOWN, never as a zero
-          // discount — "we don't know" and "nothing was given away" are
-          // different claims, and only one of them is true.
           engineDiscountUnknownLines += 1;
         } else {
           a.engine_discount += d;
-          engineDiscount += d;
           engineDiscountLines += 1;
         }
       }
     });
   }
-
-  for (const l of allLosses) {
-    bump(l.shop_id, (a) => (a.losses += l.value_centavos ?? 0));
-  }
-  for (const e of allShopExpenses) {
-    bump(e.shop_id, (a) => (a.opex += e.amount));
-  }
+  for (const l of allLosses as any[]) bump(l.shop_id, (a) => (a.losses += l.value_centavos ?? 0));
+  for (const e of allShopExpenses as any[]) bump(e.shop_id, (a) => (a.opex += e.amount));
   for (const p of allPayroll as any[]) {
     bump(p.shop_id, (a) => {
       a.payroll_gross += p.gross_pay ?? 0;
-      for (const c of p.payroll_entry_contributions ?? []) {
+      for (const c of p.payroll_entry_contributions ?? [])
         a.payroll_er += c.er_amount_centavos ?? 0;
-      }
     });
   }
 
+  const companyOverhead = (allCompanyExpenses as any[]).reduce((t, e) => t + (e.amount ?? 0), 0);
   const transitWriteoffs = (allTransit as any[]).reduce((t, m) => {
     const unitCost = m.parts?.cost_centavos ?? m.engines?.cost_centavos ?? 0;
     return t + Math.abs(m.qty_change ?? 0) * unitCost;
   }, 0);
-  /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  // Deliberately UNFILTERED — every shop in scope gets a row, closed or idle.
-  //
-  // Whether a closed branch is worth showing is a display question, and the two
-  // callers answer it differently: the consolidated P&L asks "did it earn or
-  // cost anything" (pnlHasActivity below), while /shops/reports also counts
-  // stock still sitting there, deliveries and pending approvals — context this
-  // layer has no business knowing about. Filtering here would silently drop a
-  // closed shop that still holds stock off that page.
-  //
-  // Totals are unaffected either way: an idle shop contributes 0 to every sum.
-  const perShop: PnlShopRow[] = shops
-    .map((s) => {
-      const a = agg.get(s.id) ?? zero();
-      const gross_profit = a.revenue - a.cogs;
-      const labor_cost = a.payroll_gross + a.payroll_er;
-      // Losses are NOT subtracted here. A shop's contribution answers "did this
-      // branch earn its keep on what it sold" — shrinkage is the business's
-      // problem and lands in net income instead.
-      const net_contribution = gross_profit - a.opex - labor_cost;
-      return {
-        shop_id: s.id,
-        shop: s.name,
-        closed: !!s.deleted_at,
-        ...a,
-        gross_profit,
-        gross_margin_pct: pct(gross_profit, a.revenue),
-        labor_cost,
-        net_contribution,
-        net_margin_pct: pct(net_contribution, a.revenue),
-      };
-    });
+  return {
+    perShop: agg,
+    engineRevenue,
+    engineCogs,
+    partRevenue,
+    partCogs,
+    engineDiscountLines,
+    engineDiscountUnknownLines,
+    companyOverhead,
+    transitWriteoffs,
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/**
+ * Gather P&L facts: SQL fast path (fn_pnl_facts, 0075) → flat O(shops×days);
+ * falls back to the row-walk if the migration isn't applied. Both paths are
+ * asserted byte-identical (scripts/test-pnl + the capture check).
+ */
+async function gatherFacts(
+  supabase: SupabaseClient,
+  from: string,
+  to: string,
+  shopId: string | null
+): Promise<PnlFacts> {
+  const { data, error } = await supabase.rpc("fn_pnl_facts", {
+    p_from: from,
+    p_to: to,
+    p_shop_id: shopId,
+  });
+  if (!error && data) return factsFromRpc(data);
+
+  // fallback needs the in-scope shop ids to seed the per-shop map
+  const { data: shopRows } = await supabase.from("shops").select("id, deleted_at");
+  const scope = new Set(
+    (shopRows ?? [])
+      .filter((s) => !shopId || s.id === shopId)
+      .map((s) => s.id as string)
+  );
+  return factsFromRowWalk(supabase, from, to, scope);
+}
+
+export async function computePnl(
+  supabase: SupabaseClient,
+  { from, to, shopId = null }: { from: string; to: string; shopId?: string | null }
+): Promise<PnlResult> {
+  await requireOwner(supabase);
+
+  // No deleted_at filter, on purpose — closed shops still count (see header).
+  const shopsRes = await supabase.from("shops").select("id, name, deleted_at").order("name");
+  const allShops = shopsRes.data ?? [];
+  const shops = allShops.filter((s) => !shopId || s.id === shopId);
+
+  const f = await gatherFacts(supabase, from, to, shopId);
+
+  const perShop: PnlShopRow[] = shops.map((s) => {
+    const a = f.perShop.get(s.id) ?? zero();
+    const gross_profit = a.revenue - a.cogs;
+    const labor_cost = a.payroll_gross + a.payroll_er;
+    // Losses are NOT subtracted here — a shop's contribution is judged on what
+    // it sold; shrinkage is the business's problem and lands in net income.
+    const net_contribution = gross_profit - a.opex - labor_cost;
+    return {
+      shop_id: s.id,
+      shop: s.name,
+      closed: !!s.deleted_at,
+      ...a,
+      gross_profit,
+      gross_margin_pct: pct(gross_profit, a.revenue),
+      labor_cost,
+      net_contribution,
+      net_margin_pct: pct(net_contribution, a.revenue),
+    };
+  });
 
   const sum = (k: keyof PnlShopRow) =>
     perShop.reduce((t, r) => t + ((r[k] as number) ?? 0), 0);
@@ -487,19 +519,14 @@ export async function computePnl(
   const cogs = sum("cogs");
   const grossProfit = revenue - cogs;
   const shopLosses = sum("losses");
+  const transitWriteoffs = f.transitWriteoffs;
   const shrinkage = shopLosses + transitWriteoffs;
   const shopOpex = sum("opex");
-  const companyOverhead = allCompanyExpenses.reduce(
-    (t, e) => t + (e.amount ?? 0),
-    0
-  );
+  const companyOverhead = f.companyOverhead;
   const payrollGross = sum("payroll_gross");
   const payrollEr = sum("payroll_er");
   const laborCost = payrollGross + payrollEr;
   const shopNetTotal = sum("net_contribution");
-
-  // Equivalent to shopNetTotal − companyOverhead − shrinkage; written out in
-  // full so the statement on screen reads exactly like this line.
   const netIncome =
     grossProfit - shrinkage - shopOpex - companyOverhead - laborCost;
 
@@ -523,16 +550,15 @@ export async function computePnl(
     shopNetTotal,
     netIncome,
     netMarginPct: pct(netIncome, revenue),
-    engineRevenue,
-    engineCogs,
-    partRevenue,
-    partCogs,
-    engineDiscount,
-    engineDiscountLines,
-    engineDiscountUnknownLines,
+    engineRevenue: f.engineRevenue,
+    engineCogs: f.engineCogs,
+    partRevenue: f.partRevenue,
+    partCogs: f.partCogs,
+    engineDiscount: sum("engine_discount"),
+    engineDiscountLines: f.engineDiscountLines,
+    engineDiscountUnknownLines: f.engineDiscountUnknownLines,
   };
 }
-
 // ---------------------------------------------------------------------------
 // Cash vs accrual
 //
