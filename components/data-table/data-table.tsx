@@ -25,6 +25,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Empty,
   EmptyDescription,
@@ -62,6 +63,11 @@ interface DataTableProps<TData, TValue> {
   rowClassName?: (row: TData) => string | undefined;
   /** initial rows per page (default 20) */
   pageSize?: number;
+  /** enable a leading checkbox column for row selection. Provide getRowId for
+   *  stable keys and onSelectedChange to receive the selected originals. */
+  enableSelection?: boolean;
+  getRowId?: (row: TData) => string;
+  onSelectedChange?: (rows: TData[]) => void;
 }
 
 const PAGE_SIZES = [10, 20, 50, 100];
@@ -75,17 +81,51 @@ export function DataTable<TData, TValue>({
   emptyMessage = "No records yet.",
   rowClassName,
   pageSize = 20,
+  enableSelection = false,
+  getRowId,
+  onSelectedChange,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const [rowSelection, setRowSelection] = React.useState({});
+
+  const allColumns = React.useMemo<ColumnDef<TData, TValue>[]>(() => {
+    if (!enableSelection) return columns;
+    const selectCol: ColumnDef<TData, TValue> = {
+      id: "__select",
+      enableSorting: false,
+      header: ({ table }) => (
+        <Checkbox
+          checked={
+            table.getIsAllPageRowsSelected() ||
+            (table.getIsSomePageRowsSelected() ? "indeterminate" : false)
+          }
+          onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
+          aria-label="Select all on this page"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(v) => row.toggleSelected(!!v)}
+          aria-label="Select row"
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+    };
+    return [selectCol, ...columns];
+  }, [enableSelection, columns]);
 
   const table = useReactTable({
     data,
-    columns,
-    state: { sorting, globalFilter },
+    columns: allColumns,
+    state: { sorting, globalFilter, rowSelection },
     initialState: { pagination: { pageSize } },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
+    onRowSelectionChange: setRowSelection,
+    enableRowSelection: enableSelection,
+    getRowId,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -93,6 +133,15 @@ export function DataTable<TData, TValue>({
     globalFilterFn: "includesString",
     autoResetPageIndex: true,
   });
+
+  // Bridge the selection to the parent. Depends only on rowSelection so an
+  // inline onSelectedChange doesn't re-fire every render.
+  React.useEffect(() => {
+    if (onSelectedChange) {
+      onSelectedChange(table.getSelectedRowModel().rows.map((r) => r.original));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowSelection]);
 
   const filteredCount = table.getFilteredRowModel().rows.length;
   const { pageIndex, pageSize: currentPageSize } = table.getState().pagination;
@@ -153,7 +202,7 @@ export function DataTable<TData, TValue>({
               ))
             ) : (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={columns.length} className="py-10">
+                <TableCell colSpan={allColumns.length} className="py-10">
                   <Empty className="border-0 p-0">
                     <EmptyHeader>
                       <EmptyMedia variant="icon">

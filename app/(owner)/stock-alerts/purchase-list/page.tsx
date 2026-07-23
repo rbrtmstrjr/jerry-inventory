@@ -21,9 +21,9 @@ const BUFFER = 2;
 export default async function PurchaseListPage({
   searchParams,
 }: {
-  searchParams: Promise<{ supplier?: string }>;
+  searchParams: Promise<{ supplier?: string; ids?: string }>;
 }) {
-  const { supplier: selectedSupplier } = await searchParams;
+  const { supplier: selectedSupplier, ids } = await searchParams;
   const supabase = await createClient();
 
   const [lowRes, cmpRes, business] = await Promise.all([
@@ -41,7 +41,17 @@ export default async function PurchaseListPage({
     getBusinessIdentity(supabase),
   ]);
 
-  const rows = (lowRes.data ?? []) as MasterLowStockRow[];
+  // ?ids=<kind:product_id,…> prints EXACTLY the items ticked/filtered on the
+  // Stock Alerts → Master tab — so a tight-budget order sheet lists only what
+  // was chosen, never all low-stock. No ids → the full low-stock list.
+  const allRows = (lowRes.data ?? []) as MasterLowStockRow[];
+  const idSet = ids
+    ? new Set(ids.split(",").map((s) => s.trim()).filter(Boolean))
+    : null;
+  const rows =
+    idSet && idSet.size > 0
+      ? allRows.filter((r) => idSet.has(`${r.kind}:${r.product_id}`))
+      : allRows;
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const cheapestByProduct = new Map<string, any>();

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { MasterLowStockRow, ShopLowStockRow } from "@/lib/db-types";
 import {
@@ -7,10 +8,38 @@ import {
   type OverrideRow,
 } from "./stock-alerts-view";
 import type { RequestRow } from "./requests-panel";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "Stock Alerts" };
 
-export default async function StockAlertsPage({
+/**
+ * Stock Alerts streams: the heading paints instantly and the body (summary
+ * cards + tabs + tables) loads behind a matching skeleton — only the data area
+ * shows a skeleton, not the whole page.
+ */
+export default function StockAlertsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Stock Alerts</h1>
+        <p className="text-sm text-muted-foreground">
+          Master shortages are bought from a supplier. Shop shortages are fixed
+          by delivering from master.
+        </p>
+      </div>
+      <Suspense fallback={<StockAlertsBodySkeleton />}>
+        <StockAlertsBody searchParams={searchParams} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function StockAlertsBody({
   searchParams,
 }: {
   searchParams: Promise<{ tab?: string }>;
@@ -126,5 +155,49 @@ export default async function StockAlertsPage({
       requests={requests}
       initialTab={tab}
     />
+  );
+}
+
+function StockAlertsBodySkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Card key={i}>
+            <CardHeader className="pb-2">
+              <Skeleton className="h-4 w-28" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-8 w-16" />
+              <Skeleton className="mt-2 h-3 w-40" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Skeleton className="h-9 w-24" />
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-24" />
+        <Skeleton className="h-9 w-28" />
+      </div>
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-9 w-64" />
+        <Skeleton className="h-9 w-40" />
+      </div>
+      <div className="overflow-hidden rounded-xl border">
+        <div className="flex gap-4 border-b bg-muted/30 px-4 py-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-4 flex-1" />
+          ))}
+        </div>
+        {Array.from({ length: 8 }).map((_, r) => (
+          <div key={r} className="flex items-center gap-4 border-b px-4 py-3.5 last:border-0">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-4 flex-1" />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

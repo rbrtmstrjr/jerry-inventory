@@ -77,6 +77,8 @@ export function StockAlertsView({
   const router = useRouter();
   const [shopFilter, setShopFilter] = React.useState("all");
   const [masterSupplier, setMasterSupplier] = React.useState("all");
+  const [masterKind, setMasterKind] = React.useState<"all" | "part" | "engine_model">("all");
+  const [selectedMaster, setSelectedMaster] = React.useState<MasterLowStockRow[]>([]);
   const colorByShopId = new Map(shops.map((s) => [s.id, s.color_key]));
   const openRequests = requests.filter((r) => r.status === "open").length;
   const defaultTab =
@@ -101,14 +103,18 @@ export function StockAlertsView({
       a[0] === "__none__" ? 1 : b[0] === "__none__" ? -1 : a[1].localeCompare(b[1])
     );
   }, [master]);
-  const masterRows =
-    masterSupplier === "all"
-      ? master
-      : master.filter((r) => (r.supplier_id ?? "__none__") === masterSupplier);
-  const purchaseHref =
-    masterSupplier === "all"
-      ? "/stock-alerts/purchase-list"
-      : `/stock-alerts/purchase-list?supplier=${encodeURIComponent(masterSupplier)}`;
+  const masterRows = master.filter(
+    (r) =>
+      (masterSupplier === "all" || (r.supplier_id ?? "__none__") === masterSupplier) &&
+      (masterKind === "all" || r.kind === masterKind)
+  );
+  // Print EXACTLY what's ticked; if nothing is ticked, print the whole filtered
+  // list. Either way the sheet is built from an explicit id list — so it's the
+  // filter/selection result, never fixed to all products.
+  const toPrint = selectedMaster.length > 0 ? selectedMaster : masterRows;
+  const purchaseHref = `/stock-alerts/purchase-list?ids=${encodeURIComponent(
+    toPrint.map((r) => `${r.kind}:${r.product_id}`).join(",")
+  )}`;
 
   const masterColumns: ColumnDef<MasterLowStockRow>[] = [
     {
@@ -211,14 +217,8 @@ export function StockAlertsView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Stock Alerts</h1>
-        <p className="text-sm text-muted-foreground">
-          Master shortages are bought from a supplier. Shop shortages are fixed
-          by delivering from master.
-        </p>
-      </div>
-
+      {/* Heading lives in the server page shell so it paints instantly while
+          this streams; the view starts at the summary cards. */}
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -260,35 +260,59 @@ export function StockAlertsView({
           <TabsTrigger value="thresholds">Reorder levels</TabsTrigger>
         </TabsList>
 
-        {/* MASTER → purchase list */}
+        {/* MASTER → purchase list. Tick specific items to order only those
+            (tight budget), or filter by type/supplier and print the result. */}
         <TabsContent value="master" className="pt-2">
           <DataTable
             columns={masterColumns}
             data={masterRows}
             searchPlaceholder="Search product or supplier…"
             emptyMessage="Master stock is healthy — nothing to buy."
+            enableSelection
+            getRowId={(r) => `${r.kind}:${r.product_id}`}
+            onSelectedChange={setSelectedMaster}
             filters={
-              masterSuppliers.length > 1 ? (
-                <Select value={masterSupplier} onValueChange={setMasterSupplier}>
-                  <SelectTrigger className="w-56">
-                    <SelectValue placeholder="All suppliers" />
+              <>
+                <Select
+                  value={masterKind}
+                  onValueChange={(v) =>
+                    setMasterKind(v as "all" | "part" | "engine_model")
+                  }
+                >
+                  <SelectTrigger className="w-36">
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All suppliers</SelectItem>
-                    {masterSuppliers.map(([key, name]) => (
-                      <SelectItem key={key} value={key}>
-                        {name}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="all">All types</SelectItem>
+                    <SelectItem value="part">Parts</SelectItem>
+                    <SelectItem value="engine_model">Engines</SelectItem>
                   </SelectContent>
                 </Select>
-              ) : null
+                {masterSuppliers.length > 1 && (
+                  <Select value={masterSupplier} onValueChange={setMasterSupplier}>
+                    <SelectTrigger className="w-56">
+                      <SelectValue placeholder="All suppliers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All suppliers</SelectItem>
+                      {masterSuppliers.map(([key, name]) => (
+                        <SelectItem key={key} value={key}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </>
             }
             toolbar={
-              masterRows.length > 0 ? (
+              toPrint.length > 0 ? (
                 <Button asChild>
                   <Link href={purchaseHref} target="_blank">
-                    <Printer className="size-4" /> Print purchase list
+                    <Printer className="size-4" />
+                    {selectedMaster.length > 0
+                      ? `Print ${selectedMaster.length} selected`
+                      : `Print list (${masterRows.length})`}
                   </Link>
                 </Button>
               ) : null
@@ -341,6 +365,10 @@ export function StockAlertsView({
 }
 
 /** Default reorder level + preferred supplier per product. */
+/** Reorder-level rows revealed per scroll batch. Each row mounts a heavy Radix
+ *  Select, so rendering all ~400 at once is what made this tab lag. */
+const REORDER_PAGE = 40;
+
 function ThresholdEditor({
   products,
   suppliers,
@@ -352,11 +380,34 @@ function ThresholdEditor({
   const [search, setSearch] = React.useState("");
   const [busy, setBusy] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<Record<string, { level: string; supplier: string }>>({});
+  const [visibleCount, setVisibleCount] = React.useState(REORDER_PAGE);
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
 
   const q = search.trim().toLowerCase();
   const rows = q
     ? products.filter((p) => p.name.toLowerCase().includes(q))
     : products;
+  const visibleRows = rows.slice(0, visibleCount);
+
+  // Scroll-down reveal: render a batch, reveal more as the sentinel nears the
+  // bottom of the SCROLL CONTAINER (root: scrollRef, not the viewport). Reset
+  // the batch whenever the search narrows the list.
+  React.useEffect(() => {
+    setVisibleCount(REORDER_PAGE);
+  }, [q]);
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || visibleCount >= rows.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) setVisibleCount((v) => v + REORDER_PAGE);
+      },
+      { root: scrollRef.current, rootMargin: "300px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount, rows.length]);
 
   const valueFor = (p: ProductThresholdRow) =>
     draft[p.id] ?? {
@@ -405,8 +456,11 @@ function ThresholdEditor({
           />
         </div>
       </CardHeader>
-      <CardContent className="flex max-h-[26rem] flex-col gap-2 overflow-y-auto">
-        {rows.map((p) => {
+      <CardContent
+        ref={scrollRef}
+        className="flex max-h-[26rem] flex-col gap-2 overflow-y-auto"
+      >
+        {visibleRows.map((p) => {
           const v = valueFor(p);
           return (
             <div
@@ -459,6 +513,14 @@ function ThresholdEditor({
             </div>
           );
         })}
+        {visibleCount < rows.length && (
+          <div
+            ref={sentinelRef}
+            className="py-2 text-center text-xs text-muted-foreground"
+          >
+            Loading more… ({visibleRows.length} of {rows.length})
+          </div>
+        )}
         {rows.length === 0 && (
           <p className="py-6 text-center text-sm text-muted-foreground">
             No products match.
