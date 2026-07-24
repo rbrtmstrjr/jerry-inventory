@@ -113,7 +113,7 @@ meta-refresh — `?view=<id>` passes through).
 ### Owner — Suppliers (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/suppliers` | Suppliers | Four tabs (`?tab=`) — **order it · receive it · owe it · compare it**: **Directory** (supplier records, credit limits, terms, outstanding inline) · **Receiving** (moved unchanged from /master-inventory/receiving — **the single entry point for stock**: supplier required with live outstanding/utilisation, lines existing-or-inline-new (bulk grid, serial per engine, last-paid context), payment paid/partial/unpaid with due-date presets where the picked date is stored, atomic `fn_receive_stock`, post-save print-labels; `?view=<id>` deep-links a receiving's detail) · **Payables** (what Admin owes: aging buckets, per-receiving balances, Record Payment targeted/FIFO, private receipts) · **Price Comparison** (per product × supplier, always-visible side-by-side, cheapest-first. **Automatic-only** — prices come from receivings (last-PAID); the owner-entered **quote UI was removed** (Record-quote button, per-product quote buttons, Has-quotes/Stale-only filters all gone) at the owner's request: a product appears here purely once it's been RECEIVED from 2+ suppliers, compared by what was actually paid. Every price still carries source + date; **comparable-only always** (2+ suppliers — single-supplier products are never shown, since a real catalog could be thousands); newest product first (by catalog creation ts); "Preferred is ₱X more" badge; **★ Make preferred** per row; a same-SKU/name **duplicate nudge** opens the merge dialog prefilled. NOTE: the `supplier_quotes` table + `recordSupplierQuote` action + quote arm of `supplier_price_comparison` still exist in the DB/backend — only the UI was dropped, so re-enabling is UI-only. Merged duplicates roll up to one product via 0052) |
+| `/suppliers` | Suppliers | Three tabs (`?tab=`) — **order it · receive it · owe it**: **Directory** (supplier records, credit limits, terms, outstanding inline) · **Receiving** (moved unchanged from /master-inventory/receiving — **the single entry point for stock**: supplier required with live outstanding/utilisation, lines existing-or-inline-new (bulk grid, serial per engine, last-paid context), payment paid/partial/unpaid with due-date presets where the picked date is stored, atomic `fn_receive_stock`, post-save print-labels; `?view=<id>` deep-links a receiving's detail) · **Payables** (what Admin owes: aging buckets, per-receiving balances, Record Payment targeted/FIFO, private receipts). The **Price Comparison** tab was **removed** (feature retired at the owner's request) — its UI (`comparison-view.tsx`), the comparison-only `recordSupplierQuote`/`setPreferredSupplier` actions, and its types are gone. `?tab=comparison` now falls through to Directory. The `supplier_price_comparison` / `supplier_product_prices_history` **views stay** (shared: they power a product's **Suppliers & Prices** dialog in Master Inventory and the Purchase List's per-supplier costs); the `supplier_quotes` table stays too but is now writer-less/dormant. Per-product preferred-supplier + the merge-duplicates flow live in Master Inventory |
 
 | `/suppliers/receiving/[id]/print` | Receiving Voucher | Printable record of one supplier receiving — letterhead via `getBusinessIdentity`, lines + costs, payment status; the paper copy of a stock-entry event (owner-only) |
 
@@ -227,7 +227,7 @@ Count, Movements (journal · stock card · engine chain of custody), Approval
 Queue, Warranties, Shops & Employees (incl. the slim staff/birthday manager),
 Expenses, Receivables/Utang,
 Stock Alerts (+ Delivery Requests, a tab on Deliveries), Suppliers (directory ·
-payables · price comparison with provenance-labelled quotes),
+receiving · payables — the Price Comparison tab was retired),
 Settings (5 sections incl. credential change + system health), and the 7-page
 Shop app (incl. shop-recorded expenses riding the approval batch). Payroll was
 **removed (0083)** — the client runs it externally. Plus 6 printable documents (delivery note, count sheet, warranty
@@ -1001,7 +1001,7 @@ app/
     dashboard/ reports/ settings/
     master-inventory/      + labels/ (view+edit only; bulk-add/ = stub, receiving
                            moved to /suppliers?tab=receiving via next.config 307)
-    suppliers/             4 tabs: directory · receiving · payables · comparison
+    suppliers/             3 tabs: directory · receiving · payables (comparison tab retired)
     suppliers/payables/    What we owe suppliers (owner-only)
     deliveries/            + [id]/note (print); tabs: delivery · return ·
                            transit-panel · transfers-panel

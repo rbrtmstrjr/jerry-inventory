@@ -108,8 +108,10 @@ section("The new homes render");
   check("directory tab renders", dir.status === 200 && dir.html.includes("Directory"));
   const pay = await getHtml("/suppliers?tab=payables");
   check("payables tab renders", pay.status === 200 && pay.html.includes("Payables"));
+  // Price Comparison tab was retired; ?tab=comparison now falls through to Directory.
   const cmp = await getHtml("/suppliers?tab=comparison");
-  check("comparison tab renders", cmp.status === 200 && cmp.html.includes("Price Comparison"));
+  check("retired comparison tab falls through to Directory (no 404)",
+    cmp.status === 200 && cmp.html.includes("Directory"));
   const rcv = await getHtml("/suppliers?tab=receiving");
   check("receiving tab renders", rcv.status === 200 && rcv.html.includes("New Receiving"));
   const shops = await getHtml("/reports?tab=shops");

@@ -126,10 +126,10 @@ export function AlertsSection({ settings }: { settings: SettingsRow }) {
             onChange={(e) => setStaleDays(e.target.value)}
           />
           <p className="text-xs text-muted-foreground">
-            A supplier quote older than this stops being the compare price on
-            Suppliers → Price Comparison and is flagged stale — the comparison
-            falls back to what you last actually paid. A quote past its own
-            valid-until date goes stale regardless.
+            A supplier quote older than this is flagged stale in a product&apos;s
+            Suppliers &amp; Prices, and its effective price falls back to what you
+            last actually paid. A quote past its own valid-until date goes stale
+            regardless.
           </p>
         </div>
 

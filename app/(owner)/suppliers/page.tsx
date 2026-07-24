@@ -7,13 +7,11 @@ import type { ReceivingBalanceRow, ReceivingRow, SupplierPayableRow } from "@/li
 import { SupplierTabs } from "./supplier-tabs";
 import { SuppliersTable } from "./suppliers-table";
 import { PayablesView, type PaymentHistoryRow } from "./payables-view";
-import { ComparisonView } from "./comparison-view";
 import {
   ReceivingView,
   type PriceHistoryRow,
   type SupplierOption,
 } from "./receiving-view";
-import type { ComparisonRow } from "./types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -41,13 +39,11 @@ async function fetchAllPaged(build: () => any): Promise<any[]> {
 
 /**
  * Suppliers, consolidated: who they are (Directory), what we owe (Payables),
- * who's cheapest (Price Comparison), and stock intake (Receiving).
+ * and stock intake (Receiving).
  *
  * STREAMS like Reports: the heading + tabs paint instantly; the selected tab's
  * body (which does the fetching) streams in behind a skeleton, so the page is
- * never blocked on it. The Comparison tab additionally reveals its (server-
- * rendered) product cards in scroll batches, so a 500-product list doesn't paint
- * all at once — SSR'd first batch, lazy the rest.
+ * never blocked on it.
  */
 export default async function SuppliersPage({
   searchParams,
@@ -58,11 +54,9 @@ export default async function SuppliersPage({
   const tab =
     rawTab === "payables"
       ? "payables"
-      : rawTab === "comparison"
-        ? "comparison"
-        : rawTab === "receiving"
-          ? "receiving"
-          : "directory";
+      : rawTab === "receiving"
+        ? "receiving"
+        : "directory";
 
   return (
     <div className="flex flex-col gap-4">
@@ -73,8 +67,6 @@ export default async function SuppliersPage({
           <ReceivingTab view={view ?? null} />
         ) : tab === "payables" ? (
           <PayablesTab />
-        ) : tab === "comparison" ? (
-          <ComparisonTab />
         ) : (
           <DirectoryTab />
         )}
@@ -88,8 +80,8 @@ function Heading() {
     <div>
       <h1 className="text-2xl font-semibold tracking-tight">Suppliers</h1>
       <p className="text-sm text-muted-foreground">
-        Where stock starts: the people you buy from, what you owe them, and who
-        gives the best price.
+        Where stock starts: the people you buy from, what you owe them, and stock
+        intake.
       </p>
     </div>
   );
@@ -186,48 +178,6 @@ async function PayablesTab() {
   );
 }
 
-// ── Price Comparison ────────────────────────────────────────────────────────
-async function ComparisonTab() {
-  const supabase = await createClient();
-  const [allCmp, partsRes, modelsRes, catRes] = await Promise.all([
-    // Paginated (stable order) — 2k+ comparison rows outgrow the 1,000 cap.
-    fetchAllPaged(() =>
-      supabase
-        .from("supplier_price_comparison")
-        .select("*")
-        .order("supplier_id")
-        .order("part_id", { nullsFirst: false })
-        .order("engine_model_id", { nullsFirst: false })
-    ),
-    supabase
-      .from("parts")
-      .select("id, name, sku, unit, created_at, stock_levels(shop_id, qty)")
-      .is("deleted_at", null)
-      .order("name"),
-    supabase.from("engine_models").select("id, brand, model, created_at").order("brand"),
-    supabase.from("product_categories").select("id, name").order("name"),
-  ]);
-
-  const createdAtByProduct: Record<string, string> = {};
-  for (const p of partsRes.data ?? []) createdAtByProduct[p.id] = p.created_at;
-  for (const m of modelsRes.data ?? []) createdAtByProduct[m.id] = m.created_at;
-
-  return (
-    <ComparisonView
-      rows={allCmp as ComparisonRow[]}
-      createdAtByProduct={createdAtByProduct}
-      parts={(partsRes.data ?? []).map((p) => ({
-        id: p.id,
-        name: p.name,
-        sku: p.sku,
-        unit: p.unit,
-        stock_qty: (p.stock_levels ?? []).reduce((sum, s) => sum + s.qty, 0),
-      }))}
-      categories={(catRes.data ?? []).map((c) => c.name)}
-    />
-  );
-}
-
 // ── Directory ───────────────────────────────────────────────────────────────
 async function DirectoryTab() {
   const supabase = await createClient();
@@ -261,7 +211,6 @@ async function DirectoryTab() {
 // ── streaming skeletons — each mirrors its tab's real layout ────────────────
 function TabSkeleton({ tab }: { tab: string }) {
   if (tab === "payables") return <PayablesSkeleton />;
-  if (tab === "comparison") return <ComparisonSkeleton />;
   if (tab === "receiving") return <ReceivingSkeleton />;
   return <DirectorySkeleton />;
 }
@@ -321,38 +270,6 @@ function PayablesSkeleton() {
       </div>
       <Skeleton className="h-9 w-64" />
       <TableSkeleton rows={6} cols={7} />
-    </div>
-  );
-}
-
-// Price Comparison: filter bar · product comparison cards.
-function ComparisonSkeleton() {
-  return (
-    <div className="flex flex-col gap-4">
-      <Card>
-        <CardContent className="flex flex-wrap items-end gap-x-6 gap-y-3">
-          {[52, 40, 36].map((w, i) => (
-            <div key={i} className="flex flex-col gap-1">
-              <Skeleton className="h-3 w-16" />
-              <Skeleton className="h-9" style={{ width: `${w * 4}px` }} />
-            </div>
-          ))}
-          <Skeleton className="h-5 w-40" />
-        </CardContent>
-      </Card>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <Card key={i}>
-          <CardContent className="flex flex-col gap-3">
-            <Skeleton className="h-5 w-56" />
-            {Array.from({ length: 2 }).map((_, j) => (
-              <div key={j} className="flex items-center justify-between">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-4 w-24" />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ))}
     </div>
   );
 }

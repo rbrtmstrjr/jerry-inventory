@@ -100,18 +100,14 @@ export function SupplierPricesDialog({
           <DialogTitle>Suppliers &amp; Prices — {productName}</DialogTitle>
           <DialogDescription>
             Same product, different suppliers. Every price shows where it came
-            from and when — a paid price and a quote are not the same thing.
+            from and when — read from what you actually paid on receiving.
           </DialogDescription>
         </DialogHeader>
 
         {sorted.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            No purchases or quotes for this product yet — prices appear here
-            after the first receiving, or record a quote on{" "}
-            <Link className="underline" href="/suppliers?tab=comparison">
-              Suppliers → Price Comparison
-            </Link>
-            .
+            No purchases for this product yet — prices appear here after the
+            first receiving from a supplier.
           </p>
         ) : (
           <div className="thin-scrollbar max-h-[55vh] overflow-auto rounded-md border">

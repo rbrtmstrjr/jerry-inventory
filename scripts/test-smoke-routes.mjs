@@ -46,7 +46,7 @@ console.log("OWNER routes (static + tabs):");
 for (const p of [
   "/dashboard",
   "/reports", "/reports?tab=pnl", "/reports?tab=shops",
-  "/suppliers", "/suppliers?tab=receiving", "/suppliers?tab=payables", "/suppliers?tab=comparison",
+  "/suppliers", "/suppliers?tab=receiving", "/suppliers?tab=payables",
   "/master-inventory", "/master-inventory/labels",
   "/deliveries", "/deliveries?tab=return", "/deliveries?tab=transit", "/deliveries?tab=requests",
   "/stock-alerts",

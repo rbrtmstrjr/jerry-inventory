@@ -7,12 +7,11 @@ import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-// Order tells the story: order it · receive it · owe it · compare it.
+// Order tells the story: order it · receive it · owe it.
 const TABS = [
   { value: "directory", label: "Directory" },
   { value: "receiving", label: "Receiving" },
   { value: "payables", label: "Payables" },
-  { value: "comparison", label: "Price Comparison" },
 ] as const;
 
 /**
@@ -51,7 +50,7 @@ function useOverdueCount() {
 export function SupplierTabs({
   active,
 }: {
-  active: "directory" | "receiving" | "payables" | "comparison";
+  active: "directory" | "receiving" | "payables";
 }) {
   const overdue = useOverdueCount();
 
