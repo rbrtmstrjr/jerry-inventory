@@ -15,9 +15,9 @@ const TABS = [
  * Link-based tabs over `?tab=`, the same shape /deliveries uses.
  *
  * Links rather than client state, because each tab is a genuinely different
- * server fetch: the P&L pulls costs, payroll and overhead the sales report has
- * no use for. Holding both in one client view would fetch both every time and
- * make the range un-bookmarkable.
+ * server fetch: the P&L pulls costs and overhead the sales report has no use
+ * for. Holding both in one client view would fetch both every time and make the
+ * range un-bookmarkable.
  *
  * The date range rides along, so flipping to the P&L keeps the period you were
  * already looking at instead of silently resetting it.

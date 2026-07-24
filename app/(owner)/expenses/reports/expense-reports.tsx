@@ -69,7 +69,6 @@ export interface ExpenseReportData {
     color_key: string | null;
     revenue: number;
     opex: number;
-    payroll: number;
     losses: number;
     net: number;
   }[];
@@ -339,8 +338,8 @@ export function ExpenseReports({ data }: { data: ExpenseReportData }) {
         <CardHeader>
           <CardTitle className="text-base">Cost of doing business (per shop)</CardTitle>
           <CardDescription>
-            Read-only rollup: approved revenue vs operating expenses, payroll, and
-            approved losses in this range. Rough picture — not an accounting statement.
+            Read-only rollup: approved revenue vs operating expenses and approved
+            losses in this range. Rough picture — not an accounting statement.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -350,7 +349,6 @@ export function ExpenseReports({ data }: { data: ExpenseReportData }) {
                 <TableHead>Shop</TableHead>
                 <TableHead className="text-right">Revenue</TableHead>
                 <TableHead className="text-right">Op. expenses</TableHead>
-                <TableHead className="text-right">Payroll</TableHead>
                 <TableHead className="text-right">Losses</TableHead>
                 <TableHead className="text-right">Rough net</TableHead>
               </TableRow>
@@ -366,9 +364,6 @@ export function ExpenseReports({ data }: { data: ExpenseReportData }) {
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatCentavos(r.opex)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatCentavos(r.payroll)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatCentavos(r.losses)}

@@ -9,9 +9,10 @@ import { SukiCardsView, type CardRow } from "./suki-cards-view";
 export const metadata: Metadata = { title: "Suki Cards" };
 
 /**
- * Suki discount cards — the owner produces a card per loyal customer; a shop
- * scans it at Record Sale and the engine/part percentages apply automatically.
- * Rates are Settings dials (Settings → Alerts); this page manages the cards.
+ * Suki discount cards — the physical cards are printed by a separate system;
+ * here the owner records each card's barcode number against a customer, and a
+ * shop scans it at Record Sale so the engine/part percentages apply
+ * automatically. Rates are Settings dials (Settings → Alerts).
  *
  * Shell: the heading paints instantly; the card table streams behind a skeleton.
  */
@@ -21,8 +22,9 @@ export default function SukiCardsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Suki Cards</h1>
         <p className="text-sm text-muted-foreground">
-          Loyalty cards you print and hand out — a scan at Record Sale applies
-          the suki discount automatically (set the rates in Settings → Alerts).
+          Record the barcode number of each printed loyalty card — a scan at
+          Record Sale then applies the suki discount automatically (set the
+          rates in Settings → Alerts).
         </p>
       </div>
       <Suspense fallback={<TableSkeleton cols={5} />}>

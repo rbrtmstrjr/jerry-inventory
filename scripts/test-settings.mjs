@@ -147,8 +147,6 @@ section("public_settings exposes identity, and only identity");
     for (const leaked of [
       "warranty_expiry_alert_days",
       "supplier_limit_warn_pct",
-      "payroll_working_days_per_month",
-      "contribution_split_semimonthly",
       "default_warranty_months",
     ]) {
       check(`public_settings does NOT expose ${leaked}`, !(leaked in ps));

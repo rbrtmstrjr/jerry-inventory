@@ -42,11 +42,11 @@ export async function PnlTab({ from, to }: { from: string; to: string }) {
 
   // Net income is bucketed by MONTH, never by day.
   //
-  // Payroll lands on pay periods and overhead arrives as monthly bills, so a
-  // daily net-income line would have to spread them across days — inventing a
-  // shape the data does not have. That is the same "allocation is fiction"
-  // rule that keeps company overhead out of the shops. A month is the smallest
-  // period where every term of the statement is genuinely present.
+  // Overhead arrives as monthly bills, so a daily net-income line would have to
+  // spread them across days — inventing a shape the data does not have. That is
+  // the same "allocation is fiction" rule that keeps company overhead out of the
+  // shops. A month is the smallest period where every term of the statement is
+  // genuinely present.
   const months: { from: string; to: string; label: string }[] = [];
   for (
     let m = monthStart(from);
@@ -108,7 +108,6 @@ export async function PnlTab({ from, to }: { from: string; to: string }) {
       cogs: prev.cogs,
       shrinkage: prev.shrinkage,
       opex: prev.opex,
-      laborCost: prev.laborCost,
       netMarginPct: prev.netMarginPct,
     },
     cash,

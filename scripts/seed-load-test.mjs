@@ -10,8 +10,6 @@
  * engine sales get warranties; ~5% of sales use a suki card (0072).
  *
  * Deliberately simplified (documented, honest):
- *   • no payroll periods (P&L labor = 0) — payroll pages stay demo-able via
- *     the UI later; everything else is fully populated
  *   • no images (image_path null — placeholders render)
  *   • sequences untouched: literal ids use high ranges (OR-9…, GT9…, SC9…,
  *     serials LT3-…) so future RPC-minted values can never collide

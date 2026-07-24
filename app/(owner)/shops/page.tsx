@@ -55,10 +55,10 @@ async function ShopsBody() {
       .select("shop_id")
       .in("status", ["pending", "questioned"])
       .is("deleted_at", null),
-    // payroll staff (the actual people) — shown per shop card
+    // staff (the actual people) — managed + shown per shop card
     supabase
       .from("staff")
-      .select("id, full_name, shop_id, active, positions(title)")
+      .select("id, full_name, shop_id, active, birthday, image_path, notes")
       .is("deleted_at", null)
       .order("full_name"),
   ]);
@@ -112,7 +112,9 @@ async function ShopsBody() {
     full_name: s.full_name as string,
     shop_id: s.shop_id as string,
     active: s.active as boolean,
-    position: (s.positions?.title ?? null) as string | null,
+    birthday: (s.birthday ?? null) as string | null,
+    image_path: (s.image_path ?? null) as string | null,
+    notes: (s.notes ?? null) as string | null,
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 

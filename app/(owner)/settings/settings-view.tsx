@@ -4,13 +4,11 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 
-import type { ContributionBracketRow } from "@/lib/db-types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { BusinessSection } from "./business-section";
 import { AccountSection } from "./account-section";
 import { AlertsSection } from "./alerts-section";
-import { PayrollSection } from "./payroll-section";
 import { NotificationsSection } from "./notifications-section";
 import { SystemSection } from "./system-section";
 import type { CronJobHealth, NotificationChannelRow, SettingsRow } from "./types";
@@ -19,7 +17,6 @@ const TAB_VALUES = [
   "business",
   "account",
   "alerts",
-  "payroll",
   "notifications",
   "system",
 ] as const;
@@ -29,7 +26,6 @@ const TAB_LABEL: Record<TabValue, string> = {
   business: "Business",
   account: "Account",
   alerts: "Alerts",
-  payroll: "Payroll",
   notifications: "Notifications",
   system: "System",
 };
@@ -37,7 +33,6 @@ const TAB_LABEL: Record<TabValue, string> = {
 export function SettingsView({
   initialTab,
   settings,
-  brackets,
   channels,
   pendingCounts,
   account,
@@ -46,7 +41,6 @@ export function SettingsView({
 }: {
   initialTab?: string;
   settings: SettingsRow | null;
-  brackets: ContributionBracketRow[];
   channels: NotificationChannelRow[];
   pendingCounts: Record<string, number>;
   account: { email: string | null; lastSignInAt: string | null };
@@ -79,9 +73,8 @@ export function SettingsView({
         ))}
       </TabsList>
 
-      {/* One read failure, one honest message — rather than six sections each
-          rendering invented defaults. A guessed working-day count would quietly
-          mis-compute every contribution; a guessed business name would print. */}
+      {/* One read failure, one honest message — rather than each section
+          rendering invented defaults. A guessed business name would print. */}
       {!settings && tab !== "account" && tab !== "system" && (
         <Alert variant="destructive" className="mt-4">
           <AlertTriangle className="size-4" />
@@ -102,10 +95,6 @@ export function SettingsView({
 
       <TabsContent value="alerts" className="mt-4">
         {settings && <AlertsSection settings={settings} />}
-      </TabsContent>
-
-      <TabsContent value="payroll" className="mt-4">
-        {settings && <PayrollSection settings={settings} brackets={brackets} />}
       </TabsContent>
 
       <TabsContent value="notifications" className="mt-4">

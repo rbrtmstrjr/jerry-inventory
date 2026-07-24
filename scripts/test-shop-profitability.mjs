@@ -6,7 +6,7 @@
  *  - existing expenses keep their real shop attribution (NO phantom re-scoping)
  *  - scope filtering + reconciliation: company + ÃŽÂ£ shop = grand total
  *  - COGS frozen at approval Ã¢â‚¬â€ editing a part's cost does NOT rewrite history
- *  - Revenue Ã¢Ë†â€™ COGS = Gross Profit; Ã¢Ë†â€™ shop expenses Ã¢Ë†â€™ payroll = Net Contribution
+ *  - Revenue - COGS = Gross Profit; - shop expenses = Net Contribution
  *  - company overhead reported but NEVER allocated into a shop
  *  - approved sales only (recorded/pending never count as revenue)
  *  - supplier payments are COGS and never appear in expenses
@@ -251,57 +251,24 @@ await owner.from("expenses").insert([
   );
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ 7. Payroll for this shop Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-console.log("\nPayroll for this branch:");
-const PAYROLL = 3000; // Ã¢â€šÂ±30
-// Self-provisioned position — the DB can start empty (seeded positions are
-// gone since the fresh-start wipe). Positions kept their INSERT grant (only
-// the catalog tables were locked by 0049), so the owner client works.
-const { data: pos } = await owner
-  .from("positions")
-  .insert({ title: `PROFIT-TEST Helper ${RUN}` })
-  .select("id")
-  .single();
-const { data: staff } = await owner.from("staff").insert({
-  shop_id: shop.id, full_name: `PROFIT-TEST Helper ${RUN}`,
-  position_id: pos.id, pay_type: "daily", pay_rate: 1500,
-}).select().single();
-const { data: period } = await owner.from("pay_periods").insert({
-  label: `PROFIT-TEST period ${RUN}`, start_date: today, end_date: today,
-  frequency: "weekly",
-}).select().single();
-await owner.from("payroll_entries").insert({
-  pay_period_id: period.id, staff_id: staff.id, shop_id: shop.id,
-  days_worked: 2, gross_pay: PAYROLL, net_pay: PAYROLL,
-});
-{
-  const { data } = await owner
-    .from("payroll_entries")
-    .select("net_pay, pay_periods!inner(start_date, end_date, deleted_at)")
-    .eq("shop_id", shop.id)
-    .lte("pay_periods.start_date", today)
-    .gte("pay_periods.end_date", today)
-    .is("pay_periods.deleted_at", null);
-  const total = data.reduce((s, r) => s + r.net_pay, 0);
-  check(`shop payroll in range = ${P(PAYROLL)}`, total === PAYROLL, String(total));
-}
-
-// Ã¢â€â‚¬Ã¢â€â‚¬ 8. The profit chain (mirrors /shops/reports) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// -- 8. The profit chain (mirrors /shops/reports) --
+// Payroll was removed from the app, so labor is no longer a term:
+// net contribution = gross profit - shop expenses.
 console.log("\nProfitability chain for this shop:");
 const grossProfit = REVENUE - COGS;
-const netContribution = grossProfit - SHOP_EXPENSE - PAYROLL;
+const netContribution = grossProfit - SHOP_EXPENSE;
 check(
-  `Revenue ${P(REVENUE)} Ã¢Ë†â€™ COGS ${P(COGS)} = Gross ${P(grossProfit)}`,
+  `Revenue ${P(REVENUE)} - COGS ${P(COGS)} = Gross ${P(grossProfit)}`,
   grossProfit === 6000
 );
 check("gross margin = 60%", Math.round((grossProfit / REVENUE) * 1000) / 10 === 60);
 check(
-  `Gross ${P(grossProfit)} Ã¢Ë†â€™ shop exp ${P(SHOP_EXPENSE)} Ã¢Ë†â€™ payroll ${P(PAYROLL)} = Net ${P(netContribution)}`,
-  netContribution === 1000
+  `Gross ${P(grossProfit)} - shop exp ${P(SHOP_EXPENSE)} = Net ${P(netContribution)}`,
+  netContribution === 4000
 );
-check("net margin = 10%", Math.round((netContribution / REVENUE) * 1000) / 10 === 10);
+check("net margin = 40%", Math.round((netContribution / REVENUE) * 1000) / 10 === 40);
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ 9. Company overhead is reported, never allocated Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// -- 9. Company overhead is reported, never allocated --
 console.log("\nCompany overhead stays unallocated:");
 {
   const { data } = await owner
@@ -314,11 +281,11 @@ console.log("\nCompany overhead stays unallocated:");
   );
 }
 {
-  // ÃŽÂ£ shop net Ã¢Ë†â€™ company overhead = business net (overhead subtracted ONCE)
+  // Shop net - company overhead = business net (overhead subtracted ONCE)
   const businessNet = netContribution - COMPANY_EXPENSE;
   check(
-    `ÃŽÂ£ shop net ${P(netContribution)} Ã¢Ë†â€™ overhead ${P(COMPANY_EXPENSE)} = business net ${P(businessNet)}`,
-    businessNet === -4000
+    `Shop net ${P(netContribution)} - overhead ${P(COMPANY_EXPENSE)} = business net ${P(businessNet)}`,
+    businessNet === -1000
   );
 }
 
@@ -416,10 +383,6 @@ console.log("\nBoundaries:");
 console.log("\nCleanup:");
 {
   await owner.from("expenses").delete().like("description", `%${RUN}%`);
-  await owner.from("payroll_entries").delete().eq("shop_id", shop.id);
-  await owner.from("pay_periods").delete().eq("id", period.id);
-  await owner.from("staff").delete().eq("id", staff.id);
-  await owner.from("positions").delete().eq("id", pos.id);
   await owner.from("warranties").delete().eq("sale_id", saleId);
   // movements first, by BOTH part and shop Ã¢â‚¬â€ the master-side row has shop_id NULL
   await admin.from("stock_movements").delete().eq("part_id", part.id);

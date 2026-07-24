@@ -4,9 +4,9 @@ import * as React from "react";
 import Link from "next/link";
 import {
   Anchor,
-  ArrowRight,
   BarChart3,
   Boxes,
+  Cake,
   KeyRound,
   Loader2,
   MapPin,
@@ -19,8 +19,10 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { format } from "date-fns";
 import { toast } from "sonner";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,6 +57,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { DatePicker } from "@/components/date-picker";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   LocationPicker,
   MapPreview,
@@ -67,14 +72,16 @@ import {
   type ImageAction,
 } from "@/components/image-upload-field";
 import { createClient } from "@/lib/supabase/client";
-import { PRODUCT_IMAGE_BUCKET } from "@/lib/product-image";
+import { PRODUCT_IMAGE_BUCKET, productImageUrl } from "@/lib/product-image";
 import {
   closeShop,
   createEmployee,
   setShopLogo,
+  softDeleteStaff,
   updateEmployee,
   updateShopCredentials,
   upsertShop,
+  upsertStaff,
 } from "./actions";
 
 export interface ShopRow {
@@ -106,7 +113,9 @@ export interface StaffLite {
   full_name: string;
   shop_id: string;
   active: boolean;
-  position: string | null;
+  birthday: string | null;
+  image_path: string | null;
+  notes: string | null;
 }
 
 export function ShopsView({
@@ -141,6 +150,13 @@ export function ShopsView({
 
   const [credsFor, setCredsFor] = React.useState<EmployeeRow | null>(null);
   const [closing, setClosing] = React.useState<ShopRow | null>(null);
+
+  // slim staff manager (people, not app logins — powers birthday reminders)
+  const [staffEdit, setStaffEdit] = React.useState<{
+    staff: StaffLite | null;
+    shopId: string;
+  } | null>(null);
+  const [removingStaff, setRemovingStaff] = React.useState<StaffLite | null>(null);
 
   const [busy, setBusy] = React.useState(false);
 
@@ -401,22 +417,24 @@ export function ShopsView({
                 </div>
               )}
 
-              {/* The people working at this shop (payroll staff) */}
+              {/* The people who work at this shop (not app logins). Managed
+                  here since Payroll was removed; powers birthday reminders. */}
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Employees ({shopStaff.length})
                   </h4>
-                  <Button variant="ghost" size="xs" asChild>
-                    <Link href="/payroll/staff">
-                      Manage in Payroll <ArrowRight className="size-3.5" />
-                    </Link>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => setStaffEdit({ staff: null, shopId: shop.id })}
+                  >
+                    <Plus className="size-3.5" /> Add Employee
                   </Button>
                 </div>
                 {shopStaff.length === 0 ? (
                   <p className="rounded-md border border-dashed py-4 text-center text-sm text-muted-foreground">
-                    No employees yet — add the people who work here in Payroll
-                    → Staff.
+                    No employees yet — add the people who work here.
                   </p>
                 ) : (
                   <div className="grid gap-1.5 sm:grid-cols-2">
@@ -427,23 +445,64 @@ export function ShopsView({
                           !p.active ? "opacity-60" : ""
                         }`}
                       >
-                        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-secondary-foreground">
-                          {p.full_name
-                            .split(/\s+/)
-                            .map((w) => w[0])
-                            .slice(0, 2)
-                            .join("")
-                            .toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
+                        <Avatar className="size-7 shrink-0">
+                          <AvatarImage
+                            src={productImageUrl(p.image_path) ?? undefined}
+                            alt={p.full_name}
+                          />
+                          <AvatarFallback className="text-xs">
+                            {p.full_name
+                              .split(/\s+/)
+                              .map((w) => w[0])
+                              .slice(0, 2)
+                              .join("")
+                              .toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium">
                             {p.full_name}
                           </div>
-                          <div className="truncate text-xs text-muted-foreground">
-                            {p.position ?? "No position"}
+                          <div className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                            {p.birthday ? (
+                              <>
+                                <Cake className="size-3" />
+                                {format(new Date(p.birthday + "T00:00:00"), "MMM d")}
+                              </>
+                            ) : (
+                              "No birthday set"
+                            )}
                             {!p.active && " · inactive"}
                           </div>
                         </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-6 shrink-0"
+                              aria-label={`Actions for ${p.full_name}`}
+                            >
+                              <MoreHorizontal className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() =>
+                                setStaffEdit({ staff: p, shopId: p.shop_id })
+                              }
+                            >
+                              <Pencil className="size-4" /> Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => setRemovingStaff(p)}
+                            >
+                              <Trash2 className="size-4" /> Remove
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     ))}
                   </div>
@@ -674,6 +733,27 @@ export function ShopsView({
         }
         onClose={() => setClosing(null)}
       />
+
+      {/* Slim staff manager — people (not app logins); powers birthday reminders */}
+      <StaffDialog
+        edit={staffEdit}
+        shops={shops}
+        onClose={() => setStaffEdit(null)}
+      />
+      <ConfirmDialog
+        open={removingStaff !== null}
+        onOpenChange={(o) => !o && setRemovingStaff(null)}
+        title={`Remove ${removingStaff?.full_name}?`}
+        description="They disappear from lists and birthday reminders. This can't be undone here."
+        confirmLabel="Remove"
+        destructive
+        onConfirm={async () => {
+          if (!removingStaff) return;
+          const res = await softDeleteStaff(removingStaff.id);
+          if (res.ok) toast.success(`${removingStaff.full_name} removed`);
+          else toast.error(res.error);
+        }}
+      />
     </div>
   );
 }
@@ -807,8 +887,8 @@ function CloseShopDialog({
           fix: "… menu → Change Credentials → untick “Login enabled”",
         },
         staffCount > 0 && {
-          text: `${staffCount} employee(s) still on payroll here`,
-          fix: "Payroll → Staff — deactivate or reassign them",
+          text: `${staffCount} employee(s) still assigned here`,
+          fix: "the Employees list on this shop's card — deactivate or remove them",
         },
         shop.pending_count > 0 && {
           text: `${shop.pending_count} submission(s) awaiting approval`,
@@ -883,6 +963,166 @@ function CloseShopDialog({
               Got it
             </Button>
           )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Add/edit a shop's staff member — the people who work there, not app logins.
+ * Slim on purpose (payroll is gone): name, shop, birthday, photo, notes. The
+ * birthday is what powers the Dashboard/nav reminder. Photo rides the same
+ * public product-images pipeline as shop logos and staff photos always have.
+ */
+function StaffDialog({
+  edit,
+  shops,
+  onClose,
+}: {
+  edit: { staff: StaffLite | null; shopId: string } | null;
+  shops: ShopRow[];
+  onClose: () => void;
+}) {
+  const [name, setName] = React.useState("");
+  const [shopId, setShopId] = React.useState("");
+  const [birthday, setBirthday] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+  const [active, setActive] = React.useState(true);
+  const [photo, setPhoto] = React.useState<ImageAction>({ type: "keep" });
+  const [busy, setBusy] = React.useState(false);
+
+  const staff = edit?.staff ?? null;
+  React.useEffect(() => {
+    if (!edit) return;
+    setName(staff?.full_name ?? "");
+    setShopId(staff?.shop_id ?? edit.shopId);
+    setBirthday(staff?.birthday ?? "");
+    setNotes(staff?.notes ?? "");
+    setActive(staff?.active ?? true);
+    setPhoto({ type: "keep" });
+  }, [edit, staff]);
+
+  async function onSave() {
+    setBusy(true);
+    // Photo → public product-images bucket under a random name, uploaded before
+    // the upsert so it never depends on a not-yet-created staff id.
+    const supabase = createClient();
+    const oldPath = staff?.image_path ?? null;
+    let imagePath = oldPath;
+    if (photo.type === "set") {
+      const objectPath = `staff-photos/${crypto.randomUUID()}.webp`;
+      const { error } = await supabase.storage
+        .from(PRODUCT_IMAGE_BUCKET)
+        .upload(objectPath, photo.image.blob, {
+          contentType: "image/webp",
+          cacheControl: "31536000",
+        });
+      if (error) {
+        setBusy(false);
+        toast.error(`Photo upload failed: ${error.message}`);
+        return;
+      }
+      imagePath = objectPath;
+    } else if (photo.type === "remove") {
+      imagePath = null;
+    }
+
+    const res = await upsertStaff({
+      id: staff?.id,
+      full_name: name,
+      shop_id: shopId,
+      birthday: birthday || null,
+      notes: notes || null,
+      active,
+      image_path: imagePath,
+    });
+    setBusy(false);
+    if (res.ok) {
+      if (oldPath && oldPath !== imagePath) {
+        await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+      }
+      toast.success(staff ? "Employee updated" : "Employee added");
+      onClose();
+    } else toast.error(res.error);
+  }
+
+  return (
+    <Dialog open={edit !== null} onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent className="thin-scrollbar max-h-[92svh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{staff ? "Edit Employee" : "Add Employee"}</DialogTitle>
+          <DialogDescription>
+            The people who work at this shop. A birthday turns on the reminder
+            on the Dashboard and in the nav.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="staff-name">Full name</Label>
+            <Input
+              id="staff-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Juan Dela Cruz"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label>Photo (optional)</Label>
+            <ImageUploadField
+              currentPath={staff?.image_path ?? null}
+              action={photo}
+              onActionChange={setPhoto}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid min-w-0 gap-2">
+              <Label>Shop</Label>
+              <Select value={shopId} onValueChange={setShopId}>
+                <SelectTrigger className="w-full max-w-full [&>span]:truncate">
+                  <SelectValue placeholder="Pick a shop" />
+                </SelectTrigger>
+                <SelectContent>
+                  {shops.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Birthday</Label>
+              <DatePicker value={birthday} onChange={setBirthday} className="w-full" />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="staff-notes">Notes (optional)</Label>
+            <Textarea
+              id="staff-notes"
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+          {staff && (
+            <Label className="flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox
+                checked={active}
+                onCheckedChange={(v) => setActive(v === true)}
+              />
+              Active
+            </Label>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={busy || name.trim() === "" || !shopId}>
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            {staff ? "Save" : "Add employee"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

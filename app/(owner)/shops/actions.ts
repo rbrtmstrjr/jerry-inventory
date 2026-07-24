@@ -147,7 +147,7 @@ export async function closeShop(id: string): Promise<ActionResult> {
   if ((payrollStaffRes.count ?? 0) > 0) {
     return {
       ok: false,
-      error: `${payrollStaffRes.count} employee(s) still on payroll for this shop — deactivate or reassign them in Payroll → Staff.`,
+      error: `${payrollStaffRes.count} employee(s) still assigned to this shop — deactivate or remove them from the Employees list on the shop's card first.`,
     };
   }
   const pending = (salesRes.count ?? 0) + (lossesRes.count ?? 0);
@@ -368,5 +368,60 @@ export async function resetEmployeePassword(input: unknown): Promise<ActionResul
     password: parsed.data.password,
   });
   if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Staff — the people who work at a shop (NOT app logins). Slim since payroll
+// was removed: name, shop, birthday, photo, notes. The birthday drives the
+// Dashboard/nav reminder; the photo rides the public product-images bucket.
+// ---------------------------------------------------------------------------
+const staffSchema = z.object({
+  id: z.uuid().optional(),
+  full_name: z.string().trim().min(1, "Name is required"),
+  shop_id: z.uuid("Pick a shop"),
+  birthday: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+  active: z.boolean().default(true),
+  image_path: z.string().nullable(),
+});
+
+export async function upsertStaff(input: unknown): Promise<ActionResult> {
+  if (!(await requireOwnerAction())) {
+    return { ok: false, error: "Only the owner can manage staff" };
+  }
+  const parsed = staffSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const { id, ...fields } = parsed.data;
+  const row = { ...fields, notes: fields.notes || null };
+  const supabase = await createClient();
+  const { error } = id
+    ? await supabase.from("staff").update(row).eq("id", id)
+    : await supabase.from("staff").insert(row);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/shops");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/** Soft-delete — the record stays, it just leaves lists + birthday reminders. */
+export async function softDeleteStaff(id: string): Promise<ActionResult> {
+  if (!(await requireOwnerAction())) {
+    return { ok: false, error: "Only the owner can manage staff" };
+  }
+  if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid id" };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("staff")
+    .update({ deleted_at: new Date().toISOString(), active: false })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/shops");
+  revalidatePath("/dashboard");
   return { ok: true };
 }

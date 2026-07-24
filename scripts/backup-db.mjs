@@ -61,8 +61,7 @@ const CRITICAL = [
   "receivings", "receiving_lines", "supplier_payments",
   "deliveries", "delivery_lines", "returns", "return_lines",
   "warranties", "warranty_claims", "expenses", "discount_cards",
-  "pay_periods", "payroll_entries", "payroll_entry_contributions",
-  "contribution_brackets", "staff",
+  "staff", "positions",
 ];
 
 async function listRelations() {

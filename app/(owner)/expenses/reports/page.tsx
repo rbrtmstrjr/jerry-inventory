@@ -62,7 +62,7 @@ async function ExpenseReportsBody({
   // All three cross-module sums are paginated (fetchAll) — a date range wide
   // enough to matter outgrows the 1,000-row cap, which silently understated
   // every per-shop total on this report.
-  const [allExpenses, shopsRes, allSales, allLosses, payrollRes] = await Promise.all([
+  const [allExpenses, shopsRes, allSales, allLosses] = await Promise.all([
     fetchAll(buildExpenses, "id"),
     supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
     // cross-module (read-only): approved revenue in range, per shop
@@ -88,12 +88,6 @@ async function ExpenseReportsBody({
           .is("deleted_at", null),
       "id"
     ),
-    supabase
-      .from("payroll_entries")
-      .select("shop_id, net_pay, pay_periods!inner(start_date, end_date, deleted_at)")
-      .lte("pay_periods.start_date", to)
-      .gte("pay_periods.end_date", from)
-      .is("pay_periods.deleted_at", null),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -136,10 +130,6 @@ async function ExpenseReportsBody({
   for (const l of allLosses) {
     lossByShop.set(l.shop_id, (lossByShop.get(l.shop_id) ?? 0) + (l.value_centavos ?? 0));
   }
-  const payByShop = new Map<string, number>();
-  for (const p of payrollRes.data ?? []) {
-    payByShop.set(p.shop_id, (payByShop.get(p.shop_id) ?? 0) + (p.net_pay ?? 0));
-  }
 
   const shopNameById = new Map(shops.map((s) => [s.id, s.name]));
   const expByShopId = new Map<string, number>();
@@ -154,16 +144,14 @@ async function ExpenseReportsBody({
     .map((s) => {
       const revenue = revByShop.get(s.id) ?? 0;
       const opex = expByShopId.get(s.id) ?? 0;
-      const payroll = payByShop.get(s.id) ?? 0;
       const losses = lossByShop.get(s.id) ?? 0;
       return {
         shop: shopNameById.get(s.id) ?? "?",
         color_key: s.color_key ?? null,
         revenue,
         opex,
-        payroll,
         losses,
-        net: revenue - opex - payroll - losses,
+        net: revenue - opex - losses,
       };
     });
 

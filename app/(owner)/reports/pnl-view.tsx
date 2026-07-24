@@ -38,7 +38,6 @@ export interface PnlViewData {
     cogs: number;
     shrinkage: number;
     opex: number;
-    laborCost: number;
     netMarginPct: number;
   };
   cash: CashPosition;
@@ -183,13 +182,6 @@ export function PnlView({ data }: { data: PnlViewData }) {
       kind: "line",
       hint: "never allocated to a shop",
       href: "/expenses",
-    },
-    {
-      label: "Payroll",
-      value: -pnl.laborCost,
-      kind: "line",
-      hint: `incl. ${formatCentavos(pnl.payrollEr)} employer share`,
-      href: "/payroll/reports",
     },
     { label: "Net income", value: pnl.netIncome, kind: "total" },
   ];
@@ -490,8 +482,8 @@ export function PnlView({ data }: { data: PnlViewData }) {
             <CardHeader>
               <CardTitle className="text-base">Net income by month</CardTitle>
               <CardDescription>
-                Monthly, not daily: overhead and payroll arrive on periods, so a
-                daily line would be invented rather than measured.
+                Monthly, not daily: overhead arrives on periods, so a daily line
+                would be invented rather than measured.
                 {data.monthsTruncated && " Showing the first 12 months of the range."}
               </CardDescription>
             </CardHeader>
@@ -530,7 +522,6 @@ export function PnlView({ data }: { data: PnlViewData }) {
                   { name: "COGS", v: pnl.cogs },
                   { name: "Shrinkage", v: pnl.shrinkage },
                   { name: "Expenses", v: pnl.opex },
-                  { name: "Payroll", v: pnl.laborCost },
                 ]}
                 margin={{ left: 20 }}
               >
@@ -539,7 +530,7 @@ export function PnlView({ data }: { data: PnlViewData }) {
                 <YAxis type="category" dataKey="name" fontSize={12} width={70} />
                 <Tooltip content={<PesoTooltip />} cursor={{ fill: "var(--muted)" }} />
                 <Bar dataKey="v" name="Amount" radius={[0, 4, 4, 0]}>
-                  {["var(--chart-1)", "var(--chart-2)", "var(--chart-4)", "var(--chart-3)", "var(--chart-5)"].map(
+                  {["var(--chart-1)", "var(--chart-2)", "var(--chart-4)", "var(--chart-3)"].map(
                     (c, i) => (
                       <Cell key={i} fill={c} />
                     )

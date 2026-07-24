@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
-import type { ContributionBracketRow } from "@/lib/db-types";
 import { createClient } from "@/lib/supabase/server";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -30,8 +29,7 @@ export default async function SettingsPage({
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground">
           Business identity used on every printed document, your sign-in
-          credentials, alert thresholds, the payroll rate book, and a read-only
-          health check.
+          credentials, alert thresholds, and a read-only health check.
         </p>
       </div>
       <Suspense fallback={<SettingsSkeleton />}>
@@ -46,27 +44,11 @@ async function SettingsBody({ tab }: { tab?: string }) {
 
   const [
     { data: settings },
-    { data: brackets },
     { data: channels },
     { data: userRes },
     { data: cronHealth, error: cronErr },
   ] = await Promise.all([
     supabase.from("settings").select("*").eq("id", 1).single(),
-
-    // The whole rate book, live rows only. History is browsable in the UI by
-    // effective date, so superseded sets come along too.
-    supabase
-      .from("contribution_brackets")
-      .select(
-        `id, agency, effective_from, effective_to, salary_min_centavos, salary_max_centavos,
-         basis, credited_salary_centavos, ee_percent, er_percent, basis_floor_centavos,
-         basis_ceiling_centavos, er_extra_centavos, ee_amount_centavos, er_amount_centavos,
-         note, source_ref`
-      )
-      .is("deleted_at", null)
-      .order("agency")
-      .order("effective_from", { ascending: false })
-      .order("salary_min_centavos"),
 
     supabase.from("notification_channels").select("code, enabled").order("code"),
 
@@ -106,7 +88,6 @@ async function SettingsBody({ tab }: { tab?: string }) {
     <SettingsView
       initialTab={tab}
       settings={settings ?? null}
-      brackets={(brackets ?? []) as ContributionBracketRow[]}
       channels={channelRows}
       pendingCounts={pendingCounts}
       account={{
@@ -126,7 +107,7 @@ function SettingsSkeleton() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-2">
-        {Array.from({ length: 6 }).map((_, i) => (
+        {Array.from({ length: 5 }).map((_, i) => (
           <Skeleton key={i} className="h-9 w-24" />
         ))}
       </div>

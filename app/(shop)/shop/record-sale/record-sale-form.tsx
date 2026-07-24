@@ -68,10 +68,6 @@ const engineAgreed = (l: CartEngine) => parsePesosToCentavos(l.agreedRaw) ?? 0;
 const sukiPrice = (catalog: number, cost: number, pct: number) =>
   Math.max(Math.round((catalog * (100 - pct)) / 100), cost + 1);
 
-/** Card numbers are 'SC' + digits (distinct from GT product barcodes), so a
-    card scanned into the product field is recognisable. */
-const isCardNo = (code: string) => /^sc\d+$/i.test(code.trim());
-
 // How the customer paid — same four values as a shop expense's method.
 type PaymentMethod = "cash" | "gcash" | "bank" | "other";
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
@@ -381,12 +377,9 @@ export function RecordSaleForm({
     setScan("");
     if (!code) return;
 
-    // a suki card scanned into the product field still works
-    if (isCardNo(code)) {
-      void applySukiCard(code);
-      return;
-    }
-
+    // Suki cards are scanned into the dedicated Suki field below — printed
+    // externally now, they carry no fixed prefix, so the product scanner only
+    // resolves products here.
     const part = stock.find(
       (p) => p.barcode?.toLowerCase() === code.toLowerCase()
     );

@@ -49,8 +49,8 @@ someone who cannot sign in — `proxy.ts` lets `/auth/*` through unauthenticated
 (`client`, `server`, `proxy` middleware, `admin` service-role) and `lib/auth.ts`.
 
 ### Roles
-- **Owner** — one account; full control of inventory, deliveries, approvals, payroll, expenses, settings.
-- **Employee (shop)** — **one shared login per shop**. Records sales/losses and edits product photos for its own shop only. Helpers/cashiers are tracked as payroll *staff* records (people without app logins), separate from the shop login.
+- **Owner** — one account; full control of inventory, deliveries, approvals, expenses, settings.
+- **Employee (shop)** — **one shared login per shop**. Records sales/losses and edits product photos for its own shop only. Helpers/cashiers are tracked as *staff* records (people without app logins, managed under Shops & Employees — they carry a birthday for the reminder), separate from the shop login.
 
 ### Core data flow — the approval pipeline
 1. **Receive** stock into master inventory (owner).
@@ -75,9 +75,11 @@ Submission statuses: `recorded → pending → questioned → approved / rejecte
 
 ## Page Inventory (billable pages)
 
-**54 distinct screens/documents** on disk (plus the root redirect, the
+**~46 distinct screens/documents** on disk (plus the root redirect, the
 `/auth/callback` route handler, 5 page-level redirect stubs, and 1 next.config
-redirect — 60 `page.tsx` files total). `[id]`/`[entryId]`/`[saleId]` are
+redirect — ~52 `page.tsx` files total). The 7-page **Payroll** module was
+removed (0083) and the `suki-cards/[id]/print` page was retired (0082), which is
+why these are down from the historical 54/60. `[id]`/`[entryId]`/`[saleId]` are
 dynamic detail routes. "Print" pages are standalone print-optimized documents.
 
 **The sidebar reads like the business works** (IA reorg, 2026-07): OVERVIEW →
@@ -145,7 +147,7 @@ session is refused). Test fixtures seed catalog rows via the service role.
 ### Owner — Stock Alerts (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/stock-alerts` | Stock Alerts | Four tabs: Master low stock (→ buy from supplier) · All-shops low stock (→ deliver) · **Requests** (shops' stock requests, moved here from Deliveries — badge = open count; **Print request** → the ingoing receipt; **Convert to delivery** navigates to `/deliveries?request=<id>`, which auto-fills EVERY requested line (parts + engines) split two ways per section — **Available in master** (editable, qty capped to on-hand, with a "requested N, only M available" caption) on top, **No master stock** (disabled, informational — never enters the deliver payload) below; Deliver is disabled when nothing is available. The split is a pure `lib/request-fulfillment.ts#classifyRequestLines` (unit-tested); **Dismiss** with a reason) · Reorder levels + per-shop overrides. `?tab=requests` deep-links (delivery-request notifications point here) |
+| `/stock-alerts` | Stock Alerts | Four tabs: Master low stock (→ buy from supplier) · All-shops low stock (→ deliver) · **Requests** (shops' stock requests, moved here from Deliveries — badge = open count; **Print request** → the ingoing receipt; **Convert to delivery** navigates to `/deliveries?request=<id>`, which auto-fills EVERY requested line (parts + engines) split two ways per section — **Available in master** (editable, qty capped to on-hand, with a "requested N, only M available" caption) on top, **No master stock** (disabled, informational — never enters the deliver payload) below; Deliver is disabled when nothing is available. The split is a pure `lib/request-fulfillment.ts#classifyRequestLines` (unit-tested); a shop's **new/custom product** lines (0077, not in the catalog) show badged **"New product"** on the request card + receipt, and on Convert appear as an informational "create via Receiving first" block (never in the deliver payload); **Dismiss** with a reason) · Reorder levels + per-shop overrides. `?tab=requests` deep-links (delivery-request notifications point here) |
 | `/stock-alerts/request/[id]/receipt` | Stock Request Receipt | Printable **ingoing** (shop→admin) document — the full itemized list of a shop's requested stock (parts + engines, qty each) with signature lines, for the admin's records. Owner route (reads owner-only `parts`/`engine_models`). The outgoing counterpart is the Delivery Note |
 | `/stock-alerts/purchase-list` | Purchase List | Printable supplier order sheet, grouped by supplier, with suggested order qty. A **supplier dropdown** on the Stock Alerts → Master tab (beside the search, default "All suppliers") filters that list AND drives the Print link's `?supplier=<id>`, so the sheet narrows to one supplier (letterhead + sign-off intact) and each supplier gets its own order; "All" prints the combined sheet |
 
@@ -168,44 +170,32 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 | `/movements` | Movements | The `stock_movements` ledger as a **book**, three tabs (`?tab=`): **Journal** (every movement, filtered by location/type/product/actor/date/search, server-side paginated, each row deep-linked to its source document) · **Stock Card** (`?tab=ledger`) per product × location with Opening → running → Closing balance · **Engine History** (`?tab=engines`) scan-a-serial chain of custody |
 | `/movements/stock-card/print` | Stock Card | Printable bin card (params: `part`, `shop`, `from`, `to`) with the Settings letterhead + signature line |
 
-### Owner — Sales & Service (6)
+### Owner — Sales & Service (5)
 | Route | Page | Purpose |
 |-------|------|---------|
 | `/approvals` | Approval Queue | **(a)** Pending: review shop submission batches (sales + losses), one-click Approve-all + per-item actions, live updates. **(b)** Reviewed History: every decided sale/loss/utang payment, filterable (shop · type · status · date · search) with server-side pagination; click a row for a deep-linked slide-over detail (`?item=<type>:<id>`) |
 | `/receivables` | Receivables | All unpaid balances across shops — totals per shop/customer, filters, CSV export, per-sale payment history (incl. voided) |
 | `/warranties` | Warranties & Serials | Engine serial registry + warranty tracking across all shops; shop filter + selling-shop column; claims |
 | `/warranties/[id]/certificate` | Warranty Certificate | Printable warranty certificate |
-| `/suki-cards` | Suki Cards | Loyalty discount cards (0072): issue per customer (existing or inline-new), deactivate/reactivate, reissue (new `SC` number), per-card usage (uses + Σ program discount). Rates shown from the Settings dials |
-| `/suki-cards/[id]/print` | Suki Card (print) | The physical card — CR80 85.6×54 mm via a route-scoped `@page`, Code128 of the card no (shops' scanners read it), customer name + live terms. Print on cardstock, laminate |
+| `/suki-cards` | Suki Cards | Loyalty discount cards (0072; **0082**: the physical cards are printed by a **separate external system** — this page only **records** each card's barcode number against a customer, no minting/printing). Record per customer (existing or inline-new) with the owner-entered barcode number, deactivate/reactivate, **Replace with new card** (deactivate old + record the new printed number), per-card usage (uses + Σ program discount). Rates shown from the Settings dials |
 
 ### Owner — Shops & Employees (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/shops` | Shops & Employees | Purely operational since the IA reorg: manage shops (map pins, credentials, close-shop), 2-col cards. Per-branch profitability lives at `/reports?tab=shops`. Shop **color picker** (0050): palette swatches previewing the actual badge, taken colors disabled with the owning shop named, live preview; the shop's color drives its card tile, map pin, chart series, and every `<ShopBadge>` across the app. Shop **logo** (0057): optional per-branch image (reuses the product-image upload pipeline → `product-images` bucket) printed on that branch's receipts + warranty certificates in place of the anchor |
+| `/shops` | Shops & Employees | Purely operational since the IA reorg: manage shops (map pins, credentials, close-shop), 2-col cards. Per-branch profitability lives at `/reports?tab=shops`. Shop **color picker** (0050): palette swatches previewing the actual badge, taken colors disabled with the owning shop named, live preview; the shop's color drives its card tile, map pin, chart series, and every `<ShopBadge>` across the app. Shop **logo** (0057): optional per-branch image (reuses the product-image upload pipeline → `product-images` bucket) printed on that branch's receipts + warranty certificates in place of the anchor. **Staff manager** (0083, when Payroll was removed): each shop card lists its **employees** (the people, not app logins) with Add/Edit/Remove — a slim record (name · shop · birthday · photo · notes · active). The `staff` table stays because the birthday holds the Dashboard/nav **birthday reminder** (`staff_birthdays_today`, 0079); close-shop still blocks on active staff assigned here |
 | `/shops/[id]/stock` | Shop Stock | View a single shop's on-hand stock |
-
-### Owner — Payroll (6)
-| Route | Page | Purpose |
-|-------|------|---------|
-| `/payroll` | Run Payroll | Payroll dashboard / run a pay period |
-| `/payroll/[id]` | Pay Period | Detail of one pay period and its entries |
-| `/payroll/staff` | Staff | Manage staff records (people, not app logins) |
-| `/payroll/positions` | Positions | Job positions / rates |
-| `/payroll/advances` | Advances | Vale / cash-advance ledger (0071): give a vale, per-staffer outstanding balances, history + void. Deducted per-period on the pay-period detail |
-| `/payroll/reports` | Payroll Reports | Payroll summaries with export |
-| `/payroll/payslip/[entryId]` | Payslip | Printable individual payslip |
 
 ### Owner — Expenses (3)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/expenses` | Expenses | Operating-expense log with private receipt uploads |
+| `/expenses` | Expenses | Operating-expense log with private receipt uploads. Since Payroll was removed (0083) this is also where **wages** are recorded, if the owner wants them in the P&L — they flow into shop opex / company overhead like any operating cost. A **Print** button outputs a letterheaded report of exactly the **currently-filtered** rows (a filtered view prints filtered, all matching rows unpaginated) with the active-filter line + approved-only totals; isolated via a route-scoped `@media print` so only the sheet prints |
 | `/expenses/categories` | Expense Categories | Manage expense categories |
 | `/expenses/reports` | Expense Reports | Expense summaries with export |
 
 ### Owner — Administration (1)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/settings` | Settings | Six sections (`?tab=`): **Business** (identity printed on all six documents + defaults) · **Account** (change password/email behind a current-password re-auth gate, reset email) · **Alerts** (`warranty_expiry_alert_days`, `supplier_limit_warn_pct`, `quote_stale_days`) · **Payroll** (working days, semi-monthly split, the contribution rate book) · **Notifications** (channel status, read-only) · **System** (pg_cron health, connection badges — no secrets) |
+| `/settings` | Settings | Five sections (`?tab=`): **Business** (identity printed on all six documents + defaults) · **Account** (change password/email behind a current-password re-auth gate, reset email) · **Alerts** (`warranty_expiry_alert_days`, `supplier_limit_warn_pct`, `quote_stale_days`, suki rates) · **Notifications** (channel status, read-only) · **System** (pg_cron health, connection badges — no secrets). The Payroll section (working days, semi-monthly split, contribution rate book) was removed with Payroll (0083) |
 
 ### Shop / Employee (10)
 | Route | Page | Purpose |
@@ -215,7 +205,7 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 | `/shop/warranties/[id]/certificate` | Warranty Certificate | Same document as the owner's, reprintable; ownership re-checked server-side |
 | `/shop/warranty-preview/[saleId]` | Warranty Certificate (point-of-sale) | 0055: the **customer's** warranty copy, printable the moment an engine sale is recorded — **before** Admin approval (the official warranty row only exists post-approval). One full-page certificate per engine on the sale, rendered by the guarded definer `fn_shop_warranty_preview` (terms via engine → model → settings fallback, `sold_on` = sale date). NOT thermal — a separate coupon-printer document. Never auto-prints (only the thermal receipt does); reached from the Submissions row. 404s for a cancelled sale, so it voids with the receipt |
 | `/shop/deliveries` | Incoming Deliveries | Count + confirm what actually arrived (no reject/return — a shortfall goes to Admin); history |
-| `/shop/low-stock` | Low Stock | This shop's items at/below their effective threshold → Request delivery from Admin; own request history |
+| `/shop/low-stock` | Low Stock | This shop's items at/below their effective threshold → Request delivery from Admin; own request history. Can also add **new/custom products the shop doesn't carry** (a customer asked for something not in the catalog) to the SAME request (0077) — free-text lines that Admin sees badged "New product" and creates via Receiving before delivering. The request form now shows even when nothing is low, so a new-product request can go out anytime |
 | `/shop/record-sale` | Record Sale | Scan/browse cart, cash/change helper; since 0053 EVERY line (part + engine) shows its own-shop **cost** (read-only, the tawad floor) and an editable selling price defaulting to catalog — server rejects any price at/below cost; partial payment (customer required); a **payment-method** picker (cash/gcash/bank/other, 0061 — the change helper shows only for cash) saved on the sale; saves as `recorded`. A **"Print receipt on save"** checkbox (default ON, sticky per-browser via `localStorage jm-sale-autoprint`) prints the 58mm receipt **in-place** on save — an off-screen iframe loads `/receipt/[id]` and fires its own print dialog, so the cashier never leaves the page (with a kiosk-printing default printer it prints with no dialog). Unchecked = no auto-print; reprint any sale from its Submissions row |
 | `/shop/record-loss` | Record Loss | Reason-tagged write-off request; saves as `recorded` |
 | `/shop/receivables` | Receivables (Utang) | This shop's outstanding balances + Record Payment (posts immediately) + payment history with void |
@@ -230,16 +220,18 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 | `/transfer/[id]/slip` | Stock Transfer Slip | Printable slip that travels with a shop-to-shop transfer (0054), signed on both ends. Party-scoped via `transfer_slip` — readable by owner, source, and destination; a non-party gets `notFound()`. Shows From → To, lines (+ engine serials), and received qty + shortfall after confirmation. |
 | `/return/[id]/slip` | Return Slip | Printable slip that travels with a shop→master return (0066), signed on both ends. Party-scoped via `return_slip` — readable by owner + the returning shop only; a non-party (or anon) gets `notFound()`. Shows Returned by → Admin/Master, lines split **Good / Damaged** (+ engine serials), reason, status, and the Admin note when rejected. "Print slip" sits on every return card (shop side, from `requested` onward; owner side, on each pending request). No cost columns. |
 
-**Feature summary for billing:** ~15 functional modules — Auth (+ password
+**Feature summary for billing:** ~14 functional modules — Auth (+ password
 recovery), Dashboard, Reports (+ consolidated P&L / Net Income), Master
 Inventory (+Receiving as the single stock entry point/Labels/Suppliers), Deliveries & Returns, Monthly
 Count, Movements (journal · stock card · engine chain of custody), Approval
-Queue, Warranties, Shops & Employees, Payroll, Expenses, Receivables/Utang,
+Queue, Warranties, Shops & Employees (incl. the slim staff/birthday manager),
+Expenses, Receivables/Utang,
 Stock Alerts (+ Delivery Requests, a tab on Deliveries), Suppliers (directory ·
 payables · price comparison with provenance-labelled quotes),
-Settings (6 sections incl. credential change + system health), and the 7-page
-Shop app (incl. shop-recorded expenses riding the approval batch). Plus 7 printable documents (delivery note, count sheet, warranty
-certificate, payslip, sale receipt, supplier purchase list, stock card) and
+Settings (5 sections incl. credential change + system health), and the 7-page
+Shop app (incl. shop-recorded expenses riding the approval batch). Payroll was
+**removed (0083)** — the client runs it externally. Plus 6 printable documents (delivery note, count sheet, warranty
+certificate, sale receipt, supplier purchase list, stock card) and
 cross-cutting systems (image pipeline, maps, barcodes, realtime approvals,
 unified negotiable pricing (one selling price per product, editable at sale,
 server-floored strictly above the shop-visible cost) + partial payment, a
@@ -255,56 +247,12 @@ the Expenses module (fuel/labour/rent) — double-counting there would overstate
 expenses and understate margin. `test-supplier-payables.mjs` asserts supplier
 payments never appear in `expenses`.
 
-### Government contributions — rates are DATA, never code
-SSS · PhilHealth · Pag-IBIG. The employee share is withheld automatically
-(`net_pay = gross_pay − Σ employee shares`, and **nothing else** — no tax, loans,
-advances, overtime or 13th month). The employer share is an employer cost and
-**never** reduces net.
-
-**Never hardcode a rate, bracket, MSC, floor or ceiling.** They live in
-`contribution_brackets`, effective-dated and owner-editable from Settings, so a
-new circular is a data edit rather than a redeploy. `test-payroll-contributions.mjs`
-greps app code for rate literals and fails if one appears.
-
-Three shapes, because the agencies genuinely differ:
-- **SSS** is a bracket→**MSC lookup**, not a percent of pay: the 5%/10% apply to
-  `credited_salary_centavos`, so a raise inside a bracket changes nothing.
-  `er_extra_centavos` carries the employer-only EC. 61 brackets; the seed
-  self-checks against the published anchors and fails the migration if it drifts.
-- **PhilHealth / Pag-IBIG** are `percent_of_salary` with the basis clamped to
-  `basis_floor_centavos`/`basis_ceiling_centavos` first (PhilHealth's floor and
-  ceiling; Pag-IBIG's Maximum Fund Salary).
-- `fixed` exists for a future circular that is neither.
-
-An exclusion constraint (`contribution_brackets_no_overlap`) means an
-agency+date+salary resolves to **exactly one** row — ambiguity is impossible by
-construction, not by convention.
-
-**The basis is the RATE, never days worked** (a daily rate is monthly-ised via
-`settings.payroll_working_days_per_month`), so a deduction doesn't swing with
-attendance. But you cannot withhold from pay that isn't there: gross 0 → no
-contributions (also the normal draft state of a daily staffer), and gross below
-the total employee share **raises** rather than silently zeroing someone's pay or
-under-remitting. Weekly periods carry no contributions — a contribution is a
-monthly obligation and no agency defines a weekly split.
-
-`payroll_entry_contributions` is a **frozen snapshot** (amounts + the bracket
-used): editing a rate next year must never rewrite last year's payslip. Same
-principle as stored tier prices and `sale_line_costs`.
-
-Rounding: percents round **half up** to whole centavos; a semi-monthly
-`half_each` split gives the 1st cutoff `floor(total/2)` and the 2nd the
-remainder, so the halves always sum to the monthly obligation exactly — the
-remittance must tie out to the agency's figure.
-
-Seeds were verified against official sources in July 2026 (SSS Cir-2024-006 ·
-RA 11223 · HDMF Circular 460) and are a starting point, not certification.
-
 ### Per-shop profitability — what is and isn't a shop's cost
 `Revenue (approved sales only) − COGS = Gross Profit`, then
-`− shop expenses (scope='shop') − shop payroll = Net Contribution`.
+`− shop expenses (scope='shop') = Net Contribution`.
 `Σ shop net − company overhead = business net` **contribution — which is not net
-income.** See the identity below.
+income.** See the identity below. (There is no separate labor term since Payroll
+was removed (0083); wages, if tracked, are shop expenses and land in opex.)
 
 **One implementation: `lib/pnl.ts`.** `/reports?tab=shops` and `/reports?tab=pnl` are
 the same numbers from two directions, so they compute them in one place and
@@ -339,10 +287,9 @@ Three rules hold this together:
 - **Losses and transit write-offs stay out of the profit chain.** They're stock
   that never sold, not the cost of what did; the three-way separation
   (transit write-off · shop loss · return) is preserved and shown as context.
-- **Labor cost is gross + employer contributions**, not `net_pay`. Net is what
-  the staffer took home; the employee share it excludes was still the shop's
-  money (it went to the agency, not the pocket), and the employer share is a
-  further cost on top of gross. Subtracting net understates every shop.
+- **Labor is not a line here** (Payroll removed, 0083). Wages, if the owner
+  records them, ride the **Expenses** module (shop opex / company overhead) like
+  any operating cost — there is no dedicated labor term in `lib/pnl.ts`.
 - **Closed shops still count.** the per-shop report (now /reports?tab=shops) must NOT filter shops to
   `deleted_at is null` — a branch that shut mid-period still sold and still cost
   money in that period, and dropping it understates business net (Roxas Branch
@@ -490,9 +437,12 @@ we owe suppliers), `stock_movements` (append-only ledger).
 
 **Counts:** `count_snapshots`(+`count_snapshot_lines`).
 
-**Payroll:** `positions`, `staff` (+ gov IDs, `contributions_enabled`),
-`pay_periods`, `payroll_entries`, `contribution_brackets` (the rate book),
-`payroll_entry_contributions` (frozen per-entry snapshot).
+**Staff (payroll removed, 0083):** `staff` (people who work at a shop — managed
+from Shops & Employees; the birthday drives the `staff_birthdays_today` reminder,
+0079) and `positions` remain (dormant). The whole payroll surface — `pay_periods`,
+`payroll_entries`, `payroll_entry_contributions`, `contribution_brackets`,
+`staff_advances`, all 14 `fn_*` payroll RPCs + the two `settings` payroll dials —
+was **dropped by 0083** (payroll is run outside the app now).
 
 **Expenses:** `expense_categories` (+`status` `active`|`proposed` +
 `proposed_by_shop_id` since 0051 — shop-proposed categories activate only on
@@ -511,8 +461,9 @@ invisible to them. Receipts: shops write/read the private bucket only under
 **COGS:** `sale_line_costs` — unit/line cost frozen at approval, **owner-only**.
 
 **Stock alerts:** `shop_reorder_levels` (per-shop threshold overrides),
-`delivery_requests`(+`delivery_request_lines`), `notifications`,
-`notification_channels`, `notification_dispatches`.
+`delivery_requests`(+`delivery_request_lines`, +`custom_name` since 0077 — a
+line is exactly one of part / engine model / free-text custom product),
+`notifications`, `notification_channels`, `notification_dispatches`.
 
 **Reviewed history:** `reviewed_items` — an owner-only view unioning reviewed
 sales + losses + utang payments into one filterable/paginatable list (common
@@ -919,6 +870,59 @@ input flags above-max), customer auto-filled + locked, Clear reverts to
 catalog. Receipt prints "Suki card discount −₱X"; Approval Queue + reviewed
 detail show the card no + program discount. `test-discount-cards.mjs` — the
 suite REFUSES to run (exit 2) until 0072 is applied).
+**SUPERSEDED by `0082` — external card printing:** Gerwin now generates + prints
+the physical cards in a SEPARATE system, so this app stopped minting numbers and
+printing cards. `fn_create_discount_card` takes an owner-entered `p_card_no`
+(upper+trimmed, unique across cards) instead of `SC`+seq; the `SC` prefix is
+gone, so the Record-Sale product scanner no longer auto-routes card codes —
+a card is applied ONLY via the dedicated **Suki field** (any barcode format).
+The `/suki-cards/[id]/print` page + its JSBarcode component were REMOVED, and
+the `Reissue` action became **Replace with new card** (deactivate old + record
+the new printed number). `discount_card_seq` stays (unused); everything else
+above — lookup, the server-side price clamp, RLS, P&L neutrality — is unchanged.
+`test-discount-cards.mjs` now also requires 0082 (exit 2 until applied).
+
+**Later migrations (feature add-ons; numbering interleaves with other work
+streams):** `0077` **custom delivery-request lines** (a shop can request a
+product it doesn't carry — a customer asked for something not in the catalog —
+in the SAME request as its low-stock items. `delivery_request_lines` gains
+`custom_name`; the identity CHECK widens so a line is EXACTLY ONE of
+part / engine model / free-text custom. `fn_create_delivery_request` accepts a
+`custom_name` per line — same signature, still employee-only. It NEVER mints a
+catalog row: the 0049 lockdown stands, Admin creates the product via Receiving.
+Admin sees custom lines badged "New product" on the request card + receipt, and
+on Convert as an informational block (they can't be delivered until created).
+`test-stock-alerts` extended) · `0078` **editable government contributions**
+(probationary override — a new hire on 6-month probation is often not yet
+remitted. `payroll_entries.contribution_override jsonb` ({agency: centavos}
+employee-share override; NULL = computed). `fn_apply_entry_contributions`
+rewritten to apply it AFTER the book amount (employer share stays computed), so
+the override survives a later "Save days"; `fn_save_entry_contributions`
+(owner-only, enrolled + unpaid + unlocked only) sets the three amounts and
+recomputes net = gross − Σee − vale. `test-payroll-contributions` extended) ·
+`0080` **per-run "deduct benefits?" choice** (Gerry pays twice a month but
+withholds SSS/PhilHealth/Pag-IBIG ONCE a month — the deduction is a MONTHLY
+obligation. `pay_periods.deduct_contributions bool` (NULL = legacy date/split
+logic, so every existing period is untouched; true = this run withholds the FULL
+monthly amount, no ÷2 split; false = withholds nothing).
+`fn_create_pay_period` gains `p_deduct_contributions`; `fn_apply_entry_
+contributions` honors it. The New Pay Period dialog shows the toggle for
+semi-monthly only, defaulting on for the month-end run. `test-payroll-
+contributions` extended). A cross-cutting UI add-on: a global **back-to-top**
+button (`components/shell/scroll-to-top.tsx`) mounted once in the app shell —
+watches the shell's inner scroll container (the root is `h-svh overflow-hidden`,
+so the window never scrolls), shows past ~400px, `print:hidden`, respects
+reduced-motion. · `0083` **Payroll removed** (client runs it externally). Drops
+`pay_periods`, `payroll_entries`, `payroll_entry_contributions`,
+`contribution_brackets`, `staff_advances`, the `staff_advance_balances` view, all
+14 payroll RPCs (superseding the 0012/0039–0042/0071/0078/0080 payroll work) and
+the two `settings` payroll dials; redefines `fn_pnl_facts` (0075) to drop the
+payroll CTEs + `payroll_gross`/`payroll_er` outputs. **Kept:** `staff` +
+`positions` (dormant) and the whole `staff_birthdays_today` reminder (0079) —
+staff are now managed from **Shops & Employees** (a slim name/shop/birthday/photo
+manager). Labor stops being a P&L line; wages ride the Expenses module. The
+7-page Payroll module, the Settings Payroll tab + rate book, and the `payroll*`
+suites are gone; `pnl`/`shop-profitability` lose their labor assertions.
 
 ### Cost visibility — narrowed, not opened (0053)
 "Cost is owner-only" (the discipline behind 0038 and the safe views) was
@@ -959,10 +963,9 @@ a survivor so pricing/comparison roll up. Resolution is always
 01:00 UTC = 09:00 PH), `fn_supplier_outstanding`, `fn_supplier_limit_check`,
 `fn_receiving_balance`, `fn_record_supplier_payment`,
 `fn_check_supplier_limit_alerts`, `fn_check_supplier_overdue` (daily via
-pg_cron `supplier-overdue-daily`, 01:15 UTC), `fn_contribution_basis`,
-`fn_resolve_contribution`, `fn_apply_entry_contributions`, `fn_remittance_totals`,
+pg_cron `supplier-overdue-daily`, 01:15 UTC),
 `fn_cron_job_health`, `fn_stock_card`, `fn_shop_warranty_preview`,
-plus count + payroll functions.
+plus count functions. (All 14 payroll/contribution RPCs were dropped by 0083.)
 
 **Read-only by contract:** `fn_cron_job_health`, `fn_stock_card` and
 `fn_shop_warranty_preview` write nothing — they are `SECURITY DEFINER` only
@@ -1011,8 +1014,7 @@ app/
                            + stock-card/print (print)
     approvals/
     warranties/            + [id]/certificate (print)
-    shops/                 + [id]/stock/ reports/
-    payroll/               + [id]/ staff/ positions/ reports/ payslip/[entryId] (print)
+    shops/                 + [id]/stock/ reports/  (also the slim staff/birthday manager since 0083)
     expenses/              + categories/ reports/
   (shop)/shop/             Employee route group
     record-sale/ record-loss/ submissions/
@@ -1160,18 +1162,19 @@ with cost+1 cap, client price clamped to the card price, inactive card dead,
 card-less sale unchanged; refuses to run until 0072 is applied),
 pricing (0053: unified single price,
 sale floor = cost strictly-greater for parts + engines, cost visible read-only
-to the shop, no tiers remain), stock-alerts,
+to the shop, no tiers remain), stock-alerts (+0077: custom/new-product request
+line stored with no catalog id; a line with no product at all is refused),
 shop-colors (0050: CHECK, live-unique, release-on-close, RLS),
 shop-expenses (0051: RPC forces own-shop, only-approval-counts, category
 propose/remap, receipts path isolation, reviewed history),
 part-merge (0052: owner-only, refuses stock/transit/open-lines, audit, no
 ledger write, invariant intact, one-hop, comparison rollup),
-reviewed-history, supplier-payables, shop-profitability, expenses, payroll,
-payroll-contributions, payroll-vale (0071: record advance→balance, deduct
-installment, cap to balance, cap to net + carry, void + refusal, no-advance,
-paid-immutable, authority), images, shop-images, admin, close-shop, reports,
-settings, settings-documents (HTTP), pnl, movements, supplier-comparison,
-ia-redirects (HTTP).
+reviewed-history, supplier-payables, shop-profitability (0083: net contribution =
+gross − shop opex, no labor term), expenses, images, shop-images, admin,
+close-shop, reports, settings, settings-documents (HTTP), pnl (0083: no labor
+term; net = gross profit − shrinkage − opex − overhead), movements,
+supplier-comparison, ia-redirects (HTTP). (The `payroll`, `payroll-contributions`
+and `payroll-vale` suites were deleted with Payroll, 0083.)
 
 **`test-pnl` imports `lib/pnl.ts` directly** rather than scraping the rendered
 page or re-deriving the arithmetic — a test that reimplements the math proves
@@ -1182,7 +1185,7 @@ session every query SUCCEEDS and just returns less, yielding a confident
 net income made entirely of revenue).
 
 Suites that edit the live `settings` row (`test-settings`,
-`test-settings-documents`, `test-payroll-contributions`) capture it and restore
+`test-settings-documents`) capture it and restore
 in a **try/finally** — `process.on("exit")` cannot await, so an async restore
 never lands. They also refuse to start if they find `ZZ-TEST` already in the
 row: capturing polluted data as the "original" restores the pollution and

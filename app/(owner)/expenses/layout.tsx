@@ -20,8 +20,8 @@ export default function ExpensesLayout({
         </h1>
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <Info className="size-3.5" />
-          Fuel, pakyaw, utilities, rent, misc — NOT stock purchases (Receiving),
-          wages (Payroll), or nasira (Losses).
+          Fuel, pakyaw, wages, utilities, rent, misc — NOT stock purchases
+          (Receiving) or nasira (Losses).
         </p>
       </div>
       <SectionTabs tabs={tabs} />

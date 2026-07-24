@@ -149,7 +149,7 @@ export async function ShopsTab({
       (r) =>
         !r.closed ||
         r.revenue !== 0 || r.cogs !== 0 || r.opex !== 0 ||
-        r.payroll_gross !== 0 || r.payroll_er !== 0 || r.losses !== 0 ||
+        r.losses !== 0 ||
         r.stock_value !== 0 || r.delivered_units !== 0 ||
         r.returned_units !== 0 || r.pending !== 0
     );
@@ -227,8 +227,6 @@ export async function ShopsTab({
       // P&L (/reports?tab=pnl) subtracts shrinkage from exactly this figure to
       // reach net income; the two reconcile by construction.
       businessNet: shopNetTotal - pnl.companyOverhead,
-      laborCost: sum("labor_cost"),
-      employerShare: sum("payroll_er"),
       losses: sum("losses"),
       stockValue: sum("stock_value"),
       deliveredUnits: sum("delivered_units"),

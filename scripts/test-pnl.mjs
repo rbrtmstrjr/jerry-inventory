@@ -167,27 +167,12 @@ const cashBefore = await computeCashPosition(owner, RANGE);
   check("1 part written off in transit", !error, error?.message);
 }
 
-// ── expenses + payroll ─────────────────────────────────────────────────────
+// ── expenses (payroll was removed; labor is no longer a P&L line) ───────────
 const cat = await seedExpenseCategory({ label: "PnL Cat" });
 await owner.from("expenses").insert({
   category_id: cat.id, scope: "shop", shop_id: shop.id,
   amount: EXP_SHOP, description: `ZZ-TEST shop expense ${RUN}`, expense_date: today,
 });
-
-let periodId = null;
-{
-  const { data: staff } = await owner.from("staff").insert({
-    shop_id: shop.id, full_name: `ZZ-TEST Mechanic ${RUN}`,
-    pay_type: "monthly", pay_rate: 2_000_000, contributions_enabled: true,
-  }).select().single();
-  check("staff seeded", !!staff);
-
-  const { data: pid, error } = await owner.rpc("fn_create_pay_period", {
-    p_label: `ZZ-TEST ${RUN}`, p_start: today, p_end: today, p_frequency: "monthly",
-  });
-  check("pay period created", !error && !!pid, error?.message);
-  periodId = pid;
-}
 
 // ===========================================================================
 const pnl = await computePnl(owner, RANGE);
@@ -282,32 +267,15 @@ section("A return is not a loss");
   );
 }
 
-// ── 5. Payroll = gross + employer share ──────────────────────────────────
-section("Payroll costs gross + the employer's share");
+// ── 5. Net contribution excludes labor (payroll removed) ──────────────────
+section("Net contribution = gross profit − shop opex (no labor line)");
 {
-  const { data: entries } = await owner
-    .from("payroll_entries")
-    .select("gross_pay, net_pay, payroll_entry_contributions(er_amount_centavos)")
-    .eq("shop_id", shop.id).eq("pay_period_id", periodId);
-  const gross = (entries ?? []).reduce((s, e) => s + e.gross_pay, 0);
-  const er = (entries ?? []).reduce(
-    (s, e) => s + (e.payroll_entry_contributions ?? []).reduce((t, c) => t + c.er_amount_centavos, 0),
-    0
-  );
-  const net = (entries ?? []).reduce((s, e) => s + e.net_pay, 0);
-
-  check("the employer share is non-zero (so this test can tell)", er > 0, `got ${er}`);
-  check("net pay is genuinely below gross", net < gross, `net ${net} vs gross ${gross}`);
   check(
-    `labor cost = gross + employer share = ${P(gross + er)}`,
-    mine?.labor_cost === gross + er,
-    `got ${mine?.labor_cost}`
+    `net contribution = gross ${P(mine?.gross_profit)} − opex ${P(mine?.opex)}`,
+    mine?.net_contribution === (mine?.gross_profit ?? 0) - (mine?.opex ?? 0),
+    `got ${mine?.net_contribution}`
   );
-  check(
-    "labor cost is NOT net pay — that would understate the shop",
-    mine?.labor_cost !== net
-  );
-  check("employer share reported separately", mine?.payroll_er === er);
+  check("shop opex is the seeded shop expense", mine?.opex === EXP_SHOP, `got ${mine?.opex}`);
 }
 
 // ── 6. THE IDENTITY ──────────────────────────────────────────────────────
@@ -320,9 +288,8 @@ section("Reconciliation");
     `${pnl.shopNetTotal} − ${pnl.companyOverhead} − ${pnl.shrinkage} ≠ ${pnl.netIncome}`
   );
   check(
-    "net income also equals gross profit − shrinkage − opex − payroll",
-    pnl.grossProfit - pnl.shrinkage - pnl.shopOpex - pnl.companyOverhead - pnl.laborCost ===
-      pnl.netIncome
+    "net income also equals gross profit − shrinkage − opex",
+    pnl.grossProfit - pnl.shrinkage - pnl.shopOpex - pnl.companyOverhead === pnl.netIncome
   );
   check(
     "gross profit = revenue − COGS",
@@ -330,7 +297,7 @@ section("Reconciliation");
   );
   check(
     "company overhead is never allocated into a shop",
-    pnl.perShop.every((r) => r.net_contribution === r.gross_profit - r.opex - r.labor_cost)
+    pnl.perShop.every((r) => r.net_contribution === r.gross_profit - r.opex)
   );
   // The spec's identity, shown to be short by exactly the shrinkage.
   check(
@@ -351,7 +318,7 @@ section("/reports P&L and /shops/reports cannot disagree");
   const unscoped = pnl.perShop.find((r) => r.shop_id === shop.id);
   for (const k of [
     "revenue", "cogs", "gross_profit", "gross_margin_pct", "losses", "opex",
-    "payroll_gross", "payroll_er", "labor_cost", "net_contribution", "net_margin_pct",
+    "net_contribution", "net_margin_pct",
   ]) {
     check(`${k} identical scoped vs consolidated`, scoped?.[k] === unscoped?.[k],
       `${scoped?.[k]} vs ${unscoped?.[k]}`);
@@ -499,7 +466,7 @@ section("No shop-side access");
     (ownSales ?? []).length > 0
   );
 
-  for (const t of ["sale_line_costs", "payroll_entries", "stock_movements"]) {
+  for (const t of ["sale_line_costs", "stock_movements"]) {
     const { data } = await emp.from(t).select("*").limit(3);
     check(`employee reads nothing from ${t}`, (data ?? []).length === 0, `got ${data?.length}`);
   }
@@ -523,6 +490,5 @@ section("No shop-side access");
 }
 
 section("Cleanup");
-await admin.from("pay_periods").delete().eq("id", periodId);
 await cleanup();
 summary();

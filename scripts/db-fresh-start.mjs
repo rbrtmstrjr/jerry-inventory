@@ -6,7 +6,6 @@
  *   • the admin auth user + profile (robertmaestro09@gmail.com)
  *   • settings (business identity + operating dials)
  *   • product_categories (reference data — firstCategoryId() and pickers need one)
- *   • contribution_brackets (the SSS/PhilHealth/Pag-IBIG rate book — DATA, not sample)
  *   • notification_channels (channel config; in_app enabled, sms disabled)
  *
  * DELETES everything else, FK-safe order, plus all non-admin auth users and
@@ -71,16 +70,12 @@ const WIPE_ORDER = [
   "discount_cards", // 0072: FK customers → before customers (sales already gone)
   "customers",
   "suppliers",
-  "payroll_entry_contributions",
-  "staff_advances", // 0071: FK staff → before staff
-  "payroll_entries",
-  "pay_periods",
-  "staff",
+  "staff", // payroll removed (0083); staff stays for birthday reminders
   "positions",
   // profiles + shops handled separately (admin profile survives)
 ];
 
-const KEEP = ["settings", "product_categories", "contribution_brackets", "notification_channels"];
+const KEEP = ["settings", "product_categories", "notification_channels"];
 
 async function fetchAll(table) {
   const rows = [];

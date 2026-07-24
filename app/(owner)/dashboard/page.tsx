@@ -360,10 +360,6 @@ async function PnlCard({
                 <dt>Shrinkage</dt>
                 <dd className="tabular-nums">−{formatCentavos(pnl.shrinkage)}</dd>
               </div>
-              <div className="flex items-center justify-between text-muted-foreground">
-                <dt>Payroll</dt>
-                <dd className="tabular-nums">−{formatCentavos(pnl.laborCost)}</dd>
-              </div>
             </dl>
           </>
         ) : (

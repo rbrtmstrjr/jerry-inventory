@@ -868,8 +868,8 @@ function ExpenseDialog({
         <DialogHeader>
           <DialogTitle>{expense ? "Edit Expense" : "Record Expense"}</DialogTitle>
           <DialogDescription>
-            Operating costs only — stock purchases belong in Receiving, wages in
-            Payroll.
+            Operating costs — fuel, wages, utilities, rent, misc. Stock purchases
+            belong in Receiving, not here.
           </DialogDescription>
         </DialogHeader>
 

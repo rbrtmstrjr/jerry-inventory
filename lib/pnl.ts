@@ -36,9 +36,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *   • business  — net income, shrinkage subtracted where it actually lands
  *
  * It holds by construction, not by coincidence:
- *   shopNetTotal = Σ(gross_profit − shop opex − labor)
- *                = grossProfit − shopOpex − laborCost
- *   netIncome    = grossProfit − shrinkage − shopOpex − companyOverhead − laborCost
+ *   shopNetTotal = Σ(gross_profit − shop opex)
+ *                = grossProfit − shopOpex
+ *   netIncome    = grossProfit − shrinkage − shopOpex − companyOverhead
  *                = shopNetTotal − companyOverhead − shrinkage   ∎
  *
  * ---------------------------------------------------------------------------
@@ -57,9 +57,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *    have fetched invents a loss that never happened.
  *  • Returns are NOT a loss. Stock moved back; nothing was destroyed. The
  *    three-way separation (transit write-off · shop loss · return) survives.
- *  • Labor is gross + EMPLOYER contributions. Net pay understates: the employee
- *    share still left the business (to the agency, not the pocket), and the
- *    employer share is a further cost on top of gross.
+ *  • Labor is NOT a line here. Payroll was removed from the app; wages, if the
+ *    owner records them, ride the Expenses module (shop opex / company overhead)
+ *    like any other operating cost.
  *  • Company overhead is NEVER allocated across shops. It is subtracted once,
  *    at the bottom. Honest beats clever.
  *  • Closed shops still count. A branch that shut mid-period still sold and
@@ -77,9 +77,6 @@ export interface PnlShopRow {
   /** Shop losses at cost. Context — NOT subtracted from net_contribution. */
   losses: number;
   opex: number;
-  payroll_gross: number;
-  payroll_er: number;
-  labor_cost: number;
   net_contribution: number;
   net_margin_pct: number;
   sales_count: number;
@@ -111,10 +108,6 @@ export interface PnlResult {
   companyOverhead: number;
   opex: number;
 
-  payrollGross: number;
-  payrollEr: number;
-  laborCost: number;
-
   /** Σ per-shop net contribution — the figure /shops/reports headlines. */
   shopNetTotal: number;
   netIncome: number;
@@ -142,16 +135,15 @@ const pct = (part: number, whole: number) =>
 /**
  * Refuse to compute a P&L for anyone but the owner.
  *
- * RLS already stops a shop reading costs, expenses and payroll — but that is
- * precisely the danger. Run on an employee's session the queries all SUCCEED
- * and simply return less: COGS 0, opex 0, payroll 0, while `sales` stays
+ * RLS already stops a shop reading costs and expenses — but that is precisely
+ * the danger. Run on an employee's session the queries all SUCCEED and simply
+ * return less: COGS 0, opex 0, while `sales` stays
  * readable because a shop must see its own sales to submit them. The arithmetic
  * then happily reports gross profit = revenue and a net income that is just
  * revenue wearing a hat — a confidently wrong number, which is worse than an
  * error.
  *
- * Same lesson as 0042, where fn_resolve_contribution was callable by employees:
- * a partial view is not a safe view. Fail loudly instead.
+ * A partial view is not a safe view. Fail loudly instead.
  */
 async function requireOwner(supabase: SupabaseClient): Promise<void> {
   const { data, error } = await supabase.rpc("is_owner");
@@ -218,8 +210,6 @@ export function pnlHasActivity(r: PnlShopRow): boolean {
     r.revenue !== 0 ||
     r.cogs !== 0 ||
     r.opex !== 0 ||
-    r.payroll_gross !== 0 ||
-    r.payroll_er !== 0 ||
     r.losses !== 0
   );
 }
@@ -229,16 +219,14 @@ type Agg = {
   cogs: number;
   losses: number;
   opex: number;
-  payroll_gross: number;
-  payroll_er: number;
   sales_count: number;
   units_sold: number;
   engines_sold: number;
   engine_discount: number;
 };
 const zero = (): Agg => ({
-  revenue: 0, cogs: 0, losses: 0, opex: 0, payroll_gross: 0,
-  payroll_er: 0, sales_count: 0, units_sold: 0, engines_sold: 0,
+  revenue: 0, cogs: 0, losses: 0, opex: 0,
+  sales_count: 0, units_sold: 0, engines_sold: 0,
   engine_discount: 0,
 });
 
@@ -274,8 +262,6 @@ function factsFromRpc(data: any): PnlFacts {
       cogs: numOf(r.cogs),
       losses: numOf(r.losses),
       opex: numOf(r.opex),
-      payroll_gross: numOf(r.payroll_gross),
-      payroll_er: numOf(r.payroll_er),
       sales_count: numOf(r.sales_count),
       units_sold: numOf(r.units_sold),
       engines_sold: numOf(r.engines_sold),
@@ -306,7 +292,7 @@ async function factsFromRowWalk(
   to: string,
   scope: Set<string>
 ): Promise<PnlFacts> {
-  const [allSales, allLosses, allShopExpenses, allCompanyExpenses, allPayroll, allTransit] =
+  const [allSales, allLosses, allShopExpenses, allCompanyExpenses, allTransit] =
     await Promise.all([
       fetchAll(() =>
         supabase
@@ -350,16 +336,6 @@ async function factsFromRowWalk(
           .gte("expense_date", from)
           .lte("expense_date", to)
           .is("deleted_at", null)
-      ),
-      fetchAll(() =>
-        supabase
-          .from("payroll_entries")
-          .select(
-            "id, shop_id, gross_pay, payroll_entry_contributions(er_amount_centavos), pay_periods!inner(start_date, end_date, deleted_at)"
-          )
-          .lte("pay_periods.start_date", to)
-          .gte("pay_periods.end_date", from)
-          .is("pay_periods.deleted_at", null)
       ),
       fetchAll(() =>
         supabase
@@ -423,13 +399,6 @@ async function factsFromRowWalk(
   }
   for (const l of allLosses as any[]) bump(l.shop_id, (a) => (a.losses += l.value_centavos ?? 0));
   for (const e of allShopExpenses as any[]) bump(e.shop_id, (a) => (a.opex += e.amount));
-  for (const p of allPayroll as any[]) {
-    bump(p.shop_id, (a) => {
-      a.payroll_gross += p.gross_pay ?? 0;
-      for (const c of p.payroll_entry_contributions ?? [])
-        a.payroll_er += c.er_amount_centavos ?? 0;
-    });
-  }
 
   const companyOverhead = (allCompanyExpenses as any[]).reduce((t, e) => t + (e.amount ?? 0), 0);
   const transitWriteoffs = (allTransit as any[]).reduce((t, m) => {
@@ -495,10 +464,9 @@ export async function computePnl(
   const perShop: PnlShopRow[] = shops.map((s) => {
     const a = f.perShop.get(s.id) ?? zero();
     const gross_profit = a.revenue - a.cogs;
-    const labor_cost = a.payroll_gross + a.payroll_er;
     // Losses are NOT subtracted here — a shop's contribution is judged on what
     // it sold; shrinkage is the business's problem and lands in net income.
-    const net_contribution = gross_profit - a.opex - labor_cost;
+    const net_contribution = gross_profit - a.opex;
     return {
       shop_id: s.id,
       shop: s.name,
@@ -506,7 +474,6 @@ export async function computePnl(
       ...a,
       gross_profit,
       gross_margin_pct: pct(gross_profit, a.revenue),
-      labor_cost,
       net_contribution,
       net_margin_pct: pct(net_contribution, a.revenue),
     };
@@ -523,12 +490,8 @@ export async function computePnl(
   const shrinkage = shopLosses + transitWriteoffs;
   const shopOpex = sum("opex");
   const companyOverhead = f.companyOverhead;
-  const payrollGross = sum("payroll_gross");
-  const payrollEr = sum("payroll_er");
-  const laborCost = payrollGross + payrollEr;
   const shopNetTotal = sum("net_contribution");
-  const netIncome =
-    grossProfit - shrinkage - shopOpex - companyOverhead - laborCost;
+  const netIncome = grossProfit - shrinkage - shopOpex - companyOverhead;
 
   return {
     from,
@@ -544,9 +507,6 @@ export async function computePnl(
     shopOpex,
     companyOverhead,
     opex: shopOpex + companyOverhead,
-    payrollGross,
-    payrollEr,
-    laborCost,
     shopNetTotal,
     netIncome,
     netMarginPct: pct(netIncome, revenue),

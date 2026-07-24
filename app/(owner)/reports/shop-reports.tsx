@@ -69,10 +69,6 @@ export interface ShopReportData {
     /** Overhead belonging to no shop. Subtracted once, never allocated. */
     companyOverhead: number;
     businessNet: number;
-    /** Σ gross pay + employer gov share across shops. */
-    laborCost: number;
-    /** The employer-share portion of laborCost. */
-    employerShare: number;
     losses: number;
     stockValue: number;
     deliveredUnits: number;
@@ -92,12 +88,6 @@ export interface ShopReportData {
     engines_sold: number;
     losses: number;
     opex: number;
-    /** Σ gross_pay — before the employee share is withheld. */
-    payroll_gross: number;
-    /** Σ employer SSS/PhilHealth/Pag-IBIG share — a cost on top of gross. */
-    payroll_er: number;
-    /** payroll_gross + payroll_er — what the staff actually cost the business. */
-    labor_cost: number;
     net_contribution: number;
     net_margin_pct: number;
     delivered_units: number;
@@ -177,7 +167,7 @@ export function ShopReports({ data }: { data: ShopReportData }) {
     {
       label: "Shop net contribution",
       raw: t.shopNet,
-      hint: `after shop expenses + ${formatCentavos(t.laborCost)} labor cost`,
+      hint: "after shop expenses",
       icon: Boxes,
     },
     {
@@ -196,9 +186,6 @@ export function ShopReports({ data }: { data: ShopReportData }) {
     gross_profit: pesos(r.gross_profit),
     gross_margin_pct: r.gross_margin_pct,
     shop_expenses: pesos(r.opex),
-    payroll_gross: pesos(r.payroll_gross),
-    employer_gov_share: pesos(r.payroll_er),
-    labor_cost: pesos(r.labor_cost),
     net_contribution: pesos(r.net_contribution),
     net_margin_pct: r.net_margin_pct,
     losses_not_in_net: pesos(r.losses),
@@ -295,8 +282,7 @@ export function ShopReports({ data }: { data: ShopReportData }) {
           <CardHeader>
             <CardTitle className="text-base">Profit by shop</CardTitle>
             <CardDescription>
-              Gross profit (after COGS) vs net contribution (after shop expenses
-              and labor cost)
+              Gross profit (after COGS) vs net contribution (after shop expenses)
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -381,12 +367,9 @@ export function ShopReports({ data }: { data: ShopReportData }) {
         <CardHeader>
           <CardTitle className="text-base">Profitability by shop</CardTitle>
           <CardDescription>
-            Revenue − COGS = gross profit; − shop expenses − labor cost = net
-            contribution. <strong>Labor cost</strong> is gross pay plus the
-            employer&apos;s SSS/PhilHealth/Pag-IBIG share — what the staff cost
-            the business, not what they took home. Company overhead belongs to
-            no shop, so it is subtracted once at the bottom and never spread
-            across branches.
+            Revenue − COGS = gross profit; − shop expenses = net contribution.
+            Company overhead belongs to no shop, so it is subtracted once at the
+            bottom and never spread across branches.
           </CardDescription>
         </CardHeader>
         <CardContent className="thin-scrollbar overflow-x-auto">
@@ -399,7 +382,6 @@ export function ShopReports({ data }: { data: ShopReportData }) {
                 <TableHead className="text-right">Gross profit</TableHead>
                 <TableHead className="text-right">GM %</TableHead>
                 <TableHead className="text-right">Shop exp.</TableHead>
-                <TableHead className="text-right">Labor cost</TableHead>
                 <TableHead className="text-right">Net contribution</TableHead>
                 <TableHead className="text-right">NM %</TableHead>
               </TableRow>
@@ -430,15 +412,6 @@ export function ShopReports({ data }: { data: ShopReportData }) {
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     −{formatCentavos(r.opex)}
                   </TableCell>
-                  {/* Show what is inside the number: gross is only part of it. */}
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    −{formatCentavos(r.labor_cost)}
-                    {r.payroll_er > 0 && (
-                      <div className="text-xs">
-                        incl. {formatCentavos(r.payroll_er)} employer share
-                      </div>
-                    )}
-                  </TableCell>
                   <TableCell
                     className={`text-right font-semibold tabular-nums ${negative(
                       r.net_contribution
@@ -467,14 +440,14 @@ export function ShopReports({ data }: { data: ShopReportData }) {
                 <TableCell className="text-right tabular-nums text-muted-foreground">
                   {t.grossMarginPct}%
                 </TableCell>
-                <TableCell colSpan={2} />
+                <TableCell />
                 <TableCell className={`text-right font-semibold tabular-nums ${negative(t.shopNet)}`}>
                   {formatCentavos(t.shopNet)}
                 </TableCell>
                 <TableCell />
               </TableRow>
               <TableRow>
-                <TableCell colSpan={7} className="text-muted-foreground">
+                <TableCell colSpan={6} className="text-muted-foreground">
                   Company-wide overhead
                   <span className="ml-1.5 text-xs">
                     — not allocated to any shop
@@ -486,7 +459,7 @@ export function ShopReports({ data }: { data: ShopReportData }) {
                 <TableCell />
               </TableRow>
               <TableRow className="border-t bg-muted/40">
-                <TableCell colSpan={7} className="font-semibold">
+                <TableCell colSpan={6} className="font-semibold">
                   Business net
                 </TableCell>
                 <TableCell
@@ -501,13 +474,6 @@ export function ShopReports({ data }: { data: ShopReportData }) {
             </TableBody>
           </Table>
           <p className="mt-3 text-xs text-muted-foreground">
-            Labor cost ({formatCentavos(t.laborCost)} in range) is gross pay plus{" "}
-            {formatCentavos(t.employerShare)} of employer SSS/PhilHealth/Pag-IBIG
-            contributions — a real cost of employing that never appears on a
-            payslip&apos;s net. The employee&apos;s own share is already inside
-            gross, so it is counted once here and not added again.
-          </p>
-          <p className="mt-2 text-xs text-muted-foreground">
             Losses ({formatCentavos(t.losses)} in range) and transit write-offs
             are tracked separately and are <strong>not</strong> subtracted here —
             they are stock that never sold, not a cost of what did.

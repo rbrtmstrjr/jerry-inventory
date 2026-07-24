@@ -349,11 +349,8 @@ export async function cleanup() {
   if (reqIds.length) await del("delivery_request_lines").in("delivery_request_id", reqIds);
   await inShops("delivery_requests");
 
-  // payroll
-  await inShops("payroll_entries");
-  await inShops("staff_advances"); // FK on staff — must go before staff
+  // staff (payroll was removed; the staff table stays for birthday reminders)
   await inShops("staff");
-  await del("pay_periods").like("label", `%${RUN}%`);
   await del("positions").like("title", `%${RUN}%`);
 
   // receivings + supplier debt

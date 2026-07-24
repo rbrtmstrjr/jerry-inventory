@@ -254,29 +254,10 @@ section("Delivery note, count sheet, purchase list");
     !sheet.html.includes("58mm") && !list.html.includes("58mm"));
 }
 
-// ── 4. Payslip — read-only against existing payroll ────────────────────────
-section("Payslip");
-{
-  // Deliberately does NOT create a pay period: fn_create_pay_period drafts an
-  // entry for EVERY active staff member, so on a live database that would reach
-  // into real payroll to prove a letterhead. Use an existing entry if there is
-  // one; say so plainly if there isn't.
-  const { data: entry } = await owner
-    .from("payroll_entries").select("id").limit(1).maybeSingle();
-
-  if (!entry) {
-    console.log("  ⊘ no payroll entries on this database — payslip letterhead not exercised");
-  } else {
-    const p = await get(`/payroll/payslip/${entry.id}`, ownerCookie);
-    check("payslip renders", p.status === 200, String(p.status));
-    assertsIdentity(p.html, "payslip");
-  }
-}
-
-// ── 5. The settings shell itself ───────────────────────────────────────────
+// ── 4. The settings shell itself ───────────────────────────────────────────
 section("Settings sections + ?tab= deep-links");
 {
-  for (const tab of ["business", "account", "alerts", "payroll", "notifications", "system"]) {
+  for (const tab of ["business", "account", "alerts", "notifications", "system"]) {
     const r = await get(`/settings?tab=${tab}`, ownerCookie);
     check(`?tab=${tab} renders`, r.status === 200, String(r.status));
   }

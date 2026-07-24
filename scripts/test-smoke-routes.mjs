@@ -38,8 +38,6 @@ const ids = {
   delivery: await q1("deliveries"),
   count: await q1("count_snapshots"),
   warranty: await q1("warranties"),
-  period: await q1("pay_periods"),
-  entry: await q1("payroll_entries"),
   part: await q1("parts", "id", (x) => x.is("deleted_at", null)),
   shop: await q1("shops", "id", (x) => x.is("deleted_at", null)),
 };
@@ -56,9 +54,8 @@ for (const p of [
   "/movements", "/movements?tab=ledger", "/movements?tab=engines",
   "/approvals", "/receivables", "/warranties",
   "/shops",
-  "/payroll", "/payroll/staff", "/payroll/positions", "/payroll/reports",
   "/expenses", "/expenses/categories", "/expenses/reports",
-  "/settings", "/settings?tab=account", "/settings?tab=alerts", "/settings?tab=payroll",
+  "/settings", "/settings?tab=account", "/settings?tab=alerts",
   "/settings?tab=notifications", "/settings?tab=system",
 ]) { const s = await hit(p, ownerCookie); check(p, ok(s), `status ${s}`); }
 
@@ -68,8 +65,6 @@ const dyn = [
   ["/counts/" + ids.count + "/sheet", ids.count],
   ["/deliveries/" + ids.delivery + "/note", ids.delivery],
   ["/warranties/" + ids.warranty + "/certificate", ids.warranty],
-  ["/payroll/" + ids.period, ids.period],
-  ["/payroll/payslip/" + ids.entry, ids.entry],
   ["/receipt/" + ids.sale, ids.sale],
   ["/shops/" + ids.shop + "/stock", ids.shop],
   ["/stock-alerts/purchase-list", true],

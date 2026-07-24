@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { format } from "date-fns";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
@@ -10,7 +9,6 @@ import {
   ChevronsUpDown,
   MoreHorizontal,
   Plus,
-  Printer,
   RefreshCcw,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -47,7 +45,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DataTable, SortableHeader } from "@/components/data-table/data-table";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { createDiscountCard, reissueDiscountCard, setDiscountCardStatus } from "./actions";
+import { createDiscountCard, setDiscountCardStatus } from "./actions";
 
 export interface CardRow {
   id: string;
@@ -80,8 +78,28 @@ export function SukiCardsView({
   partPct: number;
 }) {
   const [createOpen, setCreateOpen] = React.useState(false);
+  // Pre-selected customer when the New-card dialog opens as a "replace" (the
+  // old card was just deactivated); null for a plain new card.
+  const [createCustomerId, setCreateCustomerId] = React.useState<string | null>(null);
   const [deactivating, setDeactivating] = React.useState<CardRow | null>(null);
-  const [reissuing, setReissuing] = React.useState<CardRow | null>(null);
+
+  function openNewCard(customerId: string | null) {
+    setCreateCustomerId(customerId);
+    setCreateOpen(true);
+  }
+
+  // Replace = deactivate the old card (so the one-active-per-customer rule
+  // allows a new one), then open New card pre-filled with the same customer to
+  // record the number of the freshly printed physical card.
+  async function replaceCard(c: CardRow) {
+    const res = await setDiscountCardStatus(c.id, "inactive");
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.info(`${c.card_no} deactivated — record the new card number`);
+    openNewCard(c.customer_id);
+  }
 
   const columns: ColumnDef<CardRow>[] = [
     {
@@ -140,11 +158,6 @@ export function SukiCardsView({
         const c = row.original;
         return (
           <div className="flex items-center justify-end gap-1">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/suki-cards/${c.id}/print`}>
-                <Printer className="size-3.5" /> Print
-              </Link>
-            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon-sm" aria-label="Card actions">
@@ -153,9 +166,14 @@ export function SukiCardsView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {c.status === "active" ? (
-                  <DropdownMenuItem onClick={() => setDeactivating(c)}>
-                    Deactivate (lost card)
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem onClick={() => setDeactivating(c)}>
+                      Deactivate (lost card)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void replaceCard(c)}>
+                      <RefreshCcw className="size-4" /> Replace with new card
+                    </DropdownMenuItem>
+                  </>
                 ) : (
                   <DropdownMenuItem
                     onClick={async () => {
@@ -167,9 +185,6 @@ export function SukiCardsView({
                     Reactivate
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => setReissuing(c)}>
-                  <RefreshCcw className="size-4" /> Reissue (new number)
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -186,13 +201,14 @@ export function SukiCardsView({
             <BadgePercent className="size-4" /> Issued cards
           </CardTitle>
           <CardDescription>
-            A scan at Record Sale applies{" "}
+            Cards are printed by your card system — record the barcode number
+            here and the suki can use it. A scan at Record Sale applies{" "}
             <span className="font-medium text-foreground">
               {enginePct}% off engines · {partPct}% off parts
             </span>{" "}
             (change the rates in Settings → Alerts). One active card per
-            customer — a lost card is deactivated and reissued with a new number,
-            and the old one stops scanning immediately.
+            customer — a lost card is deactivated and replaced with the new
+            printed card, and the old one stops scanning immediately.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -202,7 +218,7 @@ export function SukiCardsView({
             searchPlaceholder="Search customer or card no…"
             emptyMessage="No cards yet — create one for your first suki."
             toolbar={
-              <Button onClick={() => setCreateOpen(true)}>
+              <Button onClick={() => openNewCard(null)}>
                 <Plus className="size-4" /> New card
               </Button>
             }
@@ -211,7 +227,11 @@ export function SukiCardsView({
       </Card>
 
       {createOpen && (
-        <CreateCardDialog customers={customers} onClose={() => setCreateOpen(false)} />
+        <CreateCardDialog
+          customers={customers}
+          initialCustomerId={createCustomerId}
+          onClose={() => setCreateOpen(false)}
+        />
       )}
 
       {deactivating && (
@@ -219,7 +239,7 @@ export function SukiCardsView({
           open
           onOpenChange={(v) => !v && setDeactivating(null)}
           title={`Deactivate ${deactivating.card_no}?`}
-          description={`${deactivating.customer_name}'s card will stop working at every shop immediately. Reissue a new one if they lost it.`}
+          description={`${deactivating.customer_name}'s card will stop working at every shop immediately. Use "Replace with new card" to record their new printed card.`}
           confirmLabel="Deactivate"
           destructive
           onConfirm={async () => {
@@ -230,22 +250,6 @@ export function SukiCardsView({
           }}
         />
       )}
-
-      {reissuing && (
-        <ConfirmDialog
-          open
-          onOpenChange={(v) => !v && setReissuing(null)}
-          title={`Reissue a card for ${reissuing.customer_name}?`}
-          description={`${reissuing.card_no} will be deactivated and a NEW number minted — print and hand over the new card.`}
-          confirmLabel="Reissue"
-          onConfirm={async () => {
-            const res = await reissueDiscountCard(reissuing.id);
-            if (res.ok) toast.success(`New card ${res.card_no} created — print it now`);
-            else toast.error(res.error);
-            setReissuing(null);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -253,22 +257,30 @@ export function SukiCardsView({
 /** Mounted per open so it starts fresh (same pattern as the login dialog). */
 function CreateCardDialog({
   customers,
+  initialCustomerId,
   onClose,
 }: {
   customers: CustomerOption[];
+  /** Pre-selected customer (a "replace" flow) — starts in existing mode. */
+  initialCustomerId?: string | null;
   onClose: () => void;
 }) {
   const [mode, setMode] = React.useState<"existing" | "new">("existing");
-  const [customerId, setCustomerId] = React.useState("");
+  const [customerId, setCustomerId] = React.useState(initialCustomerId ?? "");
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [newName, setNewName] = React.useState("");
   const [newPhone, setNewPhone] = React.useState("");
+  const [cardNo, setCardNo] = React.useState("");
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   const selected = customers.find((c) => c.id === customerId);
 
   async function onSave() {
+    if (cardNo.trim() === "") {
+      toast.error("Enter the card's barcode number");
+      return;
+    }
     if (mode === "existing" && !customerId) {
       toast.error("Pick a customer");
       return;
@@ -284,11 +296,12 @@ function CreateCardDialog({
         mode === "new"
           ? { name: newName.trim(), phone: newPhone.trim() || undefined }
           : null,
+      card_no: cardNo.trim(),
       note: note.trim() || null,
     });
     setBusy(false);
     if (res.ok) {
-      toast.success(`Card ${res.card_no} created — print it for the suki`);
+      toast.success(`Card ${res.card_no} recorded — the suki can use it now`);
       onClose();
     } else toast.error(res.error);
   }
@@ -297,14 +310,29 @@ function CreateCardDialog({
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New suki card</DialogTitle>
+          <DialogTitle>Record a suki card</DialogTitle>
           <DialogDescription>
-            The card belongs to one customer — scanning it identifies them and
-            applies their discount.
+            Enter the barcode number printed on the physical card and the
+            customer it belongs to — scanning it at Record Sale then identifies
+            them and applies their discount.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="suki-card-no" className="text-xs">
+              Card number (barcode)
+            </Label>
+            <Input
+              id="suki-card-no"
+              value={cardNo}
+              onChange={(e) => setCardNo(e.target.value)}
+              placeholder="Scan or type the number on the card"
+              autoFocus
+              className="font-mono"
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
@@ -413,7 +441,7 @@ function CreateCardDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={onSave} disabled={busy}>Create card</Button>
+          <Button onClick={onSave} disabled={busy}>Record card</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

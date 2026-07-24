@@ -4,8 +4,9 @@
  * What this proves:
  *   • Cards are OWNER-ONLY: only the owner issues/deactivates; a shop cannot
  *     create one, and RLS hides the table from a shop session entirely.
- *   • One ACTIVE card per customer; reissue = deactivate + new number; card
- *     numbers carry the 'SC' prefix (distinct from 'GT' product barcodes).
+ *   • One ACTIVE card per customer; the number is OWNER-ENTERED (printed by an
+ *     external system, 0082) — required, unique across cards, no minted prefix;
+ *     a lost card is deactivated and replaced with the new printed card.
  *   • fn_lookup_discount_card is the shop's ONLY window: active card → the
  *     customer + the two live percentages, nothing else; inactive/unknown →
  *     zero rows.
@@ -27,12 +28,25 @@ import {
   receive, deliverAndConfirm, cleanup,
 } from "./_harness.mjs";
 
-// ── preflight: refuse to run against a DB without 0072 ──────────────────────
+// ── preflight: refuse to run against a DB without 0072 + 0082 ───────────────
 {
   const probe = await admin.from("discount_cards").select("id").limit(1);
   if (probe.error) {
     console.error(
       "\nMigration 0072 is not applied — run supabase/migrations/0072_suki_discount_cards.sql first.\n"
+    );
+    process.exit(2);
+  }
+  // 0082 replaced fn_create_discount_card(uuid,text) with (uuid,text,text) —
+  // an owner-entered p_card_no. If it's absent, PostgREST can't find the new
+  // overload (PGRST202); a plain validation error means it IS applied.
+  const sig = await owner.rpc("fn_create_discount_card", {
+    p_customer_id: null,
+    p_card_no: "",
+  });
+  if (sig.error && /PGRST202|find the function|does not exist/i.test(sig.error.message)) {
+    console.error(
+      "\nMigration 0082 is not applied — run supabase/migrations/0082_suki_external_barcode.sql first.\n"
     );
     process.exit(2);
   }
@@ -58,24 +72,42 @@ try {
   const P5 = dials.suki_part_discount_pct;
 
   // ── issuing ───────────────────────────────────────────────────────────────
-  section("Issuing — owner-only, one active per customer, SC prefix");
+  section("Issuing — owner-only, one active per customer, owner-entered number");
+
+  const CARD1 = `ZZ-${RUN}-A`.toUpperCase();
+  const CARD2 = `ZZ-${RUN}-B`.toUpperCase();
 
   const { data: made, error: mkErr } = await owner.rpc("fn_create_discount_card", {
-    p_customer_id: customer.id, p_note: `ZZ-TEST ${RUN}`,
+    p_customer_id: customer.id, p_card_no: CARD1, p_note: `ZZ-TEST ${RUN}`,
   });
-  check("owner issues a card", !mkErr, mkErr?.message);
+  check("owner records a card", !mkErr, mkErr?.message);
   const card = made ?? {};
   if (card.id) cardIds.push(card.id);
-  check("card number carries the SC prefix", /^SC\d{8}$/.test(card.card_no ?? ""), card.card_no);
+  check("card number is stored as entered (upper+trimmed)",
+    card.card_no === CARD1, card.card_no);
+
+  const { error: emptyErr } = await owner.rpc("fn_create_discount_card", {
+    p_customer_id: customer.id, p_card_no: "   ",
+  });
+  check("an empty card number is refused",
+    !!emptyErr && /card number is required/i.test(emptyErr.message), emptyErr?.message);
+
+  // a DIFFERENT customer reusing the same number → the uniqueness guard fires
+  const customer2 = await seedCustomer({ label: "Suki2" });
+  const { error: dupNoErr } = await owner.rpc("fn_create_discount_card", {
+    p_customer_id: customer2.id, p_card_no: CARD1,
+  });
+  check("a duplicate card number is refused",
+    !!dupNoErr && /already on file/i.test(dupNoErr.message), dupNoErr?.message);
 
   const { error: dupErr } = await owner.rpc("fn_create_discount_card", {
-    p_customer_id: customer.id,
+    p_customer_id: customer.id, p_card_no: CARD2,
   });
   check("second active card for the same customer is refused",
     !!dupErr && /already has an active card/i.test(dupErr.message), dupErr?.message);
 
   const { error: shopMkErr } = await shop.client.rpc("fn_create_discount_card", {
-    p_customer_id: customer.id,
+    p_customer_id: customer.id, p_card_no: CARD2,
   });
   check("a SHOP cannot issue a card", !!shopMkErr, "shop rpc succeeded");
 
@@ -98,7 +130,7 @@ try {
     !("cost_centavos" in info) && !("price_centavos" in info));
 
   const { data: ghost } = await shop.client.rpc("fn_lookup_discount_card", {
-    p_card_no: "SC00000000",
+    p_card_no: `ZZ-${RUN}-UNKNOWN`,
   });
   check("unknown card → zero rows", (ghost ?? []).length === 0);
 

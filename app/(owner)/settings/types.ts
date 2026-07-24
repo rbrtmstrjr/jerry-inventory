@@ -19,8 +19,6 @@ export interface SettingsRow {
   quote_stale_days: number;
   suki_engine_discount_pct: number;
   suki_part_discount_pct: number;
-  payroll_working_days_per_month: number;
-  contribution_split_semimonthly: "half_each" | "second_cutoff";
 }
 
 /** Business identity as read by the six printed documents (`public_settings`). */

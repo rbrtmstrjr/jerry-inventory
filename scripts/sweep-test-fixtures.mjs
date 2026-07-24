@@ -121,7 +121,6 @@ await inShops("deliveries");
 await inShops("returns");
 await inShops("delivery_requests");
 await inShops("notifications");
-await inShops("payroll_entries");
 await inShops("staff");
 await inShops("shop_reorder_levels");
 await inShops("stock_levels");
@@ -136,7 +135,6 @@ if (engineIds.length) {
 }
 
 await del("expense_categories").like("name", PREFIX);
-await del("pay_periods").like("label", PREFIX);
 await del("positions").like("title", PREFIX);
 
 // receivings whose lines are all gone

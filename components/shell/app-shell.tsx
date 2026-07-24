@@ -29,7 +29,6 @@ import {
   Store,
   Sun,
   Truck,
-  Wallet,
   Boxes,
   type LucideIcon,
 } from "lucide-react";
@@ -128,7 +127,6 @@ const OWNER_NAV: NavGroup[] = [
     label: "Administration",
     items: [
       { href: "/shops", label: "Shops & Employees", icon: Store },
-      { href: "/payroll", label: "Payroll", icon: Wallet },
       { href: "/expenses", label: "Expenses", icon: ReceiptText },
     ],
   },
