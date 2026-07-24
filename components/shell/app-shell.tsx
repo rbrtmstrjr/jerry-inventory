@@ -50,6 +50,7 @@ import {
   WarrantiesBadge,
 } from "@/components/shell/nav-badges";
 import { NotificationBell } from "@/components/shell/notification-bell";
+import { ScrollToTop } from "@/components/shell/scroll-to-top";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
@@ -335,6 +336,7 @@ export function AppShell({ variant, userName, contextLabel, badgeCounts, childre
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const groups = variant === "owner" ? OWNER_NAV : EMPLOYEE_NAV;
+  const scrollRef = React.useRef<HTMLDivElement>(null);
 
   return (
     <div className="flex h-svh w-full overflow-hidden print:h-auto print:overflow-visible">
@@ -379,9 +381,13 @@ export function AppShell({ variant, userName, contextLabel, badgeCounts, childre
           <UserMenu variant={variant} userName={userName} contextLabel={contextLabel} />
         </header>
 
-        <div className="thin-scrollbar flex flex-1 flex-col overflow-y-auto print:overflow-visible">
+        <div
+          ref={scrollRef}
+          className="thin-scrollbar flex flex-1 flex-col overflow-y-auto print:overflow-visible"
+        >
           <main className="flex-1 p-4 md:p-6">{children}</main>
         </div>
+        <ScrollToTop scrollRef={scrollRef} />
       </div>
     </div>
   );

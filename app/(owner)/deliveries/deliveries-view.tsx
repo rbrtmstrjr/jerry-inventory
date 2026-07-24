@@ -633,31 +633,41 @@ function TransferForm({
                 </div>
               </div>
             )}
-            {prefill && prefill.customItems.length > 0 && (
-              <div className="border-t px-4 py-3">
-                <p className="mb-2 text-xs font-medium text-primary">
+          </div>
+
+          {/* New products requested — its OWN card, not nested under Engines.
+              A custom line is neither a stocked part nor an engine (no catalog
+              row yet), so it belongs to neither section. Display-only: it's
+              never part of the deliver payload. */}
+          {prefill && prefill.customItems.length > 0 && (
+            <div className="rounded-lg border border-primary/40">
+              <div className="border-b border-primary/30 bg-primary/5 px-4 py-2.5">
+                <h3 className="text-sm font-semibold text-primary">
                   New products requested — not in the catalog
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Neither a stocked part nor an engine — the shop typed these in
                 </p>
-                <div className="flex flex-col gap-1.5">
-                  {prefill.customItems.map((c, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between gap-2 rounded-md border border-dashed border-primary/40 bg-primary/5 px-3 py-2 text-sm"
-                    >
-                      <span className="truncate">{c.name}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                        requested {c.qty_requested}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
+              </div>
+              <div className="flex flex-col gap-1.5 p-4">
+                {prefill.customItems.map((c, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between gap-2 rounded-md border border-dashed border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+                  >
+                    <span className="truncate">{c.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      requested {c.qty_requested}
+                    </span>
+                  </div>
+                ))}
+                <p className="mt-1 text-xs text-muted-foreground">
                   Add these to the catalog via Suppliers → Receiving first, then
                   deliver them on a later request.
                 </p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {prefill && nothingToDeliver && (
             <p className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning-foreground">

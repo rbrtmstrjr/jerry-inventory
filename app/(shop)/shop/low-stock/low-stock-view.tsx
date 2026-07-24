@@ -346,28 +346,40 @@ export function ShopLowStockView({
                     ` · delivered ${format(new Date(r.fulfilled_at), "MMM d, h:mm a")}`}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-col gap-1 text-sm">
-                {r.items.map((i, idx) => (
-                  <div key={idx} className="flex justify-between gap-2">
-                    <span className="truncate">
-                      {i.is_custom && (
-                        <Badge
-                          variant="outline"
-                          className="mr-1 border-primary text-primary"
-                        >
-                          New
-                        </Badge>
-                      )}
-                      {i.name}
-                    </span>
-                    <span className="tabular-nums">× {i.qty}</span>
-                  </div>
-                ))}
+              <CardContent className="text-sm">
+                {/* Itemized like the admin's Open requests — numbered rows with
+                    a thin divider, name left / qty right. */}
+                <div className="flex flex-col">
+                  {r.items.map((i, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-baseline justify-between gap-3 border-b border-border/60 py-2 last:border-0"
+                    >
+                      <span className="min-w-0 truncate">
+                        <span className="mr-1.5 text-xs tabular-nums text-muted-foreground">
+                          {idx + 1}.
+                        </span>
+                        {i.is_custom && (
+                          <Badge
+                            variant="outline"
+                            className="mr-1 border-primary text-primary"
+                          >
+                            New
+                          </Badge>
+                        )}
+                        {i.name}
+                      </span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        × {i.qty}
+                      </span>
+                    </div>
+                  ))}
+                </div>
                 {r.note && (
-                  <p className="mt-1 text-xs text-muted-foreground">Your note: {r.note}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">Your note: {r.note}</p>
                 )}
                 {r.owner_note && (
-                  <p className="mt-1 rounded-md bg-accent p-2 text-xs text-accent-foreground">
+                  <p className="mt-2 rounded-md bg-accent p-2 text-xs text-accent-foreground">
                     Admin: {r.owner_note}
                   </p>
                 )}

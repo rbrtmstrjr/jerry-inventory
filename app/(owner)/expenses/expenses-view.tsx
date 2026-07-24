@@ -471,8 +471,8 @@ export function ExpensesView({
 
       {/* Summary — company overhead and branch running costs are different
           animals, so they never get merged into a single number. */}
-      <div className="rounded-lg border">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-b bg-muted/40 px-4 py-2.5">
+      <div className="rounded-lg border bg-card">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-b px-4 py-2.5 dark:bg-muted/40">
           <div>
             <div className="text-xs text-muted-foreground">Filtered total</div>
             <div className="text-lg font-semibold tabular-nums">
