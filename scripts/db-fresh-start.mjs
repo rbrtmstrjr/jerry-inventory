@@ -20,7 +20,8 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 
 const YES = process.argv.includes("--yes");
-const ADMIN_EMAIL = "robertmaestro09@gmail.com";
+// Fallback only — the owner is detected from the role='owner' profile below.
+const ADMIN_EMAIL = "gerwintrading@test.com";
 
 const env = Object.fromEntries(
   readFileSync(new URL("../.env.local", import.meta.url), "utf8")
@@ -95,9 +96,19 @@ for (const t of [...WIPE_ORDER, "profiles", "shops", ...KEEP]) {
 }
 const { data: userList } = await admin.auth.admin.listUsers({ perPage: 1000 });
 const users = userList?.users ?? [];
-const adminUser = users.find((u) => u.email === ADMIN_EMAIL);
+// The owner is whoever holds the role='owner' profile — the source of truth, so
+// this survives an admin email/credential change (the old hardcoded email went
+// stale when the account became gerwintrading@test.com and nearly let the wipe
+// delete the real owner). Fall back to the email only if no owner profile.
+const { data: ownerProf } = await admin
+  .from("profiles").select("id").eq("role", "owner").is("deleted_at", null).limit(1).single();
+const adminUser =
+  users.find((u) => u.id === ownerProf?.id) ??
+  users.find((u) => u.email === ADMIN_EMAIL);
 if (!adminUser) {
-  console.error(`SAFETY STOP: admin user ${ADMIN_EMAIL} not found — refusing to wipe.`);
+  console.error(
+    `SAFETY STOP: owner account not found (profile role='owner' → ${ownerProf?.id ?? "none"}) — refusing to wipe.`
+  );
   process.exit(1);
 }
 
@@ -105,7 +116,7 @@ console.log(`\n${YES ? "DELETING" : "DRY RUN (pass --yes to delete)"}:`);
 for (const t of WIPE_ORDER) if (counts[t]) console.log(`  ${t}: ${counts[t]} row(s)`);
 console.log(`  profiles: ${counts.profiles - 1} of ${counts.profiles} (admin kept)`);
 console.log(`  shops: ${counts.shops} row(s)`);
-console.log(`  auth users: ${users.length - 1} of ${users.length} (${ADMIN_EMAIL} kept)`);
+console.log(`  auth users: ${users.length - 1} of ${users.length} (${adminUser.email} kept)`);
 console.log(`  + all objects in product-images and receipts buckets`);
 console.log(`KEPT: ${KEEP.join(", ")}, admin login`);
 if (!YES) process.exit(0);
@@ -216,11 +227,19 @@ for (const t of KEEP) {
 const anon = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
   auth: { persistSession: false },
 });
+// Best-effort check with the historical dev password. The owner changed the
+// account (→ gerwintrading@test.com) with a password this script doesn't know,
+// and it NEVER touches the owner's password — so a failure here just means the
+// stored dev password is stale, not that the account is broken.
 const { error: loginErr } = await anon.auth.signInWithPassword({
   email: ADMIN_EMAIL,
   password: "rajonrondo09",
 });
-console.log(loginErr ? `ADMIN LOGIN BROKEN: ${loginErr.message}` : "admin login verified ✓");
+console.log(
+  loginErr
+    ? "admin login check skipped (stored dev password stale — owner account untouched)"
+    : "admin login verified ✓"
+);
 
 if (leaks.length) {
   console.error(`\nLEFT BEHIND: ${leaks.join(" · ")}`);

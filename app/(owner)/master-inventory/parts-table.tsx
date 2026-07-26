@@ -27,11 +27,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DataTable, SortableHeader } from "@/components/data-table/data-table";
+import {
+  ServerDataTable,
+  ServerSortableHeader,
+  ServerSearchInput,
+  ServerPaginationBar,
+} from "@/components/data-table/server-data-table";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProductCardImage } from "@/components/product-image";
 import { ViewToggle, usePersistedView } from "@/components/view-toggle";
-import { Input } from "@/components/ui/input";
 import {
   Empty,
   EmptyDescription,
@@ -51,9 +55,6 @@ import {
 } from "./supplier-prices-dialog";
 // Category management moved to its own tab (/master-inventory/categories).
 
-/** Product cards revealed per scroll batch (the grid can hold 400+). */
-const CARD_PAGE = 48;
-
 export function PartsTable({
   parts,
   categories,
@@ -61,6 +62,10 @@ export function PartsTable({
   suppliers,
   fitmentsByPart,
   pricesByPart,
+  total,
+  page,
+  pageSize,
+  q,
 }: {
   parts: PartRow[];
   categories: Category[];
@@ -68,6 +73,11 @@ export function PartsTable({
   suppliers: { id: string; name: string }[];
   fitmentsByPart: Record<string, string[]>;
   pricesByPart: Record<string, ComparisonRow[]>;
+  /** Server-paginated: `parts` is ONE page of the catalog. */
+  total: number;
+  page: number;
+  pageSize: number;
+  q: string;
 }) {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
@@ -77,9 +87,6 @@ export function PartsTable({
   const [pricesFor, setPricesFor] = React.useState<PartRow | null>(null);
   const [mergeOpen, setMergeOpen] = React.useState(false);
   const [view, setView] = usePersistedView("jm-view-owner-parts");
-  const [cardSearch, setCardSearch] = React.useState("");
-  const [cardVisible, setCardVisible] = React.useState(CARD_PAGE);
-  const cardSentinelRef = React.useRef<HTMLDivElement | null>(null);
 
   async function onGenerateBarcode(part: PartRow) {
     const res = await generateInternalBarcode(part.id);
@@ -154,41 +161,15 @@ export function PartsTable({
     </>
   );
 
-  const q = cardSearch.trim().toLowerCase();
-  const cardParts = q
-    ? parts.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.sku ?? "").toLowerCase().includes(q) ||
-          (p.barcode ?? "").toLowerCase().includes(q) ||
-          (p.category_name ?? "").toLowerCase().includes(q)
-      )
-    : parts;
-  const cardVisibleParts = cardParts.slice(0, cardVisible);
-
-  // Scroll-down reveal for the card grid — 400+ product cards shouldn't all
-  // paint at once. Reset the batch on search or view change; reveal the next
-  // batch as the sentinel nears the viewport.
-  React.useEffect(() => {
-    setCardVisible(CARD_PAGE);
-  }, [cardSearch, view]);
-  React.useEffect(() => {
-    const el = cardSentinelRef.current;
-    if (!el || cardVisible >= cardParts.length) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) setCardVisible((v) => v + CARD_PAGE);
-      },
-      { rootMargin: "800px" }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [cardVisible, cardParts.length, view]);
+  // Cards render the same server page as the table: search + paging live in
+  // the URL, so a search covers the whole catalog rather than one page, and the
+  // grid is bounded by page size (the old scroll-reveal is no longer needed).
+  const cardVisibleParts = parts;
 
   const columns: ColumnDef<PartRow>[] = [
     {
       accessorKey: "name",
-      header: ({ column }) => <SortableHeader column={column}>Item</SortableHeader>,
+      header: () => <ServerSortableHeader column="name">Item</ServerSortableHeader>,
       cell: ({ row }) => (
         <div>
           <div className="font-medium">{row.original.name}</div>
@@ -220,9 +201,9 @@ export function PartsTable({
     },
     {
       accessorKey: "master_qty",
-      header: ({ column }) => (
-        <SortableHeader column={column}>Master Qty</SortableHeader>
-      ),
+      // Not server-sortable: master_qty is derived from the stock_levels join,
+      // not a column on `parts`, so the database can't ORDER BY it.
+      header: "Master Qty",
       cell: ({ row }) => (
         <span className="tabular-nums">
           {row.original.master_qty} {row.original.unit}
@@ -231,14 +212,14 @@ export function PartsTable({
     },
     {
       accessorKey: "cost_centavos",
-      header: ({ column }) => <SortableHeader column={column}>Cost</SortableHeader>,
+      header: () => <ServerSortableHeader column="cost_centavos">Cost</ServerSortableHeader>,
       cell: ({ getValue }) => (
         <span className="tabular-nums">{formatCentavos(getValue<number>())}</span>
       ),
     },
     {
       accessorKey: "price_centavos",
-      header: ({ column }) => <SortableHeader column={column}>Price</SortableHeader>,
+      header: () => <ServerSortableHeader column="price_centavos">Price</ServerSortableHeader>,
       cell: ({ row }) => (
         <div className="flex items-center gap-1.5">
           <span className="tabular-nums font-medium">
@@ -315,9 +296,13 @@ export function PartsTable({
   return (
     <>
       {view === "table" ? (
-        <DataTable
+        <ServerDataTable
           columns={columns}
           data={parts}
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          q={q}
           searchPlaceholder="Search name, SKU, barcode…"
           emptyMessage="No products yet — click Add product, or receive from a supplier (Suppliers → Receiving)."
           toolbar={
@@ -330,23 +315,14 @@ export function PartsTable({
       ) : (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative w-full max-w-xs">
-              <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={cardSearch}
-                onChange={(e) => setCardSearch(e.target.value)}
-                placeholder="Search name, SKU, barcode…"
-                className="pl-8"
-                aria-label="Search parts"
-              />
-            </div>
+            <ServerSearchInput q={q} placeholder="Search name, SKU, barcode…" />
             <div className="ml-auto flex items-center gap-2">
               <ViewToggle value={view} onChange={setView} />
               {toolbarButtons}
             </div>
           </div>
 
-          {cardParts.length === 0 ? (
+          {cardVisibleParts.length === 0 ? (
             <Empty>
               <EmptyHeader>
                 <EmptyMedia variant="icon">
@@ -354,7 +330,7 @@ export function PartsTable({
                 </EmptyMedia>
                 <EmptyDescription>
                   {q ? (
-                    `Nothing matches “${cardSearch}”.`
+                    `Nothing matches “${q}”.`
                   ) : (
                     <>
                       No products yet — click{" "}
@@ -438,17 +414,12 @@ export function PartsTable({
               })}
             </div>
           )}
-          {cardVisible < cardParts.length && (
-            <div
-              ref={cardSentinelRef}
-              className="py-3 text-center text-xs text-muted-foreground"
-            >
-              Loading more…
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {cardParts.length} of {parts.length} items
-          </p>
+          <ServerPaginationBar
+            total={total}
+            page={page}
+            pageSize={pageSize}
+            noun="items"
+          />
         </div>
       )}
       <PartFormDialog

@@ -51,7 +51,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DataTable, SortableHeader } from "@/components/data-table/data-table";
+import {
+  ServerDataTable,
+  ServerSortableHeader,
+} from "@/components/data-table/server-data-table";
 import { reviewWarrantyClaim } from "./actions";
 
 export type ClaimResolution = "repair" | "replace" | "refund";
@@ -147,22 +150,42 @@ export function WarrantiesView({
   today,
   shops = [],
   pendingClaims = [],
+  activeTab,
+  shopFilter,
+  total,
+  page,
+  pageSize,
+  q,
+  warrantyCount,
+  serialCount,
 }: {
   warranties: WarrantyRow[];
   serials: SerialRow[];
   today: string;
   shops?: ShopOption[];
   pendingClaims?: PendingClaimRow[];
+  /** URL-driven so only the open tab's rows are ever fetched. */
+  activeTab: string;
+  shopFilter: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  q: string;
+  warrantyCount: number;
+  serialCount: number;
 }) {
+  const router = useRouter();
   const [claimsFor, setClaimsFor] = React.useState<WarrantyRow | null>(null);
   const [journeyFor, setJourneyFor] = React.useState<SerialRow | null>(null);
-  const [shopFilter, setShopFilter] = React.useState("all");
 
-  // Slice the registry by branch — consistent with the reviewed-history filter.
-  const shownWarranties =
-    shopFilter === "all"
-      ? warranties
-      : warranties.filter((w) => w.shop === shopFilter);
+  /** Switching tab or branch starts a fresh list — drop paging/sort/search. */
+  function go(next: { tab?: string; shop?: string }) {
+    const p = new URLSearchParams();
+    p.set("tab", next.tab ?? activeTab);
+    const shop = next.shop ?? shopFilter;
+    if (shop !== "all") p.set("shop", shop);
+    router.push(`/warranties?${p.toString()}`);
+  }
 
   const warrantyColumns: ColumnDef<WarrantyRow>[] = [
     {
@@ -200,7 +223,7 @@ export function WarrantiesView({
     },
     {
       accessorKey: "shop",
-      header: ({ column }) => <SortableHeader column={column}>Sold by</SortableHeader>,
+      header: () => <ServerSortableHeader column="shop">Sold by</ServerSortableHeader>,
       cell: ({ row }) =>
         row.original.shop ? (
           <ShopBadge
@@ -212,14 +235,14 @@ export function WarrantiesView({
     },
     {
       accessorKey: "sold_on",
-      header: ({ column }) => <SortableHeader column={column}>Sold</SortableHeader>,
+      header: () => <ServerSortableHeader column="sold_on">Sold</ServerSortableHeader>,
       cell: ({ row }) => (
         <div>{format(new Date(row.original.sold_on), "MMM d, yyyy")}</div>
       ),
     },
     {
       accessorKey: "expires_on",
-      header: ({ column }) => <SortableHeader column={column}>Expires</SortableHeader>,
+      header: () => <ServerSortableHeader column="expires_on">Expires</ServerSortableHeader>,
       cell: ({ row }) => {
         const d = daysLeft(row.original.expires_on, today);
         return (
@@ -343,8 +366,9 @@ export function WarrantiesView({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Land on Approval when there are claims to act on, else on Warranty. */}
-      <Tabs defaultValue={pendingClaims.length > 0 ? "approval" : "warranty"}>
+      {/* URL-driven: the server renders only the open tab's page of rows, so
+          switching tabs fetches that tab instead of everything up front. */}
+      <Tabs value={activeTab} onValueChange={(tab) => go({ tab })}>
         <TabsList>
           <TabsTrigger value="approval">
             <Wrench className="size-4" /> Approval
@@ -352,11 +376,11 @@ export function WarrantiesView({
           </TabsTrigger>
           <TabsTrigger value="warranty">
             <ShieldCheck className="size-4" /> Warranty
-            <TabCountBadge count={warranties.length} />
+            <TabCountBadge count={warrantyCount} />
           </TabsTrigger>
           <TabsTrigger value="serials">
             <Search className="size-4" /> Serials
-            <TabCountBadge count={serials.length} />
+            <TabCountBadge count={serialCount} />
           </TabsTrigger>
         </TabsList>
 
@@ -373,9 +397,13 @@ export function WarrantiesView({
         </TabsContent>
 
         <TabsContent value="warranty" className="pt-2">
-          <DataTable
+          <ServerDataTable
             columns={warrantyColumns}
-            data={shownWarranties}
+            data={warranties}
+            total={total}
+            page={page}
+            pageSize={pageSize}
+            q={q}
             searchPlaceholder="Search serial, customer, model…"
             emptyMessage="No warranties yet — they appear automatically when you approve an engine sale."
             rowClassName={(w) =>
@@ -387,7 +415,7 @@ export function WarrantiesView({
             }
             toolbar={
               shops.length > 0 ? (
-                <Select value={shopFilter} onValueChange={setShopFilter}>
+                <Select value={shopFilter} onValueChange={(shop) => go({ shop })}>
                   <SelectTrigger className="w-48">
                     <SelectValue placeholder="All shops" />
                   </SelectTrigger>
@@ -406,9 +434,13 @@ export function WarrantiesView({
         </TabsContent>
 
         <TabsContent value="serials" className="pt-2">
-          <DataTable
+          <ServerDataTable
             columns={serialColumns}
             data={serials}
+            total={total}
+            page={page}
+            pageSize={pageSize}
+            q={q}
             searchPlaceholder="Scan or type any serial…"
             emptyMessage="No engines yet."
           />

@@ -17,12 +17,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DataTable, SortableHeader } from "@/components/data-table/data-table";
+import {
+  ServerDataTable,
+  ServerSortableHeader,
+  ServerSearchInput,
+  ServerPaginationBar,
+} from "@/components/data-table/server-data-table";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ShopBadge } from "@/components/shop-badge";
 import { ProductCardImage } from "@/components/product-image";
 import { ViewToggle, usePersistedView } from "@/components/view-toggle";
-import { Input } from "@/components/ui/input";
 import {
   Empty,
   EmptyDescription,
@@ -49,17 +53,25 @@ export function EnginesTable({
   engines,
   models,
   suppliers,
+  total,
+  page,
+  pageSize,
+  q,
 }: {
   engines: EngineRow[];
   models: EngineModel[];
   suppliers: { id: string; name: string }[];
+  /** Server-paginated: `engines` is ONE page, not the whole registry. */
+  total: number;
+  page: number;
+  pageSize: number;
+  q: string;
 }) {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<EngineRow | null>(null);
   const [deleting, setDeleting] = React.useState<EngineRow | null>(null);
   const [view, setView] = usePersistedView("jm-view-owner-engines");
-  const [cardSearch, setCardSearch] = React.useState("");
   const [modelMgrOpen, setModelMgrOpen] = React.useState(false);
 
   function RowActions({ engine, onImage }: { engine: EngineRow; onImage?: boolean }) {
@@ -113,19 +125,14 @@ export function EnginesTable({
     </>
   );
 
-  const q = cardSearch.trim().toLowerCase();
-  const cardEngines = q
-    ? engines.filter(
-        (e) =>
-          e.serial_number.toLowerCase().includes(q) ||
-          `${e.brand} ${e.model}`.toLowerCase().includes(q)
-      )
-    : engines;
+  // Cards show the same server page as the table — search/paging live in the
+  // URL, so a card search hits the whole registry, not just this page.
+  const cardEngines = engines;
 
   const columns: ColumnDef<EngineRow>[] = [
     {
       accessorKey: "serial_number",
-      header: ({ column }) => <SortableHeader column={column}>Serial</SortableHeader>,
+      header: () => <ServerSortableHeader column="serial_number">Serial</ServerSortableHeader>,
       cell: ({ getValue }) => (
         <span className="font-mono text-sm">{getValue<string>()}</span>
       ),
@@ -133,7 +140,7 @@ export function EnginesTable({
     {
       id: "model",
       accessorFn: (e) => `${e.brand} ${e.model}`,
-      header: ({ column }) => <SortableHeader column={column}>Model</SortableHeader>,
+      header: () => <ServerSortableHeader column="model">Model</ServerSortableHeader>,
       cell: ({ row }) => (
         <div>
           <div className="font-medium">
@@ -175,14 +182,14 @@ export function EnginesTable({
     },
     {
       accessorKey: "cost_centavos",
-      header: ({ column }) => <SortableHeader column={column}>Cost</SortableHeader>,
+      header: () => <ServerSortableHeader column="cost_centavos">Cost</ServerSortableHeader>,
       cell: ({ getValue }) => (
         <span className="tabular-nums">{formatCentavos(getValue<number>())}</span>
       ),
     },
     {
       accessorKey: "price_centavos",
-      header: ({ column }) => <SortableHeader column={column}>Price</SortableHeader>,
+      header: () => <ServerSortableHeader column="price_centavos">Price</ServerSortableHeader>,
       cell: ({ row }) => (
         <div className="flex items-center gap-1.5">
           <span className="tabular-nums font-medium">
@@ -204,9 +211,13 @@ export function EnginesTable({
   return (
     <>
       {view === "table" ? (
-        <DataTable
+        <ServerDataTable
           columns={columns}
           data={engines}
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          q={q}
           searchPlaceholder="Search serial or model…"
           emptyMessage="No engines yet — click Add engine, or receive from a supplier (Suppliers → Receiving)."
           toolbar={
@@ -219,16 +230,7 @@ export function EnginesTable({
       ) : (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative w-full max-w-xs">
-              <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={cardSearch}
-                onChange={(e) => setCardSearch(e.target.value)}
-                placeholder="Search serial or model…"
-                className="pl-8"
-                aria-label="Search engines"
-              />
-            </div>
+            <ServerSearchInput q={q} placeholder="Search serial or model…" />
             <div className="ml-auto flex items-center gap-2">
               <ViewToggle value={view} onChange={setView} />
               {toolbarButtons}
@@ -243,7 +245,7 @@ export function EnginesTable({
                 </EmptyMedia>
                 <EmptyDescription>
                   {q ? (
-                    `Nothing matches “${cardSearch}”.`
+                    `Nothing matches “${q}”.`
                   ) : (
                     <>
                       No engines yet — click{" "}
@@ -314,9 +316,12 @@ export function EnginesTable({
               })}
             </div>
           )}
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {cardEngines.length} of {engines.length} engines
-          </p>
+          <ServerPaginationBar
+            total={total}
+            page={page}
+            pageSize={pageSize}
+            noun="engines"
+          />
         </div>
       )}
       <EngineFormDialog

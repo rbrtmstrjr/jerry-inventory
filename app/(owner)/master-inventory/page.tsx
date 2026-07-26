@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { fetchAll } from "@/lib/pnl";
+import { parseTableParams } from "@/components/data-table/table-params";
 import type { Category, EngineModel, EngineRow, PartRow } from "@/lib/db-types";
 import { CatalogTabs } from "./catalog-tabs";
 import { PartsTable } from "./parts-table";
@@ -16,51 +16,93 @@ export const metadata: Metadata = { title: "Master Inventory" };
  * the catalog fetch, and only the DATA area shows a skeleton (not the whole
  * page). Parts and Engines fetch concurrently.
  */
-export default function MasterInventoryPage() {
+export default async function MasterInventoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  const tab = one(sp.tab) === "engines" ? "engines" : "parts";
+
   return (
-    <CatalogTabs
-      partsSlot={
-        <Suspense fallback={<CatalogSkeleton />}>
-          <PartsPanel />
-        </Suspense>
-      }
-      enginesSlot={
-        <Suspense fallback={<CatalogSkeleton />}>
-          <EnginesPanel />
-        </Suspense>
-      }
-    />
+    <CatalogTabs activeTab={tab}>
+      {/* Re-suspend on any page/sort/search change so the skeleton shows again */}
+      <Suspense key={suspenseKey(sp)} fallback={<CatalogSkeleton />}>
+        {tab === "engines" ? <EnginesPanel sp={sp} /> : <PartsPanel sp={sp} />}
+      </Suspense>
+    </CatalogTabs>
   );
 }
 
-async function PartsPanel() {
+type SP = Record<string, string | string[] | undefined>;
+
+/** Re-suspend key: everything EXCEPT `q`. Including the search term would
+ *  remount the subtree on every debounced keystroke — destroying the search
+ *  box (focus loss) and flashing the skeleton while you are still typing.
+ *  Search instead re-renders in place behind the table's own pending state. */
+function suspenseKey(sp: Record<string, string | string[] | undefined>) {
+  return JSON.stringify(
+    Object.entries(sp)
+      .filter(([k]) => k !== "q")
+      .sort(([a], [b]) => a.localeCompare(b))
+  );
+}
+
+
+async function PartsPanel({ sp }: { sp: SP }) {
   const supabase = await createClient();
-  const [partsRes, categoriesRes, modelsRes, fitmentsRes, pricesRes, suppliersRes] =
-    await Promise.all([
-      supabase
-        .from("parts")
-        .select(
-          "id, name, category_id, sku, barcode, unit, cost_centavos, price_centavos, reorder_level, notes, image_path, product_categories(name), stock_levels(shop_id, qty)"
-        )
-        .is("deleted_at", null)
-        // newest first — a just-added product must be visible on top
-        .order("created_at", { ascending: false }),
-      supabase.from("product_categories").select("id, name").is("deleted_at", null).order("name"),
-      supabase
-        .from("engine_models")
-        .select("id, brand, model, horsepower, stroke, default_warranty_months")
-        .is("deleted_at", null)
-        .order("brand"),
-      supabase.from("part_fitments").select("part_id, engine_model_id"),
-      // Supplier price comparison (owner-only view) — per product.
-      supabase
-        .from("supplier_price_comparison")
-        .select(
-          "supplier_id, supplier_name, part_id, engine_model_id, last_paid_centavos, last_paid_at, receiving_id, quote_centavos, quoted_at, quote_stale, effective_centavos, effective_source, effective_as_of, is_preferred, is_cheapest"
-        )
-        .not("part_id", "is", null),
-      supabase.from("suppliers").select("id, name").is("deleted_at", null).order("name"),
-    ]);
+  const params = parseTableParams(sp, {
+    defaultSort: "created_at",
+    defaultDir: "desc",
+    sortable: ["created_at", "name", "cost_centavos", "price_centavos"],
+  });
+  const from = (params.page - 1) * params.pageSize;
+
+  // ONE page of products, sliced in SQL. Search hits name/sku/barcode — all on
+  // `parts`, so a plain .or() does it without a flattening view.
+  let partsQuery = supabase
+    .from("parts")
+    .select(
+      "id, name, category_id, sku, barcode, unit, cost_centavos, price_centavos, reorder_level, notes, image_path, product_categories(name), stock_levels(shop_id, qty)",
+      { count: "exact" }
+    )
+    .is("deleted_at", null);
+  if (params.q) {
+    const like = `%${params.q}%`;
+    partsQuery = partsQuery.or(
+      `name.ilike.${like},sku.ilike.${like},barcode.ilike.${like}`
+    );
+  }
+
+  const [partsRes, categoriesRes, modelsRes, suppliersRes] = await Promise.all([
+    partsQuery
+      // newest first — a just-added product must be visible on top
+      .order(params.sort ?? "created_at", { ascending: params.dir === "asc" })
+      .range(from, from + params.pageSize - 1),
+    supabase.from("product_categories").select("id, name").is("deleted_at", null).order("name"),
+    supabase
+      .from("engine_models")
+      .select("id, brand, model, horsepower, stroke, default_warranty_months")
+      .is("deleted_at", null)
+      .order("brand"),
+    supabase.from("suppliers").select("id, name").is("deleted_at", null).order("name"),
+  ]);
+
+  // Fitments + supplier prices only for the products ON THIS PAGE. Both used to
+  // be fetched whole (every fitment, every comparison row in the business).
+  const pageIds = (partsRes.data ?? []).map((p) => p.id);
+  const [fitmentsRes, pricesRes] = pageIds.length
+    ? await Promise.all([
+        supabase.from("part_fitments").select("part_id, engine_model_id").in("part_id", pageIds),
+        supabase
+          .from("supplier_price_comparison")
+          .select(
+            "supplier_id, supplier_name, part_id, engine_model_id, last_paid_centavos, last_paid_at, receiving_id, quote_centavos, quoted_at, quote_stale, effective_centavos, effective_source, effective_as_of, is_preferred, is_cheapest"
+          )
+          .in("part_id", pageIds),
+      ])
+    : [{ data: [] }, { data: [] }];
 
   const fitmentsByPart: Record<string, string[]> = {};
   for (const f of fitmentsRes.data ?? []) {
@@ -99,24 +141,38 @@ async function PartsPanel() {
       suppliers={suppliersRes.data ?? []}
       fitmentsByPart={fitmentsByPart}
       pricesByPart={pricesByPart}
+      total={partsRes.count ?? 0}
+      page={params.page}
+      pageSize={params.pageSize}
+      q={params.q}
     />
   );
 }
 
-async function EnginesPanel() {
+async function EnginesPanel({ sp }: { sp: SP }) {
   const supabase = await createClient();
-  const [allEngines, modelsRes, suppliersRes] = await Promise.all([
-    // every serial-tracked engine — paginated (keyset by id) past the 1,000 cap.
-    fetchAll(
-      () =>
-        supabase
-          .from("engines")
-          .select(
-            "id, serial_number, engine_model_id, condition, cost_centavos, price_centavos, warranty_months, status, image_path, engine_models(brand, model, horsepower), shops(name, color_key)"
-          )
-          .is("deleted_at", null),
-      "id"
-    ),
+  const params = parseTableParams(sp, {
+    defaultSort: "created_at",
+    defaultDir: "desc",
+    sortable: ["created_at", "serial_number", "model", "cost_centavos", "price_centavos", "status"],
+  });
+  const from = (params.page - 1) * params.pageSize;
+
+  // ONE page of serials from the flattened registry (0084) — searching serial
+  // OR model spans engines+engine_models, which the view already resolves into
+  // a single `search_text`. This used to load EVERY engine into the browser.
+  let enginesQuery = supabase
+    .from("engine_registry")
+    .select("*", { count: "exact" })
+    .is("deleted_at", null);
+  if (params.q) {
+    enginesQuery = enginesQuery.ilike("search_text", `%${params.q.toLowerCase()}%`);
+  }
+
+  const [enginesRes, modelsRes, suppliersRes] = await Promise.all([
+    enginesQuery
+      .order(params.sort ?? "created_at", { ascending: params.dir === "asc" })
+      .range(from, from + params.pageSize - 1),
     supabase
       .from("engine_models")
       .select("id, brand, model, horsepower, stroke, default_warranty_months")
@@ -126,20 +182,20 @@ async function EnginesPanel() {
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const engines: EngineRow[] = (allEngines as any[]).map((e: any) => ({
+  const engines: EngineRow[] = (enginesRes.data ?? []).map((e: any) => ({
     id: e.id,
     serial_number: e.serial_number,
     engine_model_id: e.engine_model_id,
-    brand: e.engine_models?.brand ?? "?",
-    model: e.engine_models?.model ?? "?",
-    horsepower: e.engine_models?.horsepower ?? null,
+    brand: e.brand ?? "?",
+    model: e.model_name ?? "?",
+    horsepower: e.horsepower,
     condition: e.condition,
     cost_centavos: e.cost_centavos,
     price_centavos: e.price_centavos,
     warranty_months: e.warranty_months,
     status: e.status,
-    shop_name: e.shops?.name ?? null,
-    shop_color_key: e.shops?.color_key ?? null,
+    shop_name: e.shop,
+    shop_color_key: e.shop_color_key,
     image_path: e.image_path,
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -149,6 +205,10 @@ async function EnginesPanel() {
       engines={engines}
       models={(modelsRes.data ?? []) as EngineModel[]}
       suppliers={suppliersRes.data ?? []}
+      total={enginesRes.count ?? 0}
+      page={params.page}
+      pageSize={params.pageSize}
+      q={params.q}
     />
   );
 }

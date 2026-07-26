@@ -42,7 +42,9 @@ export function ScrollToTop({
       aria-label="Back to top"
       onClick={toTop}
       className={cn(
-        "fixed bottom-5 right-5 z-40 flex size-11 items-center justify-center rounded-full",
+        // Bottom-CENTER, not bottom-right: the right corner sits on top of the
+        // pagination controls on every server-paginated list.
+        "fixed bottom-5 left-1/2 z-40 -translate-x-1/2 flex size-11 items-center justify-center rounded-full",
         "bg-primary text-primary-foreground shadow-lg ring-1 ring-border transition-all",
         "hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         "motion-safe:duration-200 print:hidden",

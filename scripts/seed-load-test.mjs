@@ -1,6 +1,6 @@
 /**
  * 3-YEAR LOAD-TEST SEED — realistic day-by-day data for performance testing
- * and free-tier size calibration. BUSY profile: 5 shops, ~20 sales/shop/day.
+ * and free-tier size calibration. BUSY profile: 10 shops, ~20 sales/shop/day.
  *
  * Invariant-safe BY CONSTRUCTION: every stock_movements row and the final
  * stock_levels are derived from the same in-memory tallies, so the ledger
@@ -10,7 +10,8 @@
  * engine sales get warranties; ~5% of sales use a suki card (0072).
  *
  * Deliberately simplified (documented, honest):
- *   • no images (image_path null — placeholders render)
+ *   • one shared sample image on every product (seed-sample/product.png,
+ *     uploaded once to product-images) so the catalog renders realistically
  *   • sequences untouched: literal ids use high ranges (OR-9…, GT9…, SC9…,
  *     serials LT3-…) so future RPC-minted values can never collide
  *
@@ -20,6 +21,7 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { samplePng } from "./_sample-image.mjs";
 
 const env = Object.fromEntries(
   readFileSync(new URL("../.env.local", import.meta.url), "utf8")
@@ -33,15 +35,25 @@ const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_RO
 
 // ── profile ─────────────────────────────────────────────────────────────────
 const YEARS = Number(process.env.SEED_YEARS ?? 3);
+// 10 branches — one per shop color key (0050 caps the palette at 10), all
+// Cavite towns. 10 shops ~doubles the per-day volume of the old 5-shop profile.
 const SHOP_DEFS = [
   { name: "Ternate", color: "teal" },
   { name: "Naic", color: "amber" },
   { name: "Rosario", color: "sky" },
   { name: "Tanza", color: "violet" },
   { name: "Maragondon", color: "emerald" },
+  { name: "Kawit", color: "rose" },
+  { name: "Bacoor", color: "orange" },
+  { name: "Imus", color: "indigo" },
+  { name: "Silang", color: "lime" },
+  { name: "Trece Martires", color: "slate" },
 ];
 const PARTS_N = 400;
-const SALES_PER_DAY = () => 16 + Math.floor(Math.random() * 9); // 16–24
+// Free-tier fit: post-vacuum baseline is ~277MB, budget to a ~450MB cap ~173MB.
+// 3 years × 10 branches at ~7 sales/day/shop lands the base dataset ~344MB;
+// use scripts/seed-append.mjs to stretch further WITHOUT a wipe (net-zero).
+const SALES_PER_DAY = () => 5 + Math.floor(Math.random() * 5); // 5–9
 const UTANG_RATE = 0.15;
 const CARD_RATE = 0.05;
 
@@ -150,6 +162,18 @@ const customers = Array.from({ length: 2000 }, (_, i) => ({
 }));
 await ins("customers", customers);
 
+// One shared sample image so every product renders realistically (instead of
+// the empty-image placeholder). Uploaded once to product-images; parts +
+// engines below point their image_path at it.
+const SAMPLE_IMG_PATH = "seed-sample/product.png";
+{
+  const { error } = await admin.storage
+    .from("product-images")
+    .upload(SAMPLE_IMG_PATH, samplePng(400), { contentType: "image/png", upsert: true });
+  if (error) throw new Error(`sample image upload: ${error.message}`);
+  console.log(`  sample product image uploaded (${SAMPLE_IMG_PATH}) — ${elapsed()}`);
+}
+
 const NOUNS = ["Carburetor", "Impeller", "Propeller", "Sparkplug", "Fuel Line", "Gasket Set", "Piston Kit", "Starter Rope", "Water Pump", "Oil Seal", "Bearing", "Throttle Cable", "Fuel Filter", "Anode", "Recoil Starter", "Ignition Coil"];
 const parts = Array.from({ length: PARTS_N }, (_, i) => {
   const cost = rnd(50, 8000) * 100;
@@ -157,7 +181,7 @@ const parts = Array.from({ length: PARTS_N }, (_, i) => {
     id: uid(), name: `${pick(NOUNS)} ${pad(i, 3)}-Z${rnd(1, 9)}C`, category_id: pick(CATS),
     sku: `SKU-${pad(i, 4)}`, barcode: i < 100 ? `GT9${pad(i, 7)}` : null, unit: "pc",
     cost_centavos: cost, price_centavos: Math.round(cost * (1.3 + Math.random() * 0.5)),
-    reorder_level: 0, created_at: at(days[0], 8),
+    reorder_level: 0, image_path: SAMPLE_IMG_PATH, created_at: at(days[0], 8),
   };
 });
 await ins("parts", parts);
@@ -237,14 +261,14 @@ for (const [mi, month] of months.entries()) {
   // engines: ~10/shop/month received then sold over the month
   const monthEngines = [];
   for (const shop of shops) {
-    for (let e = 0; e < 10; e++) {
+    for (let e = 0; e < 4; e++) {
       const m = pick(models);
       const cost = rnd(40000, 120000) * 100;
       const eng = {
         id: uid(), serial_number: `LT3-${pad(++serialNo, 6)}`, engine_model_id: m.id,
         condition: "brand_new", cost_centavos: cost,
         price_centavos: Math.round(cost * (1.25 + Math.random() * 0.3)),
-        created_at: at(d0, 7), shopObj: shop,
+        image_path: SAMPLE_IMG_PATH, created_at: at(d0, 7), shopObj: shop,
       };
       monthEngines.push(eng);
       rows.receiving_lines.push({ id: uid(), receiving_id: rcv.id, engine_id: eng.id, qty: 1, unit_cost_centavos: cost, created_at: rcv.received_at });
@@ -427,7 +451,7 @@ for (const [mi, month] of months.entries()) {
     rows.engines.push({ id: eng.id, serial_number: eng.serial_number, engine_model_id: eng.engine_model_id,
       condition: eng.condition, cost_centavos: eng.cost_centavos, price_centavos: eng.price_centavos,
       status: f.status, shop_id: f.shop_id, customer_id: f.customer_id ?? null,
-      sold_at: f.sold_at ?? null, created_at: eng.created_at });
+      sold_at: f.sold_at ?? null, image_path: eng.image_path, created_at: eng.created_at });
   }
 
   // insert in FK order
