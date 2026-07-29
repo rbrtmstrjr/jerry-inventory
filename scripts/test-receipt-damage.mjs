@@ -37,7 +37,7 @@ async function signIn(email, password) {
   if (error) throw new Error(`${email}: ${error.message}`);
   return c;
 }
-const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
+const owner = await signIn(env.TEST_OWNER_EMAIL, env.TEST_OWNER_PASSWORD);
 
 const { data: shop } = await admin
   .from("shops").insert({ name: `DMG-TEST ${RUN}` }).select().single();

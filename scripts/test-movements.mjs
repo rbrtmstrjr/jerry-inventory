@@ -139,22 +139,45 @@ section("Σ movements = stock_levels, per product × location");
   // That is orphaned test debris, not a stock discrepancy: there is no shelf
   // left to disagree with. Asserting over them would fail forever for a reason
   // that has nothing to do with the business's stock.
-  const { data: liveParts } = await owner
-    .from("parts").select("id").is("deleted_at", null);
-  const live = new Set((liveParts ?? []).map((p) => p.id));
+  // retry transient page errors (3 tries) — but never treat one as end-of-data,
+  // which would silently truncate the ledger sum
+  async function fetchPage(build) {
+    for (let attempt = 1; ; attempt++) {
+      const { data, error } = await build();
+      if (!error) return data ?? [];
+      if (attempt >= 3) throw new Error(`page failed after ${attempt} tries: ${error.message}`);
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
+
+  const live = new Set();
+  for (let off = 0; ; off += 1000) {
+    const page = await fetchPage(() => owner
+      .from("parts").select("id").is("deleted_at", null)
+      .order("id").range(off, off + 999));
+    for (const p of page) live.add(p.id);
+    if (page.length < 1000) break;
+  }
 
   // Paginated — a single select is silently truncated at the API's max-rows
   // (fine at demo scale, wrong the moment the journal outgrows it; found by
   // the 300k-row load test, where the cap shorted 3 pairs' ledger sums).
+  // Keyset, not OFFSET: without a stable ORDER BY the pages overlap/drop rows
+  // at 300k-row scale, and deep offsets time out. A failed page must THROW —
+  // treating it as end-of-data silently truncates the ledger sum.
   const allMv = [];
-  for (let off = 0; ; off += 1000) {
-    const { data: page } = await owner
-      .from("movement_journal")
-      .select("part_id, shop_id, qty_change, location_kind")
-      .not("part_id", "is", null)
-      .range(off, off + 999);
-    allMv.push(...(page ?? []));
-    if ((page ?? []).length < 1000) break;
+  for (let last = null; ; ) {
+    const page = await fetchPage(() => {
+      let q = owner
+        .from("movement_journal")
+        .select("id, part_id, shop_id, qty_change, location_kind")
+        .not("part_id", "is", null)
+        .order("id").limit(1000);
+      return last === null ? q : q.gt("id", last);
+    });
+    allMv.push(...page);
+    if (page.length < 1000) break;
+    last = page[page.length - 1].id;
   }
   const all = new Map();
   for (const r of allMv ?? []) {
@@ -164,10 +187,11 @@ section("Σ movements = stock_levels, per product × location");
   }
   const allLv = [];
   for (let off = 0; ; off += 1000) {
-    const { data: page } = await owner
-      .from("stock_levels").select("part_id, shop_id, qty").range(off, off + 999);
-    allLv.push(...(page ?? []));
-    if ((page ?? []).length < 1000) break;
+    const page = await fetchPage(() => owner
+      .from("stock_levels").select("part_id, shop_id, qty")
+      .order("part_id").order("shop_id").range(off, off + 999));
+    allLv.push(...page);
+    if (page.length < 1000) break;
   }
   const shelves = new Map(allLv.map((l) => [`${l.part_id}|${l.shop_id ?? "master"}`, l.qty]));
   const bad = [...all.entries()].filter(([k, v]) => (shelves.get(k) ?? 0) !== v);

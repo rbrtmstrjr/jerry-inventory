@@ -62,7 +62,7 @@ async function makeShop(label) {
   return { shop, userId: u.user.id, client: await signIn(email, password) };
 }
 
-const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
+const owner = await signIn(env.TEST_OWNER_EMAIL, env.TEST_OWNER_PASSWORD);
 
 /** Deliveries no longer auto-land (0028/0029) â€” the shop must confirm arrival. */
 async function confirmAll(shopClient, deliveryId) {

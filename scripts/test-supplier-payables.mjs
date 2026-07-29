@@ -41,7 +41,7 @@ async function signIn(email, password) {
   return c;
 }
 
-const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
+const owner = await signIn(env.TEST_OWNER_EMAIL, env.TEST_OWNER_PASSWORD);
 
 // temp shop + employee purely to prove employees are locked out
 const { data: shop } = await admin

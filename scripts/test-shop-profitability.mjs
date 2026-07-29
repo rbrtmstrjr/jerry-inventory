@@ -48,7 +48,7 @@ async function signIn(email, password) {
   return c;
 }
 
-const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
+const owner = await signIn(env.TEST_OWNER_EMAIL, env.TEST_OWNER_PASSWORD);
 
 // Ã¢â€â‚¬Ã¢â€â‚¬ Baseline: what the live expense data looks like BEFORE we touch anything Ã¢â€â‚¬Ã¢â€â‚¬
 console.log("Baseline (live expense attribution must survive this run):");

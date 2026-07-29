@@ -42,8 +42,7 @@ import {
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const OWNER_EMAIL = "robertmaestro09@gmail.com";
-const OWNER_PASSWORD = "rajonrondo09";
+import { OWNER_EMAIL, OWNER_PASSWORD } from "./_harness.mjs";
 
 // ---------------------------------------------------------------------------
 // This suite flips LIVE settings to prove they drive behaviour. Capture the real

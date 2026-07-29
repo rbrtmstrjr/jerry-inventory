@@ -120,7 +120,9 @@ section("Path is locked to the product's own id:");
 }
 {
   const { error } = await owner.rpc("fn_set_product_image", {
-    p_kind: "part", p_id: part.id, p_path: `../../etc/passwd`, p_clear: false,
+    // no "/etc/passwd" literal — Cloudflare's WAF eats that string before it
+    // ever reaches Postgres; any ".."-style path still exercises the guard
+    p_kind: "part", p_id: part.id, p_path: `../../private/owner-secrets.webp`, p_clear: false,
   });
   check("traversal-style path rejected", !!error && /invalid image path/i.test(error.message));
 }

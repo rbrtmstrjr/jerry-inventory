@@ -71,8 +71,14 @@ export async function signIn(email, password) {
   return c;
 }
 
-/** The owner login is the one account the user has NOT repurposed. */
-export const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
+/** Owner credentials come from .env.local so a password change never breaks the suites. */
+export const OWNER_EMAIL = env.TEST_OWNER_EMAIL;
+export const OWNER_PASSWORD = env.TEST_OWNER_PASSWORD;
+if (!OWNER_EMAIL || !OWNER_PASSWORD) {
+  console.error("Missing TEST_OWNER_EMAIL / TEST_OWNER_PASSWORD in .env.local");
+  process.exit(2);
+}
+export const owner = await signIn(OWNER_EMAIL, OWNER_PASSWORD);
 
 // â”€â”€ fixtures (tracked so cleanup can find them) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const shops = [];

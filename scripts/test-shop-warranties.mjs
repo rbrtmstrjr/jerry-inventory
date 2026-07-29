@@ -54,7 +54,7 @@ async function makeShop(label) {
   return { shop, userId: u.user.id, client: await signIn(email, password) };
 }
 
-const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
+const owner = await signIn(env.TEST_OWNER_EMAIL, env.TEST_OWNER_PASSWORD);
 
 async function confirmAll(shopClient, deliveryId) {
   const { data: lines } = await shopClient
@@ -155,7 +155,10 @@ console.log("\nA shop sees ONLY what it sold:");
   check("shop cannot read the warranties base table at all", (data ?? []).length === 0);
 }
 {
-  const { data } = await owner.from("shop_warranties").select("id");
+  // target the two fixture ids — an unfiltered select caps at the API's
+  // max-rows (1000) and the fixtures fall outside the window at real scale
+  const { data } = await owner.from("shop_warranties").select("id")
+    .in("id", [wA.warrantyId, wB.warrantyId]);
   const ids = (data ?? []).map((r) => r.id);
   check("owner sees BOTH shops' warranties",
     ids.includes(wA.warrantyId) && ids.includes(wB.warrantyId));

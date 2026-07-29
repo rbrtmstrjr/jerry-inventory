@@ -63,7 +63,7 @@ async function makeShop(label) {
   return { shop, userId: u.user.id, client: await signIn(email, password) };
 }
 
-const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
+const owner = await signIn(env.TEST_OWNER_EMAIL, env.TEST_OWNER_PASSWORD);
 
 async function confirmAll(shopClient, deliveryId) {
   const { data: lines } = await shopClient

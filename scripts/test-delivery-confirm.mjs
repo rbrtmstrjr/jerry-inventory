@@ -54,7 +54,7 @@ async function makeShop(label) {
   return { shop, userId: u.user.id, client: await signIn(email, password) };
 }
 
-const owner = await signIn("robertmaestro09@gmail.com", "rajonrondo09");
+const owner = await signIn(env.TEST_OWNER_EMAIL, env.TEST_OWNER_PASSWORD);
 
 console.log("Setup: temp shops + 10 units of a part in master");
 const A = await makeShop("ShopA");
@@ -126,7 +126,10 @@ const { data: line } = await A.client
   .from("shop_incoming_delivery_lines").select("*").eq("delivery_id", delId).single();
 {
   const keys = Object.keys(line ?? {});
-  check("shop's line view exposes NO cost", !keys.some((k) => k.includes("cost")));
+  // 0064: the shop's delivery note prints per-line cost + selling, so the view
+  // deliberately carries both (a widening of the 0053 narrowing, owner-requested).
+  check("shop's line view carries cost + price (0064 delivery-note prices)",
+    keys.includes("cost_centavos") && keys.includes("price_centavos"));
   check("shop sees qty sent = 10", line?.qty_sent === 10);
 }
 {

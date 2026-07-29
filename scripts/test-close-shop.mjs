@@ -27,8 +27,8 @@ const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_RO
 });
 {
   const { error } = await owner.auth.signInWithPassword({
-    email: "robertmaestro09@gmail.com",
-    password: "rajonrondo09",
+    email: env.TEST_OWNER_EMAIL,
+    password: env.TEST_OWNER_PASSWORD,
   });
   if (error) throw new Error(error.message);
 }

@@ -51,8 +51,10 @@ section("Guards: self / non-live / already-merged");
   await merge(owner, s1.id, canon.id);
   const s2 = await seedPart({ label: "Hop2" });
   const { error: twoHop } = await merge(owner, s2.id, s1.id);
+  // a merged part is also soft-deleted, so the retired-part guard may fire
+  // first — either message proves the one-hop rule held
   check("cannot merge into an already-merged part (one hop only)",
-    /surviving part/i.test(twoHop?.message ?? ""), twoHop?.message);
+    /surviving part|retired part/i.test(twoHop?.message ?? ""), twoHop?.message);
 }
 
 // ── 3. preconditions block (each with a specific message) ────────────────────
