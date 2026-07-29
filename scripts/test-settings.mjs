@@ -365,11 +365,14 @@ section("Scope boundary");
   // Shop logins are per-shop and belong next to map pins and close-shop. If a
   // credential path ever appears under /settings there are two ways to do one
   // thing, and the one-login-per-shop check lives on only one of them.
+  // Markers are the SHOP-login functions specifically — since 0099 the
+  // service role (createAdminClient / auth.admin) legitimately appears in
+  // /settings for ADMIN-account management, a different credential domain.
   const dir = "app/(owner)/settings";
   const files = readdirSync(dir).filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"));
   const offenders = files.filter((f) => {
     const src = readFileSync(join(dir, f), "utf8");
-    return /createAdminClient|auth\.admin|createEmployee|resetEmployeePassword/.test(src);
+    return /createEmployee|resetEmployeePassword/.test(src);
   });
   check(
     "no shop-credential management leaked into /settings",

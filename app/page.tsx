@@ -4,5 +4,5 @@ import { getProfile } from "@/lib/auth";
 export default async function Home() {
   const profile = await getProfile();
   if (!profile) redirect("/login");
-  redirect(profile.role === "owner" ? "/dashboard" : "/shop");
+  redirect(profile.role === "employee" ? "/shop" : "/dashboard");
 }

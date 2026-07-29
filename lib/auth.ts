@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-export type Role = "owner" | "employee";
+export type Role = "owner" | "admin" | "employee";
+
+/** Office tier: runs the whole owner-side app day to day (0099). */
+export const OFFICE_ROLES: readonly Role[] = ["owner", "admin"];
 
 export interface Profile {
   id: string;
@@ -29,11 +32,18 @@ export async function getProfile(): Promise<Profile | null> {
   return profile as Profile;
 }
 
-/** Require an owner session; employees are sent to their shop view. */
+/** Require an office session (owner OR admin); employees go to their shop view. */
 export async function requireOwner(): Promise<Profile> {
   const profile = await getProfile();
   if (!profile) redirect("/login");
-  if (profile.role !== "owner") redirect("/shop");
+  if (!OFFICE_ROLES.includes(profile.role)) redirect("/shop");
+  return profile;
+}
+
+/** Require Gerry himself — the four pages an admin never sees (0099). */
+export async function requirePrimaryOwner(): Promise<Profile> {
+  const profile = await requireOwner();
+  if (profile.role !== "owner") redirect("/dashboard");
   return profile;
 }
 

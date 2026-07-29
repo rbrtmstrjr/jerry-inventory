@@ -1,17 +1,22 @@
 import { Info } from "lucide-react";
 import { SectionTabs } from "@/components/shell/section-tabs";
+import { requireOwner } from "@/lib/auth";
 
-const tabs = [
-  { href: "/expenses", label: "Expenses" },
-  { href: "/expenses/categories", label: "Categories" },
-  { href: "/expenses/reports", label: "Reports" },
-];
-
-export default function ExpensesLayout({
+export default async function ExpensesLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Recording expenses is daily office work; the REPORTS tab (spending
+  // overview) is Gerry-only (0099), so the admin doesn't get its tab.
+  const profile = await requireOwner();
+  const tabs = [
+    { href: "/expenses", label: "Expenses" },
+    { href: "/expenses/categories", label: "Categories" },
+    ...(profile.role === "owner"
+      ? [{ href: "/expenses/reports", label: "Reports" }]
+      : []),
+  ];
   return (
     <div className="flex flex-col gap-4">
       <div>

@@ -49,8 +49,16 @@ someone who cannot sign in — `proxy.ts` lets `/auth/*` through unauthenticated
 (`client`, `server`, `proxy` middleware, `admin` service-role) and `lib/auth.ts`.
 
 ### Roles
-- **Owner** — one account; full control of inventory, deliveries, approvals, expenses, settings.
+- **Owner (Gerry)** — one account; full control. The ONLY role that sees **Reports**, **Settings**, **Shops & Employees**, and **Expenses → Reports**, and the only one that can manage logins, open/close shops, or write settings (0099).
+- **Admin (office)** — logins Gerry mints under Settings → Admins (0099). Runs ALL daily operations — receiving, deliveries, approvals, expenses, payables, catalog, suki cards — exactly like the owner, minus the four Gerry-only areas. Deactivating one (`profiles.active=false`) cuts app AND database access instantly; deleting is possible only while the account has no recorded history (attribution FKs refuse otherwise). Enforcement is two-speed **by design**: accounts/shops/settings are DB-enforced (`is_primary_owner()`); the hidden pages are app-enforced (`requirePrimaryOwner()` redirects) — the admin is trusted staff, not an adversary.
 - **Employee (shop)** — **one shared login per shop**. Records sales/losses and edits product photos for its own shop only. Helpers/cashiers are tracked as *staff* records (people without app logins, managed under Shops & Employees — they carry a birthday for the reminder), separate from the shop login.
+
+**`is_owner()` means OFFICE TIER (owner OR admin, active) since 0099.** The
+name was kept so ~60 policies, every safe-view guard, and every definer-RPC
+guard accept the admin with zero sweeping — including notifications
+(`recipient_role='owner'` RLS), so daily alerts reach the office
+automatically. Gerry-only checks use `is_primary_owner()` (DB) /
+`requirePrimaryOwner()` (app).
 
 ### Core data flow — the approval pipeline
 1. **Receive** stock into master inventory (owner).
@@ -195,7 +203,7 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 ### Owner — Administration (1)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/settings` | Settings | Five sections (`?tab=`): **Business** (identity printed on all six documents + defaults) · **Account** (change password/email behind a current-password re-auth gate, reset email) · **Alerts** (`warranty_expiry_alert_days`, `supplier_limit_warn_pct`, `quote_stale_days`, suki rates) · **Notifications** (channel status, read-only) · **System** (pg_cron health, connection badges — no secrets). The Payroll section (working days, semi-monthly split, contribution rate book) was removed with Payroll (0083) |
+| `/settings` | Settings | **Gerry-only (0099).** Six sections (`?tab=`): **Business** (identity printed on all six documents + defaults) · **Account** (change password/email behind a current-password re-auth gate, reset email) · **Admins** (0099: create office logins, deactivate/reactivate, change name/email/password, delete-while-historyless) · **Alerts** (`warranty_expiry_alert_days`, `supplier_limit_warn_pct`, `quote_stale_days`, suki rates) · **Notifications** (channel status, read-only) · **System** (pg_cron health, connection badges — no secrets). The Payroll section was removed with Payroll (0083) |
 
 ### Shop / Employee (10)
 | Route | Page | Purpose |
@@ -922,7 +930,29 @@ payroll CTEs + `payroll_gross`/`payroll_er` outputs. **Kept:** `staff` +
 staff are now managed from **Shops & Employees** (a slim name/shop/birthday/photo
 manager). Labor stops being a P&L line; wages ride the Expenses module. The
 7-page Payroll module, the Settings Payroll tab + rate book, and the `payroll*`
-suites are gone; `pnl`/`shop-profitability` lose their labor assertions.
+suites are gone; `pnl`/`shop-profitability` lose their labor assertions. ·
+`0094`/`0095` **FK-delete + actor indexes** (unindexed FK back-references made
+deletes sequential-scan the 300k-row ledger → statement timeouts in test
+cleanup; partial indexes on every document/attribution FK column) · `0099`
+**admin accounts — the light owner tier** (0085–0098 were a heavier
+three-role/2FA/oversight experiment, applied then fully REVERTED at the
+owner's request; those numbers are retired). Adds `admin` to `user_role` +
+widens the profiles CHECK (admin = office account, no shop). **Redefines
+`is_owner()` = office tier** (owner OR admin, active) so every existing
+policy/guard accepts the admin unchanged, and adds `is_primary_owner()`
+(Gerry alone) guarding the three DB-enforced surfaces: profiles
+insert/update/delete, `shops_write`, and settings writes (select stays
+office-wide — documents and dials read it). Everything else about the split
+is app-level: `requirePrimaryOwner()` gates /reports, /settings, /shops,
+/expenses/reports; the admin's nav omits them; `contextLabel` shows "Admin".
+Admin management lives in Settings → Admins (service-role server actions,
+`role==='owner'` strictly): create (mirrors the shop-login pattern incl.
+orphan-rollback), deactivate/reactivate (`profiles.active` — both helper fns
+check it, so the flag cuts DB access), edit name/email/password, delete
+(auth-user delete cascades the profile; attribution FKs refuse once history
+exists → "deactivate instead"). `test-admin-accounts.mjs` proves the tier
+split, the CHECK, deactivation-cuts-access, and employee/anon unchanged;
+exits 2 until 0099 is applied.
 
 ### Cost visibility — narrowed, not opened (0053)
 "Cost is owner-only" (the discipline behind 0038 and the safe views) was

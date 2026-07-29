@@ -1,11 +1,14 @@
+import { requirePrimaryOwner } from "@/lib/auth";
+
 // Per-shop profitability moved to /reports?tab=shops — it's financial
 // reporting, not shop management. This page is now purely operational, so the
 // tab bar went with it (one tab is not a tab bar).
-export default function ShopsLayout({
+export default async function ShopsLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  await requirePrimaryOwner(); // Gerry-only (0099): branch structure + shop logins
   return (
     <div className="flex flex-col gap-4">
       <div>

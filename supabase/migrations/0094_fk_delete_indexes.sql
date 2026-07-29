@@ -50,23 +50,6 @@ create index if not exists idx_warranty_claims_replacement
   on public.warranty_claims (replacement_engine_id)
   where replacement_engine_id is not null;
 
--- 0086 tables: append-only forever, and their FKs gate part / engine / shop /
--- profile deletes respectively. actor is already indexed (0086); these are the
--- rest. Cheap now, and they also serve the /oversight filters.
-create index if not exists idx_floor_attempts_part
-  on public.price_floor_attempts (part_id) where part_id is not null;
-create index if not exists idx_floor_attempts_engine
-  on public.price_floor_attempts (engine_id) where engine_id is not null;
-create index if not exists idx_floor_attempts_shop
-  on public.price_floor_attempts (shop_id) where shop_id is not null;
-create index if not exists idx_credential_events_actor
-  on public.credential_events (actor) where actor is not null;
-create index if not exists idx_credential_events_subject
-  on public.credential_events (subject) where subject is not null;
-create index if not exists idx_owner_requests_reviewer
-  on public.owner_requests (reviewed_by) where reviewed_by is not null;
-
--- Gates profile deletes once admin-directed notifications exist (0086).
-create index if not exists idx_notifications_recipient_profile
-  on public.notifications (recipient_profile_id)
-  where recipient_profile_id is not null;
+-- (This file originally also indexed the 0086 experiment tables — those tables
+-- were dropped with the experiment's revert, and the index statements went
+-- with them so this file replays cleanly on the current lineage.)

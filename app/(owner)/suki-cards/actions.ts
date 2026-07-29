@@ -10,9 +10,10 @@ type ActionResult =
   | { ok: false; error: string };
 
 // A Server Action doesn't inherit the layout gate — re-check the caller.
+// Office tier (0099): recording suki cards is daily work, so admin too.
 async function requireOwnerAction(): Promise<string | null> {
   const profile = await getProfile();
-  if (!profile || profile.role !== "owner") return null;
+  if (!profile || (profile.role !== "owner" && profile.role !== "admin")) return null;
   return profile.id;
 }
 

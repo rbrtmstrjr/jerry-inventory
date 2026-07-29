@@ -39,7 +39,7 @@ export default async function LoginPage({
 }) {
   // Already signed in? Go straight to the right home.
   const profile = await getProfile().catch(() => null);
-  if (profile) redirect(profile.role === "owner" ? "/dashboard" : "/shop");
+  if (profile) redirect(profile.role === "employee" ? "/shop" : "/dashboard");
 
   // /auth/callback bounces failed reset links back here with a plain-language
   // reason, so a dead link explains itself instead of silently doing nothing.

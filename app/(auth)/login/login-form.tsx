@@ -86,7 +86,7 @@ export function LoginForm({ initialError }: { initialError?: string }) {
     }
 
     setRedirecting(true);
-    router.push(prof.role === "owner" ? "/dashboard" : "/shop");
+    router.push(prof.role === "employee" ? "/shop" : "/dashboard");
     router.refresh();
   }
 

@@ -10,12 +10,10 @@
 --
 --   [cleanup] profiles: canceling statement due to statement timeout
 --
--- These are not test-only columns. Attribution is the FIRST layer of the
--- insider-threat model, and every surface that answers "which named admin did
--- this?" filters by exactly these columns — the Movements journal's actor
--- filter, the digest's approvals-by-admin rollup, /oversight's per-admin view.
--- Today those are sequential scans of the ledger; after this they are index
--- lookups. The complete column list was enumerated from the schema
+-- These are not test-only columns. Every surface that answers "who did
+-- this?" filters by exactly these columns — e.g. the Movements journal's
+-- actor filter. Today those are sequential scans of the ledger; after this
+-- they are index lookups. The complete column list was enumerated from the schema
 -- (`references public.profiles`), not recalled — a missed column here is the
 -- next timeout.
 --

@@ -14,7 +14,12 @@ export default async function OwnerLayout({
   const profile = await requireOwner();
 
   return (
-    <AppShell variant="owner" userName={profile.full_name} contextLabel="Owner">
+    <AppShell
+      variant="owner"
+      role={profile.role}
+      userName={profile.full_name}
+      contextLabel={profile.role === "admin" ? "Admin" : "Owner"}
+    >
       {children}
     </AppShell>
   );

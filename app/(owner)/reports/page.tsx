@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { requirePrimaryOwner } from "@/lib/auth";
 import { ph_today } from "@/lib/ph-date";
 import { ReportTabs } from "./report-tabs";
 import { PnlTab } from "./pnl-tab";
@@ -22,6 +23,7 @@ export default async function ReportsPage({
 }: {
   searchParams: Promise<{ from?: string; to?: string; shop?: string; tab?: string }>;
 }) {
+  await requirePrimaryOwner(); // Gerry-only (0099): the whole-business money picture
   const params = await searchParams;
   const today = ph_today();
   const isDate = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);

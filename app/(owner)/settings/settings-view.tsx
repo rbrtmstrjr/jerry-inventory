@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { BusinessSection } from "./business-section";
 import { AccountSection } from "./account-section";
+import { AdminAccountsSection, type AdminAccountRow } from "./admin-accounts-section";
 import { AlertsSection } from "./alerts-section";
 import { NotificationsSection } from "./notifications-section";
 import { SystemSection } from "./system-section";
@@ -16,6 +17,7 @@ import type { CronJobHealth, NotificationChannelRow, SettingsRow } from "./types
 const TAB_VALUES = [
   "business",
   "account",
+  "admins",
   "alerts",
   "notifications",
   "system",
@@ -25,6 +27,7 @@ type TabValue = (typeof TAB_VALUES)[number];
 const TAB_LABEL: Record<TabValue, string> = {
   business: "Business",
   account: "Account",
+  admins: "Admins",
   alerts: "Alerts",
   notifications: "Notifications",
   system: "System",
@@ -36,6 +39,7 @@ export function SettingsView({
   channels,
   pendingCounts,
   account,
+  admins,
   cron,
   env,
 }: {
@@ -44,6 +48,7 @@ export function SettingsView({
   channels: NotificationChannelRow[];
   pendingCounts: Record<string, number>;
   account: { email: string | null; lastSignInAt: string | null };
+  admins: AdminAccountRow[];
   cron: { jobs: CronJobHealth[]; error: string | null };
   env: { supabaseUrl: boolean; anonKey: boolean; serviceRoleKey: boolean };
 }) {
@@ -75,7 +80,7 @@ export function SettingsView({
 
       {/* One read failure, one honest message — rather than each section
           rendering invented defaults. A guessed business name would print. */}
-      {!settings && tab !== "account" && tab !== "system" && (
+      {!settings && tab !== "account" && tab !== "admins" && tab !== "system" && (
         <Alert variant="destructive" className="mt-4">
           <AlertTriangle className="size-4" />
           <AlertDescription>
@@ -91,6 +96,10 @@ export function SettingsView({
 
       <TabsContent value="account" className="mt-4">
         <AccountSection email={account.email} lastSignInAt={account.lastSignInAt} />
+      </TabsContent>
+
+      <TabsContent value="admins" className="mt-4">
+        <AdminAccountsSection admins={admins} />
       </TabsContent>
 
       <TabsContent value="alerts" className="mt-4">

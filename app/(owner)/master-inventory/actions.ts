@@ -8,8 +8,9 @@ import { getProfile } from "@/lib/auth";
 type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
 async function requireOwner(): Promise<boolean> {
+  // office tier (0099): catalog work is daily, so the admin does it too
   const profile = await getProfile();
-  return profile?.role === "owner";
+  return profile?.role === "owner" || profile?.role === "admin";
 }
 
 // ---------------------------------------------------------------------------

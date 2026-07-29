@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { requirePrimaryOwner } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/pnl";
 import { ph_today } from "@/lib/ph-date";
@@ -21,6 +22,7 @@ export default async function ExpenseReportsPage({
 }: {
   searchParams: Promise<{ from?: string; to?: string; shop?: string }>;
 }) {
+  await requirePrimaryOwner(); // Gerry-only (0099): the spending overview
   const params = await searchParams;
   return (
     <Suspense key={JSON.stringify(params)} fallback={<ReportSkeleton />}>

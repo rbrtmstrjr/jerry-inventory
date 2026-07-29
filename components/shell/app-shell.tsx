@@ -157,6 +157,8 @@ const EMPLOYEE_NAV: NavGroup[] = [
 
 export interface AppShellProps {
   variant: "owner" | "employee";
+  /** office role — an "admin" gets the owner shell minus the Gerry-only areas (0099) */
+  role?: "owner" | "admin" | "employee";
   userName: string;
   /** e.g. "Owner" or the shop's name for employees */
   contextLabel: string;
@@ -165,6 +167,10 @@ export interface AppShellProps {
   badgeCounts?: Record<string, number>;
   children: React.ReactNode;
 }
+
+/** Pages that exist only for Gerry — hidden from the admin's nav AND gated
+ *  server-side in each page (the nav is convenience, the gate is the rule). */
+const GERRY_ONLY_HREFS = new Set(["/reports", "/shops"]);
 
 function isActive(pathname: string, href: string, allHrefs: string[]) {
   if (pathname === href) return true;
@@ -273,10 +279,12 @@ function useSignOut() {
  */
 function UserMenu({
   variant,
+  role,
   userName,
   contextLabel,
 }: {
   variant: "owner" | "employee";
+  role?: "owner" | "admin" | "employee";
   userName: string;
   contextLabel: string;
 }) {
@@ -305,8 +313,9 @@ function UserMenu({
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {/* Employees have no business config to reach — same reason /settings
-            never appeared in their sidebar. */}
-        {variant === "owner" && (
+            never appeared in their sidebar. Settings is also Gerry-only (0099),
+            so the admin doesn't get the link either. */}
+        {variant === "owner" && role !== "admin" && (
           <DropdownMenuItem asChild>
             <Link href="/settings">
               <Settings className="size-4" />
@@ -330,10 +339,16 @@ function UserMenu({
   );
 }
 
-export function AppShell({ variant, userName, contextLabel, badgeCounts, children }: AppShellProps) {
+export function AppShell({ variant, role, userName, contextLabel, badgeCounts, children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  const groups = variant === "owner" ? OWNER_NAV : EMPLOYEE_NAV;
+  const groups = React.useMemo(() => {
+    const base = variant === "owner" ? OWNER_NAV : EMPLOYEE_NAV;
+    if (variant !== "owner" || role !== "admin") return base;
+    return base
+      .map((g) => ({ ...g, items: g.items.filter((i) => !GERRY_ONLY_HREFS.has(i.href)) }))
+      .filter((g) => g.items.length > 0);
+  }, [variant, role]);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   return (
@@ -376,7 +391,7 @@ export function AppShell({ variant, userName, contextLabel, badgeCounts, childre
           <div className="flex-1" />
           <NotificationBell variant={variant} />
           <ThemeToggle />
-          <UserMenu variant={variant} userName={userName} contextLabel={contextLabel} />
+          <UserMenu variant={variant} role={role} userName={userName} contextLabel={contextLabel} />
         </header>
 
         <div

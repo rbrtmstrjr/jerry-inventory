@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -162,5 +163,175 @@ export async function updateAlertSettings(input: unknown): Promise<ActionResult>
   revalidatePath("/suppliers");
   revalidatePath("/warranties");
   revalidatePath("/suki-cards");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Admin accounts (0099) — Gerry mints and manages the office logins.
+//
+// requireOwnerAction() checks role === 'owner' STRICTLY, so an admin can never
+// reach these even though they pass the office-tier layout. RLS backs it up:
+// profiles insert/update/delete is is_primary_owner()-only, so even a direct
+// PostgREST call from an admin session dies at the database.
+// ---------------------------------------------------------------------------
+const createAdminSchema = z.object({
+  full_name: z.string().trim().min(1, "Name is required"),
+  email: z.email("Valid email required"),
+  password: z.string().min(8, "Password needs at least 8 characters"),
+});
+
+export async function createAdminAccount(input: unknown): Promise<ActionResult> {
+  if (!(await requireOwnerAction()))
+    return { ok: false, error: "Only the owner can manage admin accounts" };
+
+  const parsed = createAdminSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const admin = createAdminClient();
+  const { data: created, error: authError } = await admin.auth.admin.createUser({
+    email: parsed.data.email,
+    password: parsed.data.password,
+    email_confirm: true,
+  });
+  if (authError) {
+    return {
+      ok: false,
+      error: /already/i.test(authError.message)
+        ? "That email already has an account."
+        : authError.message,
+    };
+  }
+
+  const { error: profileError } = await admin.from("profiles").insert({
+    id: created.user.id,
+    full_name: parsed.data.full_name,
+    role: "admin",
+    shop_id: null,
+  });
+  if (profileError) {
+    // don't leave an orphaned auth account behind
+    await admin.auth.admin.deleteUser(created.user.id);
+    return { ok: false, error: profileError.message };
+  }
+
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+/** Resolve the target and refuse anything that isn't an admin profile — this
+ *  API must never be able to touch Gerry's own login or a shop login. */
+async function getAdminTarget(id: string) {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("profiles")
+    .select("id, role")
+    .eq("id", id)
+    .single();
+  return data?.role === "admin" ? data : null;
+}
+
+const setActiveSchema = z.object({ id: z.uuid(), active: z.boolean() });
+
+export async function setAdminActive(input: unknown): Promise<ActionResult> {
+  if (!(await requireOwnerAction()))
+    return { ok: false, error: "Only the owner can manage admin accounts" };
+
+  const parsed = setActiveSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid input" };
+  if (!(await getAdminTarget(parsed.data.id)))
+    return { ok: false, error: "Not an admin account" };
+
+  // getProfile() returns null for inactive accounts and both DB helper
+  // functions check `and active` — flipping this flag cuts app AND database
+  // access; nothing else to revoke.
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("profiles")
+    .update({ active: parsed.data.active })
+    .eq("id", parsed.data.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+const updateCredsSchema = z
+  .object({
+    id: z.uuid(),
+    full_name: z.string().trim().min(1).optional(),
+    email: z.email("Valid email required").optional(),
+    password: z.string().min(8, "Password needs at least 8 characters").optional(),
+  })
+  .refine((v) => v.full_name || v.email || v.password, {
+    message: "Nothing to change",
+  });
+
+export async function updateAdminCredentials(input: unknown): Promise<ActionResult> {
+  if (!(await requireOwnerAction()))
+    return { ok: false, error: "Only the owner can manage admin accounts" };
+
+  const parsed = updateCredsSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  if (!(await getAdminTarget(parsed.data.id)))
+    return { ok: false, error: "Not an admin account" };
+
+  const admin = createAdminClient();
+  if (parsed.data.email || parsed.data.password) {
+    const { error } = await admin.auth.admin.updateUserById(parsed.data.id, {
+      ...(parsed.data.email ? { email: parsed.data.email, email_confirm: true } : {}),
+      ...(parsed.data.password ? { password: parsed.data.password } : {}),
+    });
+    if (error) {
+      return {
+        ok: false,
+        error: /already/i.test(error.message)
+          ? "That email already has an account."
+          : error.message,
+      };
+    }
+  }
+  if (parsed.data.full_name) {
+    const { error } = await admin
+      .from("profiles")
+      .update({ full_name: parsed.data.full_name })
+      .eq("id", parsed.data.id);
+    if (error) return { ok: false, error: error.message };
+  }
+
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+const deleteAdminSchema = z.object({ id: z.uuid() });
+
+export async function deleteAdminAccount(input: unknown): Promise<ActionResult> {
+  if (!(await requireOwnerAction()))
+    return { ok: false, error: "Only the owner can manage admin accounts" };
+
+  const parsed = deleteAdminSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid input" };
+  if (!(await getAdminTarget(parsed.data.id)))
+    return { ok: false, error: "Not an admin account" };
+
+  // Deleting the auth user cascades onto the profile. If this admin has any
+  // recorded history (receivings, approvals, ledger rows), the attribution
+  // FKs refuse the cascade — that history must keep its author, so the
+  // account can only be DEACTIVATED, never erased.
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.deleteUser(parsed.data.id);
+  if (error) {
+    return {
+      ok: false,
+      error: /database error/i.test(error.message)
+        ? "This admin already has recorded history, so the account can't be deleted — deactivate it instead."
+        : error.message,
+    };
+  }
+
+  revalidatePath("/settings");
   return { ok: true };
 }

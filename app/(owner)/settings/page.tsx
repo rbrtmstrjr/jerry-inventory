@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
+import { requirePrimaryOwner } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { AdminAccountRow } from "./admin-accounts-section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { SettingsView } from "./settings-view";
@@ -22,6 +25,7 @@ export default async function SettingsPage({
 }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
+  await requirePrimaryOwner(); // Gerry-only (0099): credentials + business config
   const { tab } = await searchParams;
   return (
     <div className="flex flex-col gap-4">
@@ -84,6 +88,28 @@ async function SettingsBody({ tab }: { tab?: string }) {
     serviceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
   };
 
+  // Admin accounts (0099). Emails live in auth, not on the profile, so the
+  // service role resolves them — this component only ever renders for Gerry
+  // (requirePrimaryOwner above).
+  const service = createAdminClient();
+  const { data: adminProfiles } = await service
+    .from("profiles")
+    .select("id, full_name, active")
+    .eq("role", "admin")
+    .order("full_name");
+  const admins: AdminAccountRow[] = await Promise.all(
+    (adminProfiles ?? []).map(async (p) => {
+      const { data } = await service.auth.admin.getUserById(p.id);
+      return {
+        id: p.id,
+        full_name: p.full_name,
+        active: p.active,
+        email: data?.user?.email ?? null,
+        last_sign_in_at: data?.user?.last_sign_in_at ?? null,
+      };
+    })
+  );
+
   return (
     <SettingsView
       initialTab={tab}
@@ -94,6 +120,7 @@ async function SettingsBody({ tab }: { tab?: string }) {
         email: userRes?.user?.email ?? null,
         lastSignInAt: userRes?.user?.last_sign_in_at ?? null,
       }}
+      admins={admins}
       cron={{
         jobs: (cronHealth ?? []) as CronJobHealth[],
         error: cronErr?.message ?? null,
