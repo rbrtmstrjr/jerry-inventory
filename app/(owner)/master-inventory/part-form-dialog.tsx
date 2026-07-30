@@ -69,11 +69,14 @@ export function PartFormDialog({
   onOpenChange,
   categories,
   part,
+  priceLocked = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   categories: Category[];
   part: PartRow | null;
+  /** 0100: cost + selling price are Gerry-only after entry. */
+  priceLocked?: boolean;
 }) {
   const [imageAction, setImageAction] = React.useState<ImageAction>({
     type: "keep",
@@ -253,12 +256,12 @@ export function PartFormDialog({
           <div className="grid grid-cols-3 gap-4">
             <div className="grid gap-2">
               <Label htmlFor="part-cost">Cost ₱</Label>
-              <Input id="part-cost" inputMode="decimal" {...register("cost")} />
+              <Input id="part-cost" inputMode="decimal" disabled={priceLocked} {...register("cost")} />
               {errors.cost && <p className="text-sm text-destructive">{errors.cost.message}</p>}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="part-price">Price ₱</Label>
-              <Input id="part-price" inputMode="decimal" {...register("price")} />
+              <Input id="part-price" inputMode="decimal" disabled={priceLocked} {...register("price")} />
               {errors.price && <p className="text-sm text-destructive">{errors.price.message}</p>}
             </div>
             <div className="grid gap-2">
@@ -271,6 +274,11 @@ export function PartFormDialog({
               />
             </div>
           </div>
+          {priceLocked && (
+            <p className="text-xs text-muted-foreground">
+              Only the owner can change cost and selling price.
+            </p>
+          )}
 
           <div className="grid gap-2">
             <Label htmlFor="part-notes">Notes (optional)</Label>

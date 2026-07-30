@@ -217,16 +217,14 @@ section("Sale receipt (owner AND shop)");
     o.html.includes("thermal-receipt-58mm") && o.html.includes("thermal-58"));
 }
 
-// ── 2. Warranty certificate — same paper from both sides ───────────────────
-section("Warranty certificate (owner AND shop)");
+// ── 2. Warranty certificate pages retired (0103) — cards are physical now ──
+section("Warranty certificate pages are GONE (0103 — physical cards)");
 {
   const o = await get(`/warranties/${warranty.id}/certificate`, ownerCookie);
-  check("owner can open the certificate", o.status === 200, String(o.status));
-  assertsIdentity(o.html, "owner certificate");
+  check("owner certificate page no longer exists", o.status === 404, String(o.status));
 
   const s = await get(`/shop/warranties/${warranty.id}/certificate`, shopCookie);
-  check("shop can open its own certificate", s.status === 200, String(s.status));
-  assertsIdentity(s.html, "SHOP certificate");
+  check("shop certificate page no longer exists", s.status === 404, String(s.status));
 }
 
 // ── 3. The owner-only documents ────────────────────────────────────────────

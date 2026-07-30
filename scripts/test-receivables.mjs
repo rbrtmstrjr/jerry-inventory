@@ -231,14 +231,19 @@ check("payment recorded", !payErr, payErr?.message);
 // â”€â”€ Void restores the balance and keeps the history â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nVoid (mistake/typo) â€” balance restored, history kept:");
 {
+  // 0101: voiding is the OWNER'S alone — the shop that recorded a payment
+  // (or any other shop) can no longer erase the record
   const { error } = await B.client.rpc("fn_void_utang_payment", { p_id: payId, p_reason: "x" });
-  check("another shop cannot void it", !!error && /your own shop/i.test(error.message), error?.message);
+  check("another shop cannot void it", !!error && /only the owner/i.test(error.message), error?.message);
+  const { error: own } = await A.client.rpc("fn_void_utang_payment", { p_id: payId, p_reason: "x" });
+  check("the RECORDING shop cannot void its own payment either (0101)",
+    !!own && /only the owner/i.test(own.message), own?.message);
 }
 {
-  const { error } = await A.client.rpc("fn_void_utang_payment", {
+  const { error } = await owner.rpc("fn_void_utang_payment", {
     p_id: payId, p_reason: "ALERT-TEST typo",
   });
-  check("shop voided its own payment", !error, error?.message);
+  check("the owner voided the payment", !error, error?.message);
   check("balance restored to â‚±27,000", (await balanceOf(A.client, saleId)) === 2700000);
   const { data: p } = await A.client
     .from("utang_payments").select("deleted_at, owner_note").eq("id", payId).single();

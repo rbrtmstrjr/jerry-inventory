@@ -24,7 +24,14 @@ export interface CategoryRow {
   usage: number;
 }
 
-export function CategoriesView({ categories }: { categories: CategoryRow[] }) {
+export function CategoriesView({
+  categories,
+  retireLocked = false,
+}: {
+  categories: CategoryRow[];
+  /** 0102: retiring is Gerry-only — hidden for admins, not disabled. */
+  retireLocked?: boolean;
+}) {
   const router = useRouter();
   const [newName, setNewName] = React.useState("");
   const [adding, setAdding] = React.useState(false);
@@ -147,16 +154,18 @@ export function CategoriesView({ categories }: { categories: CategoryRow[] }) {
                       <Save className="size-4" />
                     )}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Retire ${c.name}`}
-                    title="Retire (existing products keep it)"
-                    onClick={() => setRetiring(c)}
-                  >
-                    <Archive className="size-4" />
-                  </Button>
+                  {!retireLocked && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Retire ${c.name}`}
+                      title="Retire (existing products keep it)"
+                      onClick={() => setRetiring(c)}
+                    >
+                      <Archive className="size-4" />
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>

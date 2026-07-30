@@ -1,14 +1,13 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   CircleAlert,
   Loader2,
-  Printer,
+  Pencil,
   ScanLine,
   Send,
   ShieldCheck,
@@ -44,7 +43,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TabCountBadge } from "@/components/ui/tab-count-badge";
 import { DataTable, SortableHeader } from "@/components/data-table/data-table";
-import { requestWarrantyClaim, cancelWarrantyClaim } from "./actions";
+import { requestWarrantyClaim, cancelWarrantyClaim, setWarrantySerial } from "./actions";
 
 export type ClaimResolution = "repair" | "replace" | "refund";
 export type ClaimStatus = "requested" | "approved" | "rejected" | "cancelled";
@@ -104,6 +103,8 @@ export interface ShopWarrantyRow {
   expiring_soon: boolean;
   sale_id: string;
   receipt_no: string | null;
+  /** 0103: the PHYSICAL warranty card's number (printed externally) */
+  warranty_serial: string | null;
 }
 
 function statusOf(r: ShopWarrantyRow) {
@@ -147,6 +148,7 @@ export function ShopWarrantiesView({
   const [status, setStatus] = React.useState("all");
   const [open, setOpen] = React.useState<ShopWarrantyRow | null>(null);
   const [claimFor, setClaimFor] = React.useState<ShopWarrantyRow | null>(null);
+  const [cardFor, setCardFor] = React.useState<ShopWarrantyRow | null>(null);
 
   // keyboard-wedge scanners type then press Enter — keep the box focused
   React.useEffect(() => {
@@ -159,6 +161,7 @@ export function ShopWarrantiesView({
     if (!q) return true;
     return (
       r.serial_number.toLowerCase().includes(q) ||
+      (r.warranty_serial ?? "").toLowerCase().includes(q) ||
       (r.customer_name ?? "").toLowerCase().includes(q) ||
       `${r.brand ?? ""} ${r.model ?? ""}`.toLowerCase().includes(q)
     );
@@ -228,6 +231,24 @@ export function ShopWarrantiesView({
       cell: ({ row }) => <StatusBadge r={row.original} />,
     },
     {
+      // 0103: the physical card (printed externally) — the app records its no.
+      accessorKey: "warranty_serial",
+      header: "Card no.",
+      cell: ({ row }) =>
+        row.original.warranty_serial ? (
+          <span className="font-mono text-sm">{row.original.warranty_serial}</span>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => setCardFor(row.original)}
+          >
+            Record card no.
+          </Button>
+        ),
+    },
+    {
       id: "actions",
       header: "",
       cell: ({ row }) => (
@@ -235,10 +256,13 @@ export function ShopWarrantiesView({
           <Button variant="ghost" size="sm" onClick={() => setOpen(row.original)}>
             View
           </Button>
-          <Button variant="ghost" size="sm" asChild>
-            <Link href={`/shop/warranties/${row.original.id}/certificate`} target="_blank">
-              <Printer className="size-4" />
-            </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Edit card number"
+            onClick={() => setCardFor(row.original)}
+          >
+            <Pencil className="size-4" />
           </Button>
         </div>
       ),
@@ -344,13 +368,81 @@ export function ShopWarrantiesView({
           setOpen(null);
           setClaimFor(r);
         }}
+        onRecordCard={(r) => {
+          setOpen(null);
+          setCardFor(r);
+        }}
       />
       <ClaimDialog
         warranty={claimFor}
         engines={engines}
         onClose={() => setClaimFor(null)}
       />
+      <CardNoDialog warranty={cardFor} onClose={() => setCardFor(null)} />
     </div>
+  );
+}
+
+/** Record / correct the number of the PHYSICAL warranty card (0103) — the
+ *  card itself is printed by Admin's external system; this just ties its
+ *  number to the engine sale. Scanner-friendly: focused input, Enter saves. */
+function CardNoDialog({
+  warranty,
+  onClose,
+}: {
+  warranty: ShopWarrantyRow | null;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [value, setValue] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (warranty) setValue(warranty.warranty_serial ?? "");
+  }, [warranty]);
+
+  async function onSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!warranty) return;
+    setBusy(true);
+    const res = await setWarrantySerial(warranty.id, value);
+    setBusy(false);
+    if (res.ok) {
+      toast.success(value.trim() ? "Card number recorded" : "Card number cleared");
+      onClose();
+      router.refresh();
+    } else toast.error(res.error);
+  }
+
+  return (
+    <Dialog open={warranty !== null} onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Warranty card number</DialogTitle>
+          <DialogDescription>
+            Engine {warranty?.serial_number} — type or scan the number printed
+            on the physical warranty card.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSave} className="flex flex-col gap-4">
+          <Input
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="e.g. WC-000123"
+            className="font-mono uppercase"
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy && <Loader2 className="size-4 animate-spin" />} Save
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -358,10 +450,12 @@ function DetailDialog({
   row,
   onClose,
   onFileClaim,
+  onRecordCard,
 }: {
   row: ShopWarrantyRow | null;
   onClose: () => void;
   onFileClaim: (r: ShopWarrantyRow) => void;
+  onRecordCard: (r: ShopWarrantyRow) => void;
 }) {
   return (
     <Dialog open={row !== null} onOpenChange={(o) => !o && onClose()}>
@@ -436,10 +530,9 @@ function DetailDialog({
               Close
             </Button>
             {row && (
-              <Button asChild>
-                <Link href={`/shop/warranties/${row.id}/certificate`} target="_blank">
-                  <Printer className="size-4" /> Certificate
-                </Link>
+              <Button onClick={() => onRecordCard(row)}>
+                <Pencil className="size-4" />
+                {row.warranty_serial ? `Card ${row.warranty_serial}` : "Record card no."}
               </Button>
             )}
           </div>

@@ -36,8 +36,6 @@ function revalidateDocuments() {
   revalidatePath("/settings");
   revalidatePath("/receipt/[saleId]", "page");
   revalidatePath("/deliveries/[id]/note", "page");
-  revalidatePath("/warranties/[id]/certificate", "page");
-  revalidatePath("/shop/warranties/[id]/certificate", "page");
   revalidatePath("/counts/[id]/sheet", "page");
   revalidatePath("/stock-alerts/purchase-list");
 }

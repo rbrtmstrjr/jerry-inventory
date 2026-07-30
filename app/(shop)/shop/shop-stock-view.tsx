@@ -50,22 +50,14 @@ export function ShopStockView({
   const [cardSearch, setCardSearch] = React.useState("");
   const [photoTarget, setPhotoTarget] = React.useState<PhotoTarget | null>(null);
 
-  const REVEAL_PAGE = 12;
-  const [visibleCount, setVisibleCount] = React.useState(REVEAL_PAGE);
-  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
-  React.useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) setVisibleCount((n) => n + REVEAL_PAGE);
-      },
-      { rootMargin: "600px" }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [visibleCount]);
-
+  // The card grids render EVERY row. There was a scroll-reveal here (12 at a
+  // time behind an IntersectionObserver) and it was broken: a single
+  // visibleCount + a single sentinelRef were shared by both tab panels, so the
+  // ref pointed at whichever sentinel rendered last. The observer then watched
+  // an element the user wasn't looking at, nothing ever intersected, and the
+  // grid froze at 12 while the footer read "226 of 226 items". The page already
+  // fetches the whole (shop-scoped) list server-side, so revealing in pages
+  // bought nothing but that bug.
   const q = cardSearch.trim().toLowerCase();
   const cardStock = q
     ? stock.filter(
@@ -331,7 +323,7 @@ export function ShopStockView({
                 </Empty>
               ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                  {cardStock.slice(0, visibleCount).map((s) => {
+                  {cardStock.map((s) => {
                     const out = s.qty === 0;
                     const low = !out && s.reorder_level > 0 && s.qty <= s.reorder_level;
                     return (
@@ -411,15 +403,6 @@ export function ShopStockView({
                   })}
                 </div>
               )}
-              {visibleCount < cardStock.length && (
-                <div
-                  ref={sentinelRef}
-                  className="py-2 text-center text-xs text-muted-foreground"
-                >
-                  Loading more… ({Math.min(visibleCount, cardStock.length)} of{" "}
-                  {cardStock.length})
-                </div>
-              )}
               <p className="text-xs text-muted-foreground tabular-nums">
                 {cardStock.length} of {stock.length} items
               </p>
@@ -453,7 +436,7 @@ export function ShopStockView({
                 </Empty>
               ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                  {engines.slice(0, visibleCount).map((e) => (
+                  {engines.map((e) => (
                     <div
                       key={e.engine_id}
                       className="flex flex-col overflow-hidden rounded-lg border bg-card transition-shadow hover:shadow-md"
@@ -508,15 +491,9 @@ export function ShopStockView({
                   ))}
                 </div>
               )}
-              {visibleCount < engines.length && (
-                <div
-                  ref={sentinelRef}
-                  className="py-2 text-center text-xs text-muted-foreground"
-                >
-                  Loading more… ({Math.min(visibleCount, engines.length)} of{" "}
-                  {engines.length})
-                </div>
-              )}
+              <p className="text-xs text-muted-foreground tabular-nums">
+                {engines.length} engine{engines.length === 1 ? "" : "s"} on hand
+              </p>
             </div>
           )}
         </TabsContent>

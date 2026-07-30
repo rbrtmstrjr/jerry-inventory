@@ -8,9 +8,9 @@ import { type ColumnDef } from "@tanstack/react-table";
 import {
   ArrowRight,
   Check,
-  FileText,
   History,
   Loader2,
+  Pencil,
   Search,
   ShieldCheck,
   Wrench,
@@ -55,7 +55,8 @@ import {
   ServerDataTable,
   ServerSortableHeader,
 } from "@/components/data-table/server-data-table";
-import { reviewWarrantyClaim } from "./actions";
+import { Input } from "@/components/ui/input";
+import { reviewWarrantyClaim, setWarrantySerial } from "./actions";
 
 export type ClaimResolution = "repair" | "replace" | "refund";
 const RESOLUTION_LABEL: Record<ClaimResolution, string> = {
@@ -100,6 +101,8 @@ export interface WarrantyRow {
   expires_on: string;
   active: boolean;
   claims: WarrantyClaim[];
+  /** 0103: the PHYSICAL warranty card's number (printed externally) */
+  warranty_serial: string | null;
 }
 
 export interface SerialRow {
@@ -177,6 +180,7 @@ export function WarrantiesView({
   const router = useRouter();
   const [claimsFor, setClaimsFor] = React.useState<WarrantyRow | null>(null);
   const [journeyFor, setJourneyFor] = React.useState<SerialRow | null>(null);
+  const [cardFor, setCardFor] = React.useState<WarrantyRow | null>(null);
 
   /** Switching tab or branch starts a fresh list — drop paging/sort/search. */
   function go(next: { tab?: string; shop?: string }) {
@@ -271,6 +275,17 @@ export function WarrantiesView({
       ),
     },
     {
+      // 0103: the physical card (printed externally) — recorded, not printed
+      accessorKey: "warranty_serial",
+      header: "Card no.",
+      cell: ({ row }) =>
+        row.original.warranty_serial ? (
+          <span className="font-mono text-sm">{row.original.warranty_serial}</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    {
       id: "actions",
       header: "",
       cell: ({ row }) => (
@@ -283,10 +298,13 @@ export function WarrantiesView({
             <Wrench className="size-4" />
             Claims{row.original.claims.length > 0 && ` (${row.original.claims.length})`}
           </Button>
-          <Button variant="ghost" size="sm" asChild>
-            <Link href={`/warranties/${row.original.id}/certificate`}>
-              <FileText className="size-4" /> Certificate
-            </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Edit warranty card number"
+            onClick={() => setCardFor(row.original)}
+          >
+            <Pencil className="size-4" />
           </Button>
         </div>
       ),
@@ -448,6 +466,7 @@ export function WarrantiesView({
       </Tabs>
 
       <ClaimsDialog warranty={claimsFor} onClose={() => setClaimsFor(null)} />
+      <CardNoDialog warranty={cardFor} onClose={() => setCardFor(null)} />
       <JourneyDialog serial={journeyFor} onClose={() => setJourneyFor(null)} />
     </div>
   );
@@ -736,5 +755,67 @@ function ClaimsApproval({ claims }: { claims: PendingClaimRow[] }) {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Record / correct the number of the PHYSICAL warranty card (0103) — cards
+ *  are printed by the external system; the app only ties number to sale. */
+function CardNoDialog({
+  warranty,
+  onClose,
+}: {
+  warranty: WarrantyRow | null;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [value, setValue] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (warranty) setValue(warranty.warranty_serial ?? "");
+  }, [warranty]);
+
+  async function onSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!warranty) return;
+    setBusy(true);
+    const res = await setWarrantySerial(warranty.id, value);
+    setBusy(false);
+    if (res.ok) {
+      toast.success(value.trim() ? "Card number recorded" : "Card number cleared");
+      onClose();
+      router.refresh();
+    } else toast.error(res.error);
+  }
+
+  return (
+    <Dialog open={warranty !== null} onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Warranty card number</DialogTitle>
+          <DialogDescription>
+            Engine {warranty?.serial_number} — the number printed on the
+            physical warranty card handed to {warranty?.customer ?? "the customer"}.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSave} className="flex flex-col gap-4">
+          <Input
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="e.g. WC-000123"
+            className="font-mono uppercase"
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy && <Loader2 className="size-4 animate-spin" />} Save
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

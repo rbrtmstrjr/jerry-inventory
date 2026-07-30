@@ -35,6 +35,9 @@ const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_RO
 
 // ── profile ─────────────────────────────────────────────────────────────────
 const YEARS = Number(process.env.SEED_YEARS ?? 3);
+// SEED_MONTHS overrides SEED_YEARS for a short dev dataset (e.g. SEED_MONTHS=1
+// while building features; re-seed the full 3–5y profile for load testing).
+const MONTHS = process.env.SEED_MONTHS ? Number(process.env.SEED_MONTHS) : null;
 // 10 branches — one per shop color key (0050 caps the palette at 10), all
 // Cavite towns. 10 shops ~doubles the per-day volume of the old 5-shop profile.
 const SHOP_DEFS = [
@@ -67,7 +70,8 @@ const days = [];
 {
   const end = new Date();
   const start = new Date(end);
-  start.setFullYear(end.getFullYear() - YEARS);
+  if (MONTHS) start.setMonth(end.getMonth() - MONTHS);
+  else start.setFullYear(end.getFullYear() - YEARS);
   for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
     if (d.getDay() !== 0) days.push(d.toISOString().slice(0, 10));
   }
@@ -103,7 +107,7 @@ async function ins(table, rows) {
 const t0 = Date.now();
 const elapsed = () => `${((Date.now() - t0) / 60000).toFixed(1)}m`;
 
-console.log(`Seeding ${YEARS}y × ${SHOP_DEFS.length} shops across ${days.length} business days…`);
+console.log(`Seeding ${MONTHS ? `${MONTHS}mo` : `${YEARS}y`} × ${SHOP_DEFS.length} shops across ${days.length} business days…`);
 
 // ── 0. sanity: require clean slate + fetch survivors ────────────────────────
 {
@@ -232,6 +236,12 @@ for (const [mi, month] of months.entries()) {
     }
     monthPlan.set(shop.id, need);
   }
+  // Reservation ledger: how much of each shop's shelf the month's REMAINING
+  // planned sales still need. A loss may only take a unit no future sale
+  // owns — without this, two losses on a slack-1 part end the month at -1.
+  const remainingSales = new Map(); // `${shopId}|${pid}` -> qty still to sell
+  for (const [shopId, need] of monthPlan)
+    for (const [pid, q] of need) remainingSales.set(`${shopId}|${pid}`, q);
 
   // 3a. per-shop delivery quantities FIRST (ceil per shop), then receive the
   // exact sum + buffer — receiving must cover the post-rounding deliveries,
@@ -249,7 +259,10 @@ for (const [mi, month] of months.entries()) {
   let rcvTotal = 0;
   for (const [pid, q] of totalNeed) {
     const p = parts.find((x) => x.id === pid);
-    const qty = q + rnd(1, 3); // small master buffer on top of exact need
+    // Master buffer: 3y accumulates plenty at rnd(1,3)/month, but a short
+    // SEED_MONTHS window must carry a real reserve — seed-states debits master
+    // (in-transit deliveries, discrepancies) and one thin month goes negative.
+    const qty = q + (MONTHS ? rnd(12, 30) : rnd(1, 3));
     rows.receiving_lines.push({ id: uid(), receiving_id: rcv.id, part_id: pid, qty, unit_cost_centavos: p.cost_centavos, created_at: rcv.received_at });
     rows.movements.push({ id: uid(), movement_type: "received", part_id: pid, qty_change: qty, shop_id: null, actor: OWNER, receiving_id: rcv.id, created_at: rcv.received_at });
     bump(master, pid, qty);
@@ -344,6 +357,7 @@ for (const [mi, month] of months.entries()) {
           rows.movements.push({ id: uid(), movement_type: "sale", part_id: p.id, qty_change: -q,
             shop_id: shop.id, actor: OWNER, sale_id: saleId, created_at: reviewed });
           bump(shelf, `${shop.id}|${p.id}`, -q);
+          bump(remainingSales, `${shop.id}|${p.id}`, -q);
           total += unit * q;
         }
 
@@ -407,7 +421,8 @@ for (const [mi, month] of months.entries()) {
 
       // losses ~1.5/shop/week, from on-hand stock
       if (Math.random() < 0.25) {
-        const held = [...shelf.entries()].filter(([k, v]) => k.startsWith(shop.id) && v > 0);
+        const held = [...shelf.entries()].filter(([k, v]) =>
+          k.startsWith(shop.id) && v - Math.max(0, remainingSales.get(k) ?? 0) > 0);
         if (held.length) {
           const [key] = pick(held);
           const pid = key.split("|")[1];
@@ -483,8 +498,13 @@ for (const [key, qty] of shelf) {
   const [shopId, pid] = key.split("|");
   levels.push({ part_id: pid, shop_id: shopId, qty });
 }
-if (levels.some((l) => l.qty < 0)) {
-  console.error("NEGATIVE tally — generator bug, aborting before stock_levels.");
+const negatives = levels.filter((l) => l.qty < 0);
+if (negatives.length) {
+  console.error(`NEGATIVE tally — generator bug, aborting before stock_levels. ${negatives.length} negative:`);
+  for (const n of negatives.slice(0, 10)) {
+    const p = parts.find((x) => x.id === n.part_id);
+    console.error(`  ${p?.name ?? n.part_id} @ ${n.shop_id ?? "master"}: ${n.qty}`);
+  }
   process.exit(1);
 }
 await ins("stock_levels", levels);

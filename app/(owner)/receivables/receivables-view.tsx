@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
   CheckCircle2,
@@ -9,7 +10,9 @@ import {
   Download,
   Printer,
   Search,
+  Undo2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import type { ReceivableRow, ShopOption } from "@/lib/db-types";
 import { formatCentavos } from "@/lib/format";
@@ -33,7 +36,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { ReceivableTab } from "./receivable-tabs";
+import { voidUtangPayment } from "./actions";
 
 const METHOD_LABEL: Record<string, string> = {
   cash: "Cash",
@@ -69,11 +74,14 @@ export function ReceivablesList({
   rows,
   history,
   shops,
+  canVoid = false,
 }: {
   tab: ReceivableTab;
   rows: ReceivableRow[];
   history: PaymentHistoryRow[];
   shops: ShopOption[];
+  /** 0101: voiding a posted payment is Gerry-only — admins get history, no undo. */
+  canVoid?: boolean;
 }) {
   const [search, setSearch] = React.useState("");
   const [shopFilter, setShopFilter] = React.useState("all");
@@ -205,6 +213,7 @@ export function ReceivablesList({
               row={r}
               shopColorKey={colorByShopId.get(r.shop_id) ?? null}
               history={historyBySale.get(r.sale_id) ?? []}
+              canVoid={canVoid}
             />
           ))}
           {visibleCount < filtered.length && (
@@ -225,12 +234,17 @@ function ReceivableCard({
   row,
   shopColorKey,
   history,
+  canVoid = false,
 }: {
   row: ReceivableRow;
   shopColorKey: string | null;
   history: PaymentHistoryRow[];
+  canVoid?: boolean;
 }) {
+  const router = useRouter();
   const [open, setOpen] = React.useState(false);
+  const [voiding, setVoiding] = React.useState<PaymentHistoryRow | null>(null);
+  const [busy, setBusy] = React.useState(false);
   const paidOff = row.balance_centavos <= 0;
   const live = history.filter((h) => !h.voided);
   const voided = history.filter((h) => h.voided);
@@ -336,13 +350,45 @@ function ReceivableCard({
                   >
                     {formatCentavos(h.amount_centavos)}
                   </span>
-                  {h.voided && <Badge variant="outline">Voided</Badge>}
+                  {h.voided ? (
+                    <Badge variant="outline">Voided</Badge>
+                  ) : canVoid ? (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Void payment"
+                      disabled={busy}
+                      onClick={() => setVoiding(h)}
+                    >
+                      <Undo2 className="size-3.5" />
+                    </Button>
+                  ) : null}
                 </span>
               </div>
             ))}
           </div>
         )}
       </CardContent>
+
+      <ConfirmDialog
+        open={voiding !== null}
+        onOpenChange={(o) => !o && setVoiding(null)}
+        title="Void this payment?"
+        description={`${formatCentavos(voiding?.amount_centavos ?? 0)} goes back onto ${row.customer_name ?? "the customer"}'s balance. The entry stays in the history, struck through.`}
+        confirmLabel="Yes, void it"
+        destructive
+        onConfirm={async () => {
+          if (!voiding) return;
+          setBusy(true);
+          const res = await voidUtangPayment(voiding.id, "Voided by the owner");
+          setBusy(false);
+          if (res.ok) {
+            toast.success("Payment voided — balance restored");
+            setVoiding(null);
+            router.refresh();
+          } else toast.error(res.error);
+        }}
+      />
     </Card>
   );
 }

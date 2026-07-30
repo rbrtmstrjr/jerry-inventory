@@ -50,7 +50,7 @@ someone who cannot sign in — `proxy.ts` lets `/auth/*` through unauthenticated
 
 ### Roles
 - **Owner (Gerry)** — one account; full control. The ONLY role that sees **Reports**, **Settings**, **Shops & Employees**, and **Expenses → Reports**, and the only one that can manage logins, open/close shops, or write settings (0099).
-- **Admin (office)** — logins Gerry mints under Settings → Admins (0099). Runs ALL daily operations — receiving, deliveries, approvals, expenses, payables, catalog, suki cards — exactly like the owner, minus the four Gerry-only areas. Deactivating one (`profiles.active=false`) cuts app AND database access instantly; deleting is possible only while the account has no recorded history (attribution FKs refuse otherwise). Enforcement is two-speed **by design**: accounts/shops/settings are DB-enforced (`is_primary_owner()`); the hidden pages are app-enforced (`requirePrimaryOwner()` redirects) — the admin is trusted staff, not an adversary.
+- **Admin (office)** — logins Gerry mints under Settings → Admins (0099). Runs ALL daily operations — receiving, deliveries, approvals, expenses, payables, catalog, suki cards — exactly like the owner, minus the four Gerry-only areas. Deactivating one (`profiles.active=false`) cuts app AND database access instantly; deleting is possible only while the account has no recorded history (attribution FKs refuse otherwise). Enforcement is two-speed **by design**: accounts/shops/settings are DB-enforced (`is_primary_owner()`); the hidden pages are app-enforced (`requirePrimaryOwner()` redirects) — the admin is trusted staff, not an adversary. **Four things the admin does NOT get, all DB-enforced** because each is a way to rewrite or erase the record rather than merely see more: editing cost/selling price after entry (0100), voiding an utang payment (0101), and **retiring or merging a catalog product** (0102 — a retire is the one catalog action that removes evidence, and a merge additionally redirects the source's supplier price history onto another product). The admin still creates catalog rows via Receiving and edits everything non-destructive: names, SKUs, photos, reorder levels, fitments, preferred supplier, categories.
 - **Employee (shop)** — **one shared login per shop**. Records sales/losses and edits product photos for its own shop only. Helpers/cashiers are tracked as *staff* records (people without app logins, managed under Shops & Employees — they carry a birthday for the reminder), separate from the shop login.
 
 **`is_owner()` means OFFICE TIER (owner OR admin, active) since 0099.** The
@@ -69,7 +69,7 @@ automatically. Gerry-only checks use `is_primary_owner()` (DB) /
 4. Shop **submits a batch** ("Submit to Admin") — all recorded sales, losses, and expenses flip to `pending` under one `submission_batch`. (Utang payments are **not** part of this — see 7.)
 5. Owner **reviews the batch as one unit** in the Approval Queue: one-click **Approve all**, or per-item Approve / Question / Reject. Stock deducts **only on approval**; questioned items are skipped and resolved individually.
 6. Approving an **engine** sale marks the serial sold and auto-creates its **warranty**.
-7. **Utang (receivables):** a partial-payment sale requires a customer and leaves a balance. Later payments are recorded by the shop and **post immediately** — collecting money the customer already owes is bookkeeping, not a stock decision, so it does **not** enter the Approval Queue. The owner is alerted per payment and sees the full history (who/when, voids included) on Receivables. Balance 0 sets `settled_at`; a mistaken payment is **voided** (soft-deleted → balance restored, entry kept). Control here is detective (alert + audit trail), not preventive.
+7. **Utang (receivables):** a partial-payment sale requires a customer and leaves a balance. Later payments are recorded by the shop and **post immediately** — collecting money the customer already owes is bookkeeping, not a stock decision, so it does **not** enter the Approval Queue. The owner is alerted per payment and sees the full history (who/when, voids included) on Receivables. Balance 0 sets `settled_at`; a mistaken payment is **voided** (soft-deleted → balance restored, entry kept) — and since 0101 voiding is **Gerry-only** (above even the admin): the shop calls the owner, exactly like a price correction. The person handling the cash can never erase its record, so the control on the void is now preventive; the record path stays detective (alert + audit trail).
 
 Submission statuses: `recorded → pending → questioned → approved / rejected`.
 
@@ -83,11 +83,13 @@ Submission statuses: `recorded → pending → questioned → approved / rejecte
 
 ## Page Inventory (billable pages)
 
-**~46 distinct screens/documents** on disk (plus the root redirect, the
+**~43 distinct screens/documents** on disk (plus the root redirect, the
 `/auth/callback` route handler, 5 page-level redirect stubs, and 1 next.config
-redirect — ~52 `page.tsx` files total). The 7-page **Payroll** module was
-removed (0083) and the `suki-cards/[id]/print` page was retired (0082), which is
-why these are down from the historical 54/60. `[id]`/`[entryId]`/`[saleId]` are
+redirect — ~49 `page.tsx` files total). The 7-page **Payroll** module was
+removed (0083), the `suki-cards/[id]/print` page was retired (0082), and the
+3 warranty-certificate pages (owner cert, shop cert, point-of-sale preview)
+were retired (0103 — warranty cards are printed externally), which is why
+these are down from the historical 54/60. `[id]`/`[entryId]`/`[saleId]` are
 dynamic detail routes. "Print" pages are standalone print-optimized documents.
 
 **The sidebar reads like the business works** (IA reorg, 2026-07): OVERVIEW →
@@ -115,7 +117,7 @@ meta-refresh — `?view=<id>` passes through).
 ### Owner — Overview (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/dashboard` | Dashboard | KPIs, charts, live snapshot of the whole business |
+| `/dashboard` | Dashboard | KPIs, charts, live snapshot of the whole business. For an **admin** the page is MONEY-FREE (0099 polish): today's revenue KPI becomes a sales COUNT, the P&L card becomes a "Working queue" card (warranty claims / stock requests / return requests awaiting), and the two "Owed" cards show counts, not amounts — every peso figure on the admin's home page is gone. Gerry sees the full picture |
 | `/reports` | Reports | Three tabs (`?tab=`): **Sales & Inventory** (sales/loss/top-parts, date filters, CSV) · **P&L / Net Income** (consolidated statement, cost-vs-selling, cash-vs-accrual, CSV + print) · **Per-Shop Profitability** (moved in from /shops/reports — same body, same `lib/pnl.ts`) |
 
 ### Owner — Suppliers (2)
@@ -128,7 +130,7 @@ meta-refresh — `?view=<id>` passes through).
 ### Owner — Master Inventory (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/master-inventory` | Products | **View + edit only** — the catalog you look at; products land here because a supplier delivered them. Browse (cards/table, photos, filters), edit existing (selling price, engine margins, reorder, category, photo, notes), per-product **Suppliers & Prices** (provenance-labelled, cheapest marked, preferred changeable inline), reference-data maintenance (rename/retire engine models from the Engines view — type definitions, not stock; **product categories moved to their own Category tab**, 0059-era), and **Merge duplicates** (0052: fold same-SKU/name parts into one survivor — catalog-identity only, refused while the duplicate holds stock/transit/open lines). **Add product / Add engine** (0059): custom catalog + opening stock (qty 0 allowed) with owner cost + selling price (> cost), category, and a **supplier dropdown incl. "No supplier"** (attribution → preferred supplier only, never debt). Both go through `fn_receive_stock` with `p_supplier_id = NULL` (0049 lockdown intact — no direct INSERT); real purchases-with-debt still use Suppliers → Receiving |
+| `/master-inventory` | Products | **View + edit only** — the catalog you look at; products land here because a supplier delivered them. Browse (cards/table, photos, filters), edit existing (selling price, engine margins, reorder, category, photo, notes), per-product **Suppliers & Prices** (provenance-labelled, cheapest marked, preferred changeable inline), reference-data maintenance (rename/retire engine models from the Engines view — type definitions, not stock; **product categories moved to their own Category tab**, 0059-era), and **Merge duplicates** (0052: fold same-SKU/name parts into one survivor — catalog-identity only, refused while the duplicate holds stock/transit/open lines). **Tier note (0102): every DESTRUCTIVE control on this page is Gerry-only** — Remove product, Remove engine (in-master), Retire model, Retire category, and Merge duplicates are hidden for an admin and refused by a DB trigger / `fn_merge_parts`' own guard. An admin sees and uses the rest of the page normally, so it stays in their sidebar. **Add product / Add engine** (0059): custom catalog + opening stock (qty 0 allowed) with owner cost + selling price (> cost), category, and a **supplier dropdown incl. "No supplier"** (attribution → preferred supplier only, never debt). Both go through `fn_receive_stock` with `p_supplier_id = NULL` (0049 lockdown intact — no direct INSERT); real purchases-with-debt still use Suppliers → Receiving |
 | `/master-inventory/categories` | Category | Manage **product** categories (0059-era) — create (the piece the old rename/retire modal lacked), rename, retire, with a live-usage count per category. Owner-only writes (`createCategory`/`updateCategory`/`softDeleteCategory`, re-checked via `getProfile`; case-insensitive dedupe — an active match is refused, a retired one is restored). A new category flows to every product picker/filter via revalidation. Tab order: Products · Category · Labels. Engine-model reference data stays on the Engines view |
 | `/master-inventory/labels` | Print Labels | Generate/print Code128 barcode labels (`?ids=` preselects, e.g. straight from a receiving's new products) |
 
@@ -182,9 +184,8 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 | Route | Page | Purpose |
 |-------|------|---------|
 | `/approvals` | Approval Queue | **(a)** Pending: review shop submission batches (sales + losses), one-click Approve-all + per-item actions, live updates. **(b)** Reviewed History: every decided sale/loss/utang payment, filterable (shop · type · status · date · search) with server-side pagination; click a row for a deep-linked slide-over detail (`?item=<type>:<id>`) |
-| `/receivables` | Receivables | All unpaid balances across shops — totals per shop/customer, filters, CSV export, per-sale payment history (incl. voided) |
-| `/warranties` | Warranties & Serials | Engine serial registry + warranty tracking across all shops; shop filter + selling-shop column; claims |
-| `/warranties/[id]/certificate` | Warranty Certificate | Printable warranty certificate |
+| `/receivables` | Receivables | All unpaid balances across shops — totals per shop/customer, filters, CSV export, per-sale payment history (incl. voided). Since 0101 this is also where a mistaken payment is **voided** — a Gerry-only action (the button renders for the owner alone; `fn_void_utang_payment` re-checks `is_primary_owner()`) |
+| `/warranties` | Warranties & Serials | Engine serial registry + warranty tracking across all shops; shop filter + selling-shop column; claims. Since 0103 each warranty carries the **physical card's number** (`warranty_serial`, unique, searchable) — recorded/corrected inline (the office can edit any). The certificate page was **retired by 0103**: physical cards are printed by an external system, so the card IS the warranty document (the 0082 suki-card pattern) |
 | `/suki-cards` | Suki Cards | Loyalty discount cards (0072; **0082**: the physical cards are printed by a **separate external system** — this page only **records** each card's barcode number against a customer, no minting/printing). Record per customer (existing or inline-new) with the owner-entered barcode number, deactivate/reactivate, **Replace with new card** (deactivate old + record the new printed number), per-card usage (uses + Σ program discount). Rates shown from the Settings dials |
 
 ### Owner — Shops & Employees (2)
@@ -209,17 +210,15 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 | Route | Page | Purpose |
 |-------|------|---------|
 | `/shop` | My Shop Stock | Shop's on-hand stock + today's sales KPIs; edit own product photos |
-| `/shop/warranties` | Warranties | Warranties for engines THIS shop sold; serial lookup (scan-friendly), status + near-expiry highlighting. **File a warranty claim** (0070): repair / replace (pick an on-hand engine) / refund → `fn_request_warranty_claim`, waits for Admin approval; a **My claims** list shows status + Cancel while requested. No edit/void/extend |
-| `/shop/warranties/[id]/certificate` | Warranty Certificate | Same document as the owner's, reprintable; ownership re-checked server-side |
-| `/shop/warranty-preview/[saleId]` | Warranty Certificate (point-of-sale) | 0055: the **customer's** warranty copy, printable the moment an engine sale is recorded — **before** Admin approval (the official warranty row only exists post-approval). One full-page certificate per engine on the sale, rendered by the guarded definer `fn_shop_warranty_preview` (terms via engine → model → settings fallback, `sold_on` = sale date). NOT thermal — a separate coupon-printer document. Never auto-prints (only the thermal receipt does); reached from the Submissions row. 404s for a cancelled sale, so it voids with the receipt |
+| `/shop/warranties` | Warranties | Warranties for engines THIS shop sold; serial lookup (scan-friendly, also finds card numbers), status + near-expiry highlighting. **Record the physical card's number** (0103): each row shows/edits `warranty_serial` via `fn_set_warranty_serial` (selling shop or office only; unique across cards) — the card itself is printed externally, so there is nothing to print here (the certificate + point-of-sale preview pages were retired by 0103). **File a warranty claim** (0070): repair / replace (pick an on-hand engine) / refund → `fn_request_warranty_claim`, waits for Admin approval; a **My claims** list shows status + Cancel while requested. No edit/void/extend |
 | `/shop/deliveries` | Incoming Deliveries | Count + confirm what actually arrived (no reject/return — a shortfall goes to Admin); history |
 | `/shop/low-stock` | Low Stock | This shop's items at/below their effective threshold → Request delivery from Admin; own request history. Can also add **new/custom products the shop doesn't carry** (a customer asked for something not in the catalog) to the SAME request (0077) — free-text lines that Admin sees badged "New product" and creates via Receiving before delivering. The request form now shows even when nothing is low, so a new-product request can go out anytime |
 | `/shop/record-sale` | Record Sale | Scan/browse cart, cash/change helper; since 0053 EVERY line (part + engine) shows its own-shop **cost** (read-only, the tawad floor) and an editable selling price defaulting to catalog — server rejects any price at/below cost; partial payment (customer required); a **payment-method** picker (cash/gcash/bank/other, 0061 — the change helper shows only for cash) saved on the sale; saves as `recorded`. A **"Print receipt on save"** checkbox (default ON, sticky per-browser via `localStorage jm-sale-autoprint`) prints the 58mm receipt **in-place** on save — an off-screen iframe loads `/receipt/[id]` and fires its own print dialog, so the cashier never leaves the page (with a kiosk-printing default printer it prints with no dialog). Unchecked = no auto-print; reprint any sale from its Submissions row |
 | `/shop/record-loss` | Record Loss | Reason-tagged write-off request; saves as `recorded` |
-| `/shop/receivables` | Receivables (Utang) | This shop's outstanding balances + Record Payment (posts immediately) + payment history with void |
+| `/shop/receivables` | Receivables (Utang) | This shop's outstanding balances + Record Payment (posts immediately) + payment history. The Void button left with 0101 — a mistaken payment means calling the owner (voided entries still show struck-through) |
 | `/shop/expenses` | Expenses | Record this shop's expenses (category or propose-new, optional receipt photo) — saves as `recorded`, rides the submission batch, **counts only when approved**; list shows own submissions with statuses + Admin-recorded entries for this shop; company expenses invisible |
 | `/shop/transfers` | Transfers | Three tabs: **Send stock** to another branch (0054: destination + lines from own stock → `fn_request_transfer`) · **Return to Admin** (0065: shop→master **return request** — reason + parts good/damaged + engine condition → `fn_request_return`; own-returns list with status + Cancel while requested + Admin's reject note) · **Sent** (outgoing transfers, Admin note on reject, Cancel while Requested, Print slip once approved). Incoming transfers appear on `/shop/deliveries` (labelled with the source) |
-| `/shop/submissions` | Submissions | Current report (unsent) → Submit batch to Admin; Submitted / Reviewed tabs. Every sale row carries a **print-receipt** action (→ `/receipt/[id]`) — the reprint path when Record Sale's auto-print is off, across Current/Submitted/Reviewed. An engine sale row also gets a **Print warranty** action (→ `/shop/warranty-preview/[saleId]`, the full-page **coupon-printer** certificate, never thermal) that appears **the moment the sale is recorded — no Admin approval needed** (it's a customer document, not the control record). Both documents **void with the sale**: cancelling it (`cancelSale`) makes the receipt AND the warranty route 404, since both read the sale with `deleted_at is null`. This is the shop's first place to reach the warranty; the read-only `/shop/warranties` page (populated only on approval) is the second |
+| `/shop/submissions` | Submissions | Current report (unsent) → Submit batch to Admin; Submitted / Reviewed tabs. Every sale row carries a **print-receipt** action (→ `/receipt/[id]`) — the reprint path when Record Sale's auto-print is off, across Current/Submitted/Reviewed. The receipt **voids with the sale**: cancelling it (`cancelSale`) 404s the route, since it reads the sale with `deleted_at is null`. An engine sale row shows a reminder instead of a print action since 0103: hand the customer their **physical warranty card** and record its number under Warranties once approved (the in-app certificate + point-of-sale preview were retired) |
 
 ### Shared documents (3)
 | Route | Page | Purpose |
@@ -238,8 +237,10 @@ Stock Alerts (+ Delivery Requests, a tab on Deliveries), Suppliers (directory ·
 receiving · payables — the Price Comparison tab was retired),
 Settings (5 sections incl. credential change + system health), and the 7-page
 Shop app (incl. shop-recorded expenses riding the approval batch). Payroll was
-**removed (0083)** — the client runs it externally. Plus 6 printable documents (delivery note, count sheet, warranty
-certificate, sale receipt, supplier purchase list, stock card) and
+**removed (0083)** — the client runs it externally, and the warranty
+certificate was retired (0103 — physical cards printed externally, the app
+records their numbers). Plus 5 printable documents (delivery note, count
+sheet, sale receipt, supplier purchase list, stock card) and
 cross-cutting systems (image pipeline, maps, barcodes, realtime approvals,
 unified negotiable pricing (one selling price per product, editable at sale,
 server-floored strictly above the shop-visible cost) + partial payment, a
@@ -952,7 +953,80 @@ check it, so the flag cuts DB access), edit name/email/password, delete
 (auth-user delete cascades the profile; attribution FKs refuse once history
 exists → "deactivate instead"). `test-admin-accounts.mjs` proves the tier
 split, the CHECK, deactivation-cuts-access, and employee/anon unchanged;
-exits 2 until 0099 is applied.
+exits 2 until 0099 is applied. · `0100` **price lock** (0099 pt 2): the admin
+ENCODES cost + selling price once at entry (Receiving / Add — INSERTs,
+untouched); afterward changing either money column on `parts`/`engines` is
+Gerry-only. One BEFORE UPDATE trigger (`enforce_price_lock`) on both tables,
+firing ONLY when a money column actually changes (IS DISTINCT FROM) — names,
+photos, barcodes, engine status writes from deliveries/sales all pass.
+Exempt: `is_primary_owner()` and `auth.uid() IS NULL` (service role/seeds —
+verified NO definer fn updates these columns on existing rows, so nothing
+internal trips it). App layer: `upsertPart`/`updateEngine` strip the money
+fields for an admin edit; both edit dialogs disable the inputs
+(`priceLocked`) with a one-line hint. `test-price-lock.mjs` proves the lock
+behaviorally (its gate IS the probe — a trigger isn't API-visible); exits 2
+until 0100 is applied. · `0101` **utang void is Gerry-only** (0099 pt 3):
+`fn_void_utang_payment` redefined — guard flips from "owner OR own shop" to
+`is_primary_owner()` alone, body otherwise byte-identical to 0026
+(soft-delete, owner_note, settled_at rollback, office alert). Closes the
+cashier-theft vector: the person holding the cash can no longer erase its
+record — record stays instant (0026 untouched), only the UNDO moves to
+Gerry. App: the shop's Void button became a "call the owner" note (action
+deleted); the owner's /receivables history gains the Void button
+(owner-role-gated render + `isPrimaryOwner()` action guard).
+`test-receivables`/`test-e2e` flipped: both shops refused, owner voids,
+alert + audit unchanged. · `0102` **catalog retire & merge lock** (the catalog
+slice of the 0099 split; numbered 0102 because 0101 already held "pt 3"):
+retiring a `parts`/`engines`/`engine_models`/`product_categories` row, and
+repointing `parts.merged_into`, become Gerry-only. THE INTERESTING PART is
+why this could NOT copy 0100's trigger shape: `deleted_at` is not
+`price_centavos` — FOUR definer fns soft-delete an engine at FIVE sites as
+normal operations the ADMIN must run (`fn_approve_loss` 0008,
+`fn_resolve_delivery_discrepancy` 0029/0054, `fn_return_stock` 0058,
+`fn_approve_return` 0065), and SECURITY DEFINER does not change
+`auth.uid()`, so a blanket gate would break loss approval, discrepancy
+resolution and return approval. The discriminator is a real rule:
+`enforce_engine_retire_lock` fires ONLY when `old.status = 'in_master'` —
+every operational soft-delete happens to an engine that has already LEFT
+master (`delivered`/`in_transit`). Three triggers total
+(`enforce_catalog_retire_lock` on models+categories,
+`enforce_part_retire_lock` adding the `merged_into` clause,
+`enforce_engine_retire_lock`), all gated in the RETIRE DIRECTION ONLY
+(null → not-null) so **restoring** stays office-tier — `createCategory`
+legitimately un-retires a name. Also **revokes DELETE** on all four tables
+from `authenticated`: 0049 revoked only INSERT, so a history-less part could
+be hard-deleted, defeating a `deleted_at` trigger entirely (verified: every
+hard delete in `scripts/` goes through the service role, which a revoke from
+`authenticated` doesn't touch). `fn_merge_parts` redefined whole with
+`is_primary_owner()` + message 'Only the owner can merge products' — body
+otherwise byte-identical to 0052, still writes NO ledger row. Messages
+deliberately avoid 0100's wording (`test-price-lock` matches /only the owner
+can change/i). App: `isPrimaryOwner()` in `lib/auth.ts` guards the five
+server actions (`softDeletePart` returns BEFORE the Storage remove so a
+blocked retire can't orphan an image); `retireLocked` **hides** the five
+controls for an admin (unlike 0100's disabled inputs — a greyed destructive
+button invites a support call). NO backfill, NO RLS change (RLS is row-level
+and cannot say "every column except deleted_at" — 0100's reasoning), NO
+ledger/reconciliation/P&L impact. Out of scope on purpose:
+`softDeleteSupplier` (a counterparty, not a product), `part_fitments` (a join
+table), no request-and-approve queue, no `deleted_by` column (only Gerry can
+retire, and merges are already audited in `part_merges`).
+`test-catalog-retire-lock.mjs` exits 2 until 0102 is applied. · `0103`
+**physical warranty cards** (the 0082 suki pattern applied to warranties):
+Gerwin prints warranty cards in an EXTERNAL system, so the app stops printing
+certificates — `warranties.warranty_serial` records which physical card went
+with which engine sale. Unique across cards (case-insensitive partial index),
+set via `fn_set_warranty_serial` (selling shop or office; upper+trim; clear
+with empty; friendly duplicate error). `shop_warranties` +
+`warranty_registry` append the column (registry search includes it);
+`fn_shop_warranty_preview` is DROPPED and the three certificate surfaces are
+deleted (`/warranties/[id]/certificate`, `/shop/warranties/[id]/certificate`,
+`/shop/warranty-preview/[saleId]`) — the Submissions engine-sale row shows a
+"hand the customer their card" reminder instead. A claim replacement (0070)
+repoints the warranty but keeps the row, so the recorded card follows the
+customer. `test-warranties`/`test-shop-warranties` extended (record, scope,
+uniqueness); `test-warranty-preview` deleted with its feature; the HTTP doc
+suites now assert the certificate pages 404.
 
 ### Cost visibility — narrowed, not opened (0053)
 "Cost is owner-only" (the discipline behind 0038 and the safe views) was

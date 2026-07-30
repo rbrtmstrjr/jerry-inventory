@@ -212,6 +212,20 @@ section("Certificate data joins:");
   check("certificate carries the selling shop", c?.sales?.shops?.name === S.name);
 }
 
+// ── warranty card number (0103) — the physical card, recorded not printed ──
+section("Warranty card number (0103):");
+{
+  const { error } = await owner.rpc("fn_set_warranty_serial", {
+    p_warranty_id: w.id, p_serial: `zz-card-${RUN}`,
+  });
+  check("owner records the physical card's number", !error, error?.message);
+
+  const { data: reg } = await owner
+    .from("warranty_registry").select("warranty_serial, search_text").eq("id", w.id).single();
+  check("registry shows it (upper-cased)", reg?.warranty_serial === `ZZ-CARD-${RUN}`);
+  check("card number is searchable", (reg?.search_text ?? "").includes(`zz-card-${RUN.toLowerCase()}`));
+}
+
 section("Cleanup:");
 await cleanup();
 summary();

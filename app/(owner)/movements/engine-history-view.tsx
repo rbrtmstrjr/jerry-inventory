@@ -194,11 +194,12 @@ export function EngineHistoryView({
                       Expires {phDate(life.warranty.expires_on)}
                       {life.warranty.expires_on < today && " — expired"}
                     </p>
+                    {/* 0103: certificates retired — the registry holds the card no. */}
                     <Link
-                      href={`/warranties/${life.warranty.id}/certificate`}
+                      href="/warranties"
                       className="mt-1 inline-block text-xs underline underline-offset-4 hover:text-foreground"
                     >
-                      Certificate
+                      View in registry
                     </Link>
                   </li>
                 )}

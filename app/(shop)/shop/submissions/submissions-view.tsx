@@ -260,24 +260,17 @@ export function SubmissionsView({
             <span>Owner: {s.owner_note}</span>
           </div>
         )}
-        {/* Warranty certificate — full-page (coupon printer), NOT the thermal
-            receipt. A customer document rendered from the sale, so it's ready
-            the moment the engine sale is recorded (no Admin approval needed).
-            Voids with the sale: cancelling it 404s this the same as the receipt. */}
+        {/* 0103: warranty cards are PHYSICAL, printed by Admin's external
+            system — hand the customer the card and record its number under
+            Warranties once the sale is approved. Nothing to print here. */}
         {engineLineCount > 0 && (
-          <div className="mt-1 flex items-center justify-between gap-2 rounded-md border border-dashed bg-muted/30 px-2 py-1.5 text-xs">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <ShieldCheck className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate">
-                Warranty certificate
-                {engineLineCount > 1 ? ` · ${engineLineCount} engines` : ""}
-              </span>
+          <div className="mt-1 flex items-center gap-1.5 rounded-md border border-dashed bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
+            <ShieldCheck className="size-3.5 shrink-0" />
+            <span className="truncate">
+              Engine sale — hand the customer their physical warranty card
+              {engineLineCount > 1 ? ` (${engineLineCount} engines)` : ""}, then
+              record its number under Warranties after approval.
             </span>
-            <Button asChild variant="outline" size="sm" className="h-7 shrink-0">
-              <Link href={`/shop/warranty-preview/${s.id}`} target="_blank">
-                <Printer className="size-3.5" /> Print warranty
-              </Link>
-            </Button>
           </div>
         )}
       </div>

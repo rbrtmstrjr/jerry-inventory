@@ -32,10 +32,13 @@ import { softDeleteEngineModel, updateEngineModel } from "./actions";
 export function ModelManagerDialog({
   open,
   models,
+  retireLocked = false,
   onClose,
 }: {
   open: boolean;
   models: EngineModel[];
+  /** 0102: retiring a model is Gerry-only — the button is hidden for admins. */
+  retireLocked?: boolean;
   onClose: () => void;
 }) {
   interface Row {
@@ -168,16 +171,18 @@ export function ModelManagerDialog({
                           <Save className="size-4" />
                         )}
                       </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Retire ${r.brand} ${r.model}`}
-                        title="Retire (existing engines keep it)"
-                        onClick={() => setRetiring(r)}
-                      >
-                        <Archive className="size-4" />
-                      </Button>
+                      {!retireLocked && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Retire ${r.brand} ${r.model}`}
+                          title="Retire (existing engines keep it)"
+                          onClick={() => setRetiring(r)}
+                        >
+                          <Archive className="size-4" />
+                        </Button>
+                      )}
                     </div>
                   </React.Fragment>
                 ))}

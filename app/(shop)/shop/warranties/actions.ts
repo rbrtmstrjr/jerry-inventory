@@ -49,3 +49,24 @@ export async function cancelWarrantyClaim(id: string): Promise<ActionResult> {
   revalidatePath("/shop/warranties");
   return { ok: true };
 }
+
+/**
+ * Record / correct the PHYSICAL warranty card's number (0103). The card is
+ * printed by Gerwin's external system — the app only remembers which card
+ * went with which engine sale. fn_set_warranty_serial re-checks the caller
+ * is the selling shop (or the office) and enforces uniqueness across cards.
+ */
+export async function setWarrantySerial(
+  warrantyId: string,
+  serial: string
+): Promise<ActionResult> {
+  if (!z.uuid().safeParse(warrantyId).success) return { ok: false, error: "Invalid warranty" };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_set_warranty_serial", {
+    p_warranty_id: warrantyId,
+    p_serial: serial,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/shop/warranties");
+  return { ok: true };
+}

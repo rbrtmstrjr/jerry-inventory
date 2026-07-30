@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/auth";
 import { parseTableParams } from "@/components/data-table/table-params";
 import type { Category, EngineModel, EngineRow, PartRow } from "@/lib/db-types";
 import { CatalogTabs } from "./catalog-tabs";
@@ -133,6 +134,11 @@ async function PartsPanel({ sp }: { sp: SP }) {
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
+  // 0100: prices are encoded at entry; editing them afterward is Gerry-only.
+  // 0102: retiring/merging a product is Gerry-only too — one getProfile() call
+  // serves both flags.
+  const profile = await getProfile();
+
   return (
     <PartsTable
       parts={parts}
@@ -141,6 +147,8 @@ async function PartsPanel({ sp }: { sp: SP }) {
       suppliers={suppliersRes.data ?? []}
       fitmentsByPart={fitmentsByPart}
       pricesByPart={pricesByPart}
+      priceLocked={profile?.role === "admin"}
+      retireLocked={profile?.role === "admin"}
       total={partsRes.count ?? 0}
       page={params.page}
       pageSize={params.pageSize}
@@ -200,11 +208,15 @@ async function EnginesPanel({ sp }: { sp: SP }) {
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
+  const profile = await getProfile();
+
   return (
     <EnginesTable
       engines={engines}
       models={(modelsRes.data ?? []) as EngineModel[]}
       suppliers={suppliersRes.data ?? []}
+      priceLocked={profile?.role === "admin"}
+      retireLocked={profile?.role === "admin"}
       total={enginesRes.count ?? 0}
       page={params.page}
       pageSize={params.pageSize}

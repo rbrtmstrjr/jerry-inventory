@@ -62,6 +62,8 @@ export function PartsTable({
   suppliers,
   fitmentsByPart,
   pricesByPart,
+  priceLocked = false,
+  retireLocked = false,
   total,
   page,
   pageSize,
@@ -73,6 +75,10 @@ export function PartsTable({
   suppliers: { id: string; name: string }[];
   fitmentsByPart: Record<string, string[]>;
   pricesByPart: Record<string, ComparisonRow[]>;
+  /** 0100: admin edits everything EXCEPT cost/selling price (Gerry-only). */
+  priceLocked?: boolean;
+  /** 0102: retire + merge are Gerry-only — hidden for the admin, not disabled. */
+  retireLocked?: boolean;
   /** Server-paginated: `parts` is ONE page of the catalog. */
   total: number;
   page: number;
@@ -138,10 +144,14 @@ export function PartsTable({
             {(pricesByPart[part.id]?.length ?? 0) > 0 &&
               ` (${pricesByPart[part.id].length})`}
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={() => setDeleting(part)}>
-            <Trash2 className="size-4" /> Remove product
-          </DropdownMenuItem>
+          {!retireLocked && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={() => setDeleting(part)}>
+                <Trash2 className="size-4" /> Remove product
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     );
@@ -152,9 +162,11 @@ export function PartsTable({
   // intact). Real purchases with debt still go through Suppliers → Receiving.
   const toolbarButtons = (
     <>
-      <Button variant="outline" onClick={() => setMergeOpen(true)}>
-        <GitMerge className="size-4" /> Merge duplicates
-      </Button>
+      {!retireLocked && (
+        <Button variant="outline" onClick={() => setMergeOpen(true)}>
+          <GitMerge className="size-4" /> Merge duplicates
+        </Button>
+      )}
       <Button onClick={() => setAddOpen(true)}>
         <PackagePlus className="size-4" /> Add product
       </Button>
@@ -427,6 +439,7 @@ export function PartsTable({
         onOpenChange={setDialogOpen}
         categories={categories}
         part={editing}
+        priceLocked={priceLocked}
       />
       <AddProductDialog
         open={addOpen}

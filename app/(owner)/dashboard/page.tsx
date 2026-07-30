@@ -9,7 +9,9 @@ import {
   ClipboardCheck,
   Coins,
   HandCoins,
+  ListChecks,
   Package,
+  ShieldCheck,
   ShoppingCart,
   TriangleAlert,
   Trophy,
@@ -18,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/auth";
 import { ph_today } from "@/lib/ph-date";
 import { formatCentavos } from "@/lib/format";
 import { computePnl } from "@/lib/pnl";
@@ -44,10 +47,15 @@ export const metadata: Metadata = { title: "Dashboard" };
  * never blocked on its slowest query. Numbers come from lib/dashboard.ts (SQL
  * aggregates via 0074, with a direct-query fallback).
  */
-export default function OwnerDashboardPage() {
+export default async function OwnerDashboardPage() {
   const today = ph_today();
   const monthStart = `${today.slice(0, 7)}-01`;
   const monthLabel = format(new Date(`${today}T00:00:00`), "MMMM");
+
+  // The admin's dashboard is MONEY-FREE (0099 polish): no revenue, no P&L,
+  // no owed amounts — operational counts only. Gerry sees the full picture.
+  const profile = await getProfile();
+  const moneyFree = profile?.role === "admin";
 
   return (
     <div className="flex flex-col gap-6">
@@ -64,7 +72,7 @@ export default function OwnerDashboardPage() {
       </Suspense>
 
       <Suspense fallback={<StatsSkeleton />}>
-        <StatsCards />
+        <StatsCards moneyFree={moneyFree} />
       </Suspense>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -72,12 +80,16 @@ export default function OwnerDashboardPage() {
           <TopProductsCard from={monthStart} to={today} monthLabel={monthLabel} />
         </Suspense>
         <Suspense fallback={<CardSkeleton lines={6} />}>
-          <PnlCard from={monthStart} to={today} monthLabel={monthLabel} />
+          {moneyFree ? (
+            <WorkQueueCard />
+          ) : (
+            <PnlCard from={monthStart} to={today} monthLabel={monthLabel} />
+          )}
         </Suspense>
       </div>
 
       <Suspense fallback={<OpsSkeleton />}>
-        <OpsCards />
+        <OpsCards moneyFree={moneyFree} />
       </Suspense>
     </div>
   );
@@ -160,7 +172,7 @@ async function BirthdayCard() {
 }
 
 // ── top KPI row ──────────────────────────────────────────────────────────────
-async function StatsCards() {
+async function StatsCards({ moneyFree = false }: { moneyFree?: boolean }) {
   const s = await getDashboardSummary();
   const stats = [
     {
@@ -170,13 +182,22 @@ async function StatsCards() {
       icon: ClipboardCheck,
       href: "/approvals",
     },
-    {
-      label: "Approved sales today",
-      value: formatCentavos(s.todayRevenue),
-      hint: `${s.todayCount} sale(s) · all shops`,
-      icon: ShoppingCart,
-      href: "/reports",
-    },
+    // admin sees HOW MANY sold today, never for how much
+    moneyFree
+      ? {
+          label: "Sales approved today",
+          value: `${s.todayCount}`,
+          hint: "sale(s) · all shops",
+          icon: ShoppingCart,
+          href: "/approvals",
+        }
+      : {
+          label: "Approved sales today",
+          value: formatCentavos(s.todayRevenue),
+          hint: `${s.todayCount} sale(s) · all shops`,
+          icon: ShoppingCart,
+          href: "/reports",
+        },
     {
       label: "Master stock items",
       value: `${s.masterItemCount}`,
@@ -370,8 +391,137 @@ async function PnlCard({
   );
 }
 
+// ── admin's replacement for the P&L card: the working queue, counts only ─────
+// Same visual language as the Top-products card next to it: a highlighted
+// hero tile (the total) above an accented tile per queue — not sparse rows.
+async function WorkQueueCard() {
+  const supabase = await createClient();
+  const [claims, requests, returns] = await Promise.all([
+    supabase.from("warranty_claims").select("id", { count: "exact", head: true }).eq("status", "requested"),
+    supabase.from("delivery_requests").select("id", { count: "exact", head: true }).eq("status", "open"),
+    supabase.from("returns").select("id", { count: "exact", head: true }).eq("status", "requested"),
+  ]);
+  const queues = [
+    {
+      label: "Warranty claims",
+      sub: "awaiting approval",
+      count: claims.count ?? 0,
+      href: "/warranties",
+      icon: ShieldCheck,
+      bubble: "bg-violet-400/20 text-violet-700 dark:text-violet-300",
+    },
+    {
+      label: "Stock requests",
+      sub: "open, from shops",
+      count: requests.count ?? 0,
+      href: "/stock-alerts?tab=requests",
+      icon: TriangleAlert,
+      bubble: "bg-amber-400/20 text-amber-700 dark:text-amber-300",
+    },
+    {
+      label: "Return requests",
+      sub: "awaiting approval",
+      count: returns.count ?? 0,
+      href: "/deliveries?tab=transfers",
+      icon: Truck,
+      bubble: "bg-sky-400/20 text-sky-700 dark:text-sky-300",
+    },
+  ];
+  const total = queues.reduce((s, q) => s + q.count, 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ListChecks className="size-4" /> Working queue
+          </CardTitle>
+          <CardDescription>What&apos;s waiting on the office today</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {/* hero tile — mirrors the Top-seller tile on the card beside this one */}
+        <div
+          className={`relative overflow-hidden rounded-lg border p-4 ${
+            total > 0
+              ? "border-primary/30 bg-gradient-to-br from-primary/15 via-primary/[0.06] to-transparent"
+              : "border-success/30 bg-gradient-to-br from-success/15 via-success/[0.06] to-transparent"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className={`flex size-11 shrink-0 items-center justify-center rounded-full ${
+                total > 0
+                  ? "bg-primary/20 text-primary"
+                  : "bg-success/20 text-success"
+              }`}
+            >
+              {total > 0 ? <ListChecks className="size-5" /> : <ClipboardCheck className="size-5" />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div
+                className={`text-[11px] font-semibold uppercase tracking-wide ${
+                  total > 0 ? "text-primary" : "text-success"
+                }`}
+              >
+                {total > 0 ? "Waiting on the office" : "All caught up"}
+              </div>
+              <div className="truncate text-base font-semibold">
+                {total > 0
+                  ? `${total} item${total === 1 ? "" : "s"} to action`
+                  : "Nothing waiting right now"}
+              </div>
+            </div>
+            {total > 0 && (
+              <div className="shrink-0 text-right leading-none">
+                <div className="text-2xl font-bold tabular-nums">{total}</div>
+                <div className="mt-1 text-[11px] text-muted-foreground">total</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* one tile per queue — large touch targets, hover feedback, deep links */}
+        <div className="grid grid-cols-3 gap-2">
+          {queues.map((q) => (
+            <Link
+              key={q.label}
+              href={q.href}
+              className="group flex flex-col items-start gap-2 rounded-lg border p-3 transition-colors hover:border-primary/40 hover:bg-accent/40"
+            >
+              <span
+                className={`flex size-8 items-center justify-center rounded-full ${q.bubble}`}
+              >
+                <q.icon className="size-4" />
+              </span>
+              <span
+                className={`text-2xl font-bold leading-none tabular-nums ${
+                  q.count === 0 ? "text-muted-foreground/60" : ""
+                }`}
+              >
+                {q.count}
+              </span>
+              <span className="flex flex-col leading-tight">
+                <span className="text-xs font-medium">{q.label}</span>
+                <span className="text-[11px] text-muted-foreground">{q.sub}</span>
+              </span>
+              <span className="mt-auto inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors group-hover:text-primary">
+                Open <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+              </span>
+            </Link>
+          ))}
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Financial reports live on the owner&apos;s account.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── operations row ───────────────────────────────────────────────────────────
-async function OpsCards() {
+async function OpsCards({ moneyFree = false }: { moneyFree?: boolean }) {
   const s = await getDashboardSummary();
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -400,22 +550,43 @@ async function OpsCards() {
       <Link href="/suppliers?tab=payables">
         <Card className="h-full transition-colors hover:bg-accent/40">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Owed to suppliers</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              {moneyFree ? "Supplier payables" : "Owed to suppliers"}
+            </CardTitle>
             <Coins className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-semibold tabular-nums">
-              {formatCentavos(s.payablesOwed)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {s.payablesOverdue > 0 ? (
-                <span className="text-destructive">
-                  {formatCentavos(s.payablesOverdue)} overdue ({s.payablesOverdueCount})
-                </span>
-              ) : (
-                "nothing overdue"
-              )}
-            </p>
+            {moneyFree ? (
+              <>
+                <div className="text-2xl font-semibold tabular-nums">
+                  {s.payablesOverdueCount}
+                  {s.payablesOverdueCount > 0 && (
+                    <span className="ml-2 align-middle text-xs font-normal text-destructive">
+                      overdue
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  overdue receiving{s.payablesOverdueCount === 1 ? "" : "s"} · amounts on
+                  the Payables tab
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-semibold tabular-nums">
+                  {formatCentavos(s.payablesOwed)}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {s.payablesOverdue > 0 ? (
+                    <span className="text-destructive">
+                      {formatCentavos(s.payablesOverdue)} overdue ({s.payablesOverdueCount})
+                    </span>
+                  ) : (
+                    "nothing overdue"
+                  )}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       </Link>
@@ -423,18 +594,31 @@ async function OpsCards() {
       <Link href="/receivables">
         <Card className="h-full transition-colors hover:bg-accent/40">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Owed by customers</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              {moneyFree ? "Customer utang" : "Owed by customers"}
+            </CardTitle>
             <HandCoins className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-semibold tabular-nums">
-              {formatCentavos(s.receivablesOwed)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {s.receivablesCount > 0
-                ? `${s.receivablesCount} unpaid sale${s.receivablesCount === 1 ? "" : "s"} (utang)`
-                : "all collected"}
-            </p>
+            {moneyFree ? (
+              <>
+                <div className="text-2xl font-semibold tabular-nums">{s.receivablesCount}</div>
+                <p className="text-xs text-muted-foreground">
+                  unpaid sale{s.receivablesCount === 1 ? "" : "s"} · balances on Receivables
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-semibold tabular-nums">
+                  {formatCentavos(s.receivablesOwed)}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {s.receivablesCount > 0
+                    ? `${s.receivablesCount} unpaid sale${s.receivablesCount === 1 ? "" : "s"} (utang)`
+                    : "all collected"}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       </Link>

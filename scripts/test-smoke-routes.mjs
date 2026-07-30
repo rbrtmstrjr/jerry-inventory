@@ -64,7 +64,6 @@ const dyn = [
   ["/counts/" + ids.count, ids.count],
   ["/counts/" + ids.count + "/sheet", ids.count],
   ["/deliveries/" + ids.delivery + "/note", ids.delivery],
-  ["/warranties/" + ids.warranty + "/certificate", ids.warranty],
   ["/receipt/" + ids.sale, ids.sale],
   ["/shops/" + ids.shop + "/stock", ids.shop],
   ["/stock-alerts/purchase-list", true],

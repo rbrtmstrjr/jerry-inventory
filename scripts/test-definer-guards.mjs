@@ -35,7 +35,7 @@ const all = files.map((f) => readFileSync(join(MIG_DIR, f), "utf8")).join("\n");
 
 // A guard = any of these appearing in the function body. `fn_can_edit_product_image`
 // is a known guard HELPER (it checks auth_shop_id internally), so calling it counts.
-const GUARD = /\bis_owner\(\)|auth_shop_id\(\)|auth\.uid\(\)|\brole\s*=\s*'(employee|owner)'|\brole\s+in\b|service_role|fn_can_edit_product_image/;
+const GUARD = /\bis_owner\(\)|\bis_primary_owner\(\)|auth_shop_id\(\)|auth\.uid\(\)|\brole\s*=\s*'(employee|owner)'|\brole\s+in\b|service_role|fn_can_edit_product_image/;
 
 /**
  * Documented exceptions — functions that are authenticated-callable, have no

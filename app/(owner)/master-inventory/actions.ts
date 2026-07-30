@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { getProfile } from "@/lib/auth";
+import { getProfile, isPrimaryOwner } from "@/lib/auth";
 
 type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -12,6 +12,12 @@ async function requireOwner(): Promise<boolean> {
   const profile = await getProfile();
   return profile?.role === "owner" || profile?.role === "admin";
 }
+
+// 0102: retiring or merging a catalog product is Gerry's alone — a retire is
+// the one catalog action that removes evidence. These checks are UX (a clean
+// toast instead of a raw trigger message); the real gates are the BEFORE
+// UPDATE triggers and fn_merge_parts' own is_primary_owner() guard.
+const RETIRE_DENIED = "Only the owner can retire a product";
 
 // ---------------------------------------------------------------------------
 // Add custom product / engine (0059) — supplier OPTIONAL. Creation still goes
@@ -173,9 +179,14 @@ export async function upsertPart(input: unknown): Promise<ActionResult> {
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
-  const { id, ...fields } = parsed.data;
+  const { id, cost_centavos, price_centavos, ...fields } = parsed.data;
+  // 0100: an admin's EDIT never carries the money columns — prices are encoded
+  // at entry and changed only by the owner (the DB trigger enforces the same).
+  const profile = await getProfile();
+  const priceLocked = profile?.role === "admin" && !!id;
   const row = {
     ...fields,
+    ...(priceLocked ? {} : { cost_centavos, price_centavos }),
     sku: fields.sku || null,
     barcode: fields.barcode || null,
     notes: fields.notes || null,
@@ -262,6 +273,9 @@ export async function mergeParts(
     .object({ sourceId: z.uuid(), targetId: z.uuid(), note: z.string().trim().max(500).optional().nullable() })
     .safeParse({ sourceId, targetId, note });
   if (!parsed.success) return { ok: false, error: "Invalid input" };
+  if (!(await isPrimaryOwner())) {
+    return { ok: false, error: "Only the owner can merge products" };
+  }
 
   const supabase = await createClient();
   const { error } = await supabase.rpc("fn_merge_parts", {
@@ -276,6 +290,8 @@ export async function mergeParts(
 }
 
 export async function softDeletePart(id: string): Promise<ActionResult> {
+  // before ANY Supabase call — a blocked retire must not orphan the image
+  if (!(await isPrimaryOwner())) return { ok: false, error: RETIRE_DENIED };
   const supabase = await createClient();
 
   // fetch image path first so we can clean up the Storage object
@@ -353,7 +369,13 @@ export async function updateEngine(input: unknown): Promise<ActionResult> {
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
-  const { id, ...fields } = parsed.data;
+  const { id, cost_centavos, price_centavos, ...rest } = parsed.data;
+  // 0100: same rule as parts — an admin's edit never touches the money columns
+  const profile = await getProfile();
+  const fields =
+    profile?.role === "admin"
+      ? rest
+      : { ...rest, cost_centavos, price_centavos };
   const supabase = await createClient();
   const { error } = await supabase.from("engines").update(fields).eq("id", id);
   if (error) return { ok: false, error: error.message };
@@ -362,6 +384,10 @@ export async function updateEngine(input: unknown): Promise<ActionResult> {
 }
 
 export async function softDeleteEngine(id: string): Promise<ActionResult> {
+  // 0102: same as softDeletePart — return before the Storage cleanup
+  if (!(await isPrimaryOwner())) {
+    return { ok: false, error: "Only the owner can remove an engine from the catalog" };
+  }
   const supabase = await createClient();
 
   const { data: engine } = await supabase
@@ -525,6 +551,7 @@ export async function updateEngineModel(input: unknown): Promise<ActionResult> {
 
 /** Retire a discontinued model — hides it from pickers; existing engines keep it. */
 export async function softDeleteEngineModel(id: string): Promise<ActionResult> {
+  if (!(await isPrimaryOwner())) return { ok: false, error: RETIRE_DENIED };
   if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid id" };
   const supabase = await createClient();
   const { error } = await supabase
@@ -613,7 +640,8 @@ export async function updateCategory(id: string, name: string): Promise<ActionRe
 
 /** Retire a category — hides it from pickers; existing products keep it. */
 export async function softDeleteCategory(id: string): Promise<ActionResult> {
-  if (!(await requireOwner())) return { ok: false, error: "Only the owner can manage categories" };
+  // 0102: retiring is Gerry's; create/rename/restore stay office-tier above.
+  if (!(await isPrimaryOwner())) return { ok: false, error: RETIRE_DENIED };
   if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid id" };
   const supabase = await createClient();
   const { error } = await supabase

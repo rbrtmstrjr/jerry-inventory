@@ -53,6 +53,8 @@ export function EnginesTable({
   engines,
   models,
   suppliers,
+  priceLocked = false,
+  retireLocked = false,
   total,
   page,
   pageSize,
@@ -61,6 +63,10 @@ export function EnginesTable({
   engines: EngineRow[];
   models: EngineModel[];
   suppliers: { id: string; name: string }[];
+  /** 0100: admin edits everything EXCEPT the selling price (Gerry-only). */
+  priceLocked?: boolean;
+  /** 0102: removing an in-master serial / retiring a model is Gerry-only. */
+  retireLocked?: boolean;
   /** Server-paginated: `engines` is ONE page, not the whole registry. */
   total: number;
   page: number;
@@ -96,7 +102,7 @@ export function EnginesTable({
           >
             <Pencil className="size-4" /> Edit
           </DropdownMenuItem>
-          {engine.status === "in_master" && (
+          {engine.status === "in_master" && !retireLocked && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -329,6 +335,7 @@ export function EnginesTable({
         onOpenChange={setDialogOpen}
         models={models}
         engine={editing}
+        priceLocked={priceLocked}
       />
       <AddEngineDialog
         open={addOpen}
@@ -339,6 +346,7 @@ export function EnginesTable({
       <ModelManagerDialog
         open={modelMgrOpen}
         models={models}
+        retireLocked={retireLocked}
         onClose={() => setModelMgrOpen(false)}
       />
       <ConfirmDialog

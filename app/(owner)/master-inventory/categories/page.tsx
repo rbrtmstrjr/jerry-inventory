@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/auth";
 import { CategoriesView } from "./categories-view";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -22,7 +23,9 @@ export default function CategoriesPage() {
 async function CategoriesBody() {
   const supabase = await createClient();
 
-  const [catsRes, partsRes] = await Promise.all([
+  // 0102: retiring a category is Gerry-only; create/rename/restore stay office
+  const [profile, catsRes, partsRes] = await Promise.all([
+    getProfile(),
     supabase
       .from("product_categories")
       .select("id, name")
@@ -43,7 +46,12 @@ async function CategoriesBody() {
     usage: usage[c.id] ?? 0,
   }));
 
-  return <CategoriesView categories={categories} />;
+  return (
+    <CategoriesView
+      categories={categories}
+      retireLocked={profile?.role === "admin"}
+    />
+  );
 }
 
 function CategoriesSkeleton() {

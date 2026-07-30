@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Store, Users, Wallet } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/auth";
 import { fetchAll } from "@/lib/pnl";
 import type { ReceivableRow } from "@/lib/db-types";
 import { formatCentavos } from "@/lib/format";
@@ -199,12 +200,16 @@ async function ReceivablesBody({ tab }: { tab: ReceivableTab }) {
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
+  // 0101: voiding a payment is Gerry-only — the admin sees history, no undo
+  const profile = await getProfile();
+
   return (
     <ReceivablesList
       tab={tab}
       rows={rows}
       history={history}
       shops={shopsRes.data ?? []}
+      canVoid={profile?.role === "owner"}
     />
   );
 }

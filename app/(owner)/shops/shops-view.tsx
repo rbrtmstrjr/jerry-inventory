@@ -550,8 +550,8 @@ export function ShopsView({
             <div className="grid gap-2">
               <Label>Shop logo</Label>
               <p className="text-xs text-muted-foreground">
-                Printed on this branch&apos;s receipts and warranty certificates,
-                in place of the anchor. Optional — leave empty to keep the anchor.
+                Printed on this branch&apos;s receipts, in place of the anchor.
+                Optional — leave empty to keep the anchor.
               </p>
               <ImageUploadField
                 currentPath={editingShop?.logo_path ?? null}

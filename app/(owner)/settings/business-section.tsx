@@ -60,8 +60,8 @@ function IdentityCard({ settings }: { settings: SettingsRow }) {
       <CardHeader>
         <CardTitle className="text-base">Business identity</CardTitle>
         <CardDescription>
-          Printed on all six documents: sale receipt, delivery note, warranty
-          certificate, payslip, count sheet and supplier purchase list.
+          Printed on every document: sale receipt, delivery note, count sheet,
+          stock card and supplier purchase list.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">

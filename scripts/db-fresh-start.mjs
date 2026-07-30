@@ -78,21 +78,13 @@ const WIPE_ORDER = [
 
 const KEEP = ["settings", "product_categories", "notification_channels"];
 
-async function fetchAll(table) {
-  const rows = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await admin.from(table).select("*").range(from, from + 999);
-    if (error) throw new Error(`${table}: ${error.message}`);
-    rows.push(...(data ?? []));
-    if (!data || data.length < 1000) break;
-  }
-  return rows;
-}
-
 // ── counts (backup deliberately removed — testing data only, per the owner) ──
+// head+count, never fetch: paging 600k ledger rows just to COUNT them is what
+// used to hit the statement timeout before a single row was deleted.
 const counts = {};
 for (const t of [...WIPE_ORDER, "profiles", "shops", ...KEEP]) {
-  counts[t] = (await fetchAll(t)).length;
+  const { count, error } = await admin.from(t).select("*", { count: "exact", head: true });
+  counts[t] = error ? 0 : (count ?? 0);
 }
 const { data: userList } = await admin.auth.admin.listUsers({ perPage: 1000 });
 const users = userList?.users ?? [];
@@ -100,8 +92,9 @@ const users = userList?.users ?? [];
 // this survives an admin email/credential change (the old hardcoded email went
 // stale when the account became gerwintrading@test.com and nearly let the wipe
 // delete the real owner). Fall back to the email only if no owner profile.
-const { data: ownerProf } = await admin
-  .from("profiles").select("id").eq("role", "owner").is("deleted_at", null).limit(1).single();
+const { data: officeProfs } = await admin
+  .from("profiles").select("id, role").in("role", ["owner", "admin"]).is("deleted_at", null);
+const ownerProf = (officeProfs ?? []).find((p) => p.role === "owner");
 const adminUser =
   users.find((u) => u.id === ownerProf?.id) ??
   users.find((u) => u.email === ADMIN_EMAIL);
@@ -111,6 +104,9 @@ if (!adminUser) {
   );
   process.exit(1);
 }
+// Office accounts survive the wipe: the owner AND every role='admin' login
+// (0099) — sample data goes, the people running the system stay.
+const keepIds = new Set([adminUser.id, ...(officeProfs ?? []).map((p) => p.id)]);
 
 console.log(`\n${YES ? "DELETING" : "DRY RUN (pass --yes to delete)"}:`);
 for (const t of WIPE_ORDER) if (counts[t]) console.log(`  ${t}: ${counts[t]} row(s)`);
@@ -175,10 +171,11 @@ for (const t of WIPE_ORDER) {
 
 // profiles: everyone but the admin, then their auth users, then shops
 {
-  const { error } = await admin.from("profiles").delete().neq("id", adminUser.id);
+  const { error } = await admin.from("profiles").delete()
+    .not("id", "in", `(${[...keepIds].join(",")})`);
   if (error) { console.error(`profiles: ${error.message}`); process.exit(1); }
   for (const u of users) {
-    if (u.id === adminUser.id) continue;
+    if (keepIds.has(u.id)) continue;
     await admin.auth.admin.deleteUser(u.id).catch((e) => console.error(`auth ${u.email}: ${e.message}`));
   }
   // 0051: shop-proposed expense categories pin their shop via FK — proposals
@@ -217,8 +214,9 @@ for (const t of [...WIPE_ORDER, "shops"]) {
   const { count } = await admin.from(t).select("*", { count: "exact", head: true });
   if (count) leaks.push(`${t}: ${count}`);
 }
+// office accounts (owner + every admin, 0099) survive on purpose
 const { count: profCount } = await admin.from("profiles").select("id", { count: "exact", head: true });
-if (profCount !== 1) leaks.push(`profiles: ${profCount} (expected 1)`);
+if (profCount !== keepIds.size) leaks.push(`profiles: ${profCount} (expected ${keepIds.size})`);
 for (const t of KEEP) {
   const { count } = await admin.from(t).select("*", { count: "exact", head: true });
   console.log(`kept ${t}: ${count} row(s)`);

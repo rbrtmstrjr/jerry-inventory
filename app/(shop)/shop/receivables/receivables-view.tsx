@@ -11,7 +11,6 @@ import {
   Loader2,
   Printer,
   Search,
-  Undo2,
   Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -27,7 +26,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -40,7 +38,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TabCountBadge } from "@/components/ui/tab-count-badge";
-import { recordUtangPayment, voidUtangPayment } from "../actions";
+import { recordUtangPayment } from "../actions";
 
 export type PaymentMethod = "cash" | "gcash" | "bank" | "other";
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
@@ -231,10 +229,7 @@ function ReceivableCard({
   history: PaymentRow[];
   onRecord?: () => void;
 }) {
-  const router = useRouter();
   const [showHistory, setShowHistory] = React.useState(false);
-  const [voiding, setVoiding] = React.useState<PaymentRow | null>(null);
-  const [busy, setBusy] = React.useState(false);
   const paidOff = row.balance_centavos <= 0;
   const live = history.filter((h) => !h.voided);
 
@@ -340,44 +335,19 @@ function ReceivableCard({
                   >
                     {formatCentavos(h.amount_centavos)}
                   </span>
-                  {h.voided ? (
-                    <Badge variant="outline">Voided</Badge>
-                  ) : (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Void payment"
-                      disabled={busy}
-                      onClick={() => setVoiding(h)}
-                    >
-                      <Undo2 className="size-3.5" />
-                    </Button>
-                  )}
+                  {h.voided && <Badge variant="outline">Voided</Badge>}
                 </span>
               </div>
             ))}
+            {/* 0101: a recorded payment can only be voided by the owner —
+                the shop records money in, never erases the record */}
+            <p className="pt-1 text-xs text-muted-foreground">
+              Recorded a payment by mistake? Call the owner — only he can void
+              it (the balance is restored and the entry stays in this history).
+            </p>
           </div>
         )}
       </CardContent>
-
-      <ConfirmDialog
-        open={voiding !== null}
-        onOpenChange={(o) => !o && setVoiding(null)}
-        title="Void this payment?"
-        description="Use this for a mistake or typo. The balance goes straight back up, the entry stays in the history, and Admin is told."
-        confirmLabel="Yes, void it"
-        destructive
-        onConfirm={async () => {
-          if (!voiding) return;
-          setBusy(true);
-          const res = await voidUtangPayment(voiding.id, "Voided by the shop");
-          setBusy(false);
-          if (res.ok) {
-            toast.success("Payment voided — balance restored");
-            router.refresh();
-          } else toast.error(res.error);
-        }}
-      />
     </Card>
   );
 }

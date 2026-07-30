@@ -23,3 +23,19 @@ export async function reviewWarrantyClaim(
   revalidatePath("/warranties");
   return { ok: true };
 }
+
+/** Record / correct the PHYSICAL warranty card's number (0103). The office can
+ *  set it for any warranty; the RPC enforces uniqueness across cards. */
+export async function setWarrantySerial(
+  warrantyId: string,
+  serial: string
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_set_warranty_serial", {
+    p_warranty_id: warrantyId,
+    p_serial: serial,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/warranties");
+  return { ok: true };
+}

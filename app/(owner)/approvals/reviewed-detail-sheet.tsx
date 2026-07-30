@@ -395,8 +395,9 @@ function SaleBody({ d }: { d: Extract<ReviewedDetail, { type: "sale" }> }) {
           </Button>
           {d.warranty_id && (
             <Button asChild variant="outline" size="sm">
-              <Link href={`/warranties/${d.warranty_id}/certificate`} target="_blank">
-                <ShieldCheck className="size-3.5" /> Warranty certificate
+              {/* 0103: certificates retired — the registry holds the card no. */}
+              <Link href="/warranties" target="_blank">
+                <ShieldCheck className="size-3.5" /> Warranty
               </Link>
             </Button>
           )}

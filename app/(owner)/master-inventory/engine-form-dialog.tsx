@@ -56,11 +56,14 @@ export function EngineFormDialog({
   onOpenChange,
   models,
   engine,
+  priceLocked = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   models: EngineModel[];
   engine: EngineRow | null;
+  /** 0100: the selling price is Gerry-only after entry (cost is already fixed). */
+  priceLocked?: boolean;
 }) {
   const [imageAction, setImageAction] = React.useState<ImageAction>({
     type: "keep",
@@ -228,12 +231,16 @@ export function EngineFormDialog({
 
           <div className="grid gap-2">
             <Label htmlFor="engine-price">Selling price ₱</Label>
-            <Input id="engine-price" inputMode="decimal" {...register("price")} />
+            <Input id="engine-price" inputMode="decimal" disabled={priceLocked} {...register("price")} />
             {errors.price ? (
               <p className="text-sm text-destructive">{errors.price.message}</p>
             ) : belowCost ? (
               <p className="text-sm text-destructive">
                 Selling price must be above cost {formatCentavos(costC)}
+              </p>
+            ) : priceLocked ? (
+              <p className="text-xs text-muted-foreground">
+                Only the owner can change the selling price.
               </p>
             ) : null}
           </div>

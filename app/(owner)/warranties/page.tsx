@@ -159,6 +159,7 @@ async function WarrantiesBody({ sp, tab }: { sp: SP; tab: string }) {
       months: w.months,
       expires_on: w.expires_on,
       active: w.active,
+      warranty_serial: w.warranty_serial ?? null,
       claims: (claimsByWarranty.get(w.id) ?? [])
         .sort((a: any, b: any) => (a.claim_date < b.claim_date ? 1 : -1))
         .map((c: any) => ({

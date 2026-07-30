@@ -148,11 +148,19 @@ const tally = (k, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
 function buildLineSet(shopId, maxLines) {
   const held = shopHeld(shopId);
   const set = [];
+  // track per-set usage — pick() samples WITH replacement, so the same part
+  // can land on two lines; each capped to avail alone still overdraws the
+  // shelf combined (thin 1-month shelves surface this as a -1 tally)
+  const used = new Map();
   for (let i = 0; i < rnd(1, maxLines) && held.length; i++) {
     const [pid, avail] = pick(held);
     const p = partById.get(pid);
     if (!p) continue;
-    set.push({ p, q: Math.min(avail, rnd(1, 3)) });
+    const left = avail - (used.get(pid) ?? 0);
+    if (left <= 0) continue;
+    const q = Math.min(left, rnd(1, 3));
+    set.push({ p, q });
+    used.set(pid, (used.get(pid) ?? 0) + q);
   }
   return set;
 }

@@ -165,24 +165,9 @@ export async function recordUtangPayment(input: unknown): Promise<ActionResult> 
   return { ok: true, id: data as string };
 }
 
-/**
- * Void a posted payment (typo/mistake). Soft-deleted so it stays in the
- * history; the balance goes straight back up and Admin is alerted.
- */
-export async function voidUtangPayment(
-  id: string,
-  reason?: string
-): Promise<ActionResult> {
-  if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid id" };
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("fn_void_utang_payment", {
-    p_id: id,
-    p_reason: reason?.trim() || null,
-  });
-  if (error) return { ok: false, error: error.message };
-  revalidatePath("/shop/receivables");
-  return { ok: true };
-}
+// 0101: voiding a posted payment moved to the OWNER alone — the shop records
+// money in, never erases the record. The old voidUtangPayment action left
+// with its button; fn_void_utang_payment's guard is the real gate.
 
 const shopExpenseSchema = z
   .object({

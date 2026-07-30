@@ -164,6 +164,31 @@ console.log("\nA shop sees ONLY what it sold:");
     ids.includes(wA.warrantyId) && ids.includes(wB.warrantyId));
 }
 
+// ── warranty card number (0103) — recorded by the SELLING shop only ─────────
+console.log("\nWarranty card number (0103):");
+{
+  const { error } = await A.client.rpc("fn_set_warranty_serial", {
+    p_warranty_id: wA.warrantyId, p_serial: `zz-wc-${RUN}-a`,
+  });
+  check("selling shop records its card number", !error, error?.message);
+
+  const { data } = await A.client
+    .from("shop_warranties").select("warranty_serial").eq("id", wA.warrantyId).single();
+  check("card number shows in the shop's view (upper-cased)",
+    data?.warranty_serial === `ZZ-WC-${RUN}-A`);
+
+  const { error: cross } = await B.client.rpc("fn_set_warranty_serial", {
+    p_warranty_id: wA.warrantyId, p_serial: "ZZ-HACK",
+  });
+  check("another shop cannot touch it", !!cross, cross?.message);
+
+  const { error: dup } = await B.client.rpc("fn_set_warranty_serial", {
+    p_warranty_id: wB.warrantyId, p_serial: `ZZ-wc-${RUN}-A`,
+  });
+  check("duplicate card number refused (case-insensitive)",
+    /already recorded/i.test(dup?.message ?? ""), dup?.message);
+}
+
 // â”€â”€ No cost leakage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 console.log("\nNo cost/margin anywhere on the shop surface:");
 {

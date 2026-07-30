@@ -233,10 +233,14 @@ check("shop records a ₱20,000 payment", !payErr, payErr?.message);
   const { data } = await owner.from("submission_batches").select("id").eq("shop_id", shop.id);
   check("the payment never entered the approval queue", data?.length === 1);
 }
-section("8. A mistaken payment is voided, not deleted:");
+section("8. A mistaken payment is voided by the OWNER, not deleted:");
 {
-  const { error } = await emp.rpc("fn_void_utang_payment", { p_id: payId, p_reason: `ZZ-TEST typo ${RUN}` });
-  check("payment voided", !error, error?.message);
+  // 0101: the shop records money in but can never erase the record
+  const { error: shopTry } = await emp.rpc("fn_void_utang_payment", { p_id: payId, p_reason: `ZZ-TEST typo ${RUN}` });
+  check("the shop cannot void its own payment (0101)",
+    !!shopTry && /only the owner/i.test(shopTry.message), shopTry?.message);
+  const { error } = await owner.rpc("fn_void_utang_payment", { p_id: payId, p_reason: `ZZ-TEST typo ${RUN}` });
+  check("payment voided by the owner", !error, error?.message);
 }
 {
   const { data } = await owner.from("receivables").select("balance_centavos").eq("sale_id", engSale).single();

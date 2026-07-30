@@ -47,6 +47,17 @@ export async function requirePrimaryOwner(): Promise<Profile> {
   return profile;
 }
 
+/**
+ * Non-redirecting tier check for server actions that must return an
+ * ActionResult. requirePrimaryOwner() redirects, which a server action cannot
+ * do while still reporting `{ ok: false, error }` to the caller — so the
+ * Gerry-only catalog guards (0102) use this instead.
+ */
+export async function isPrimaryOwner(): Promise<boolean> {
+  const profile = await getProfile();
+  return profile?.role === "owner";
+}
+
 /** Require an employee session with a shop assignment. */
 export async function requireEmployee(): Promise<Profile> {
   const profile = await getProfile();
