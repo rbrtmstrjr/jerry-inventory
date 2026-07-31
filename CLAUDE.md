@@ -4,9 +4,11 @@
 
 A centralized, web-based inventory + sales-approval platform for a Philippine
 marine store (outboard engines, parts, fisherman goods) supplying multiple
-branch shops. The owner (Admin) holds all stock centrally, delivers to shops,
-and approves every sale/loss before stock deducts. Employees **record** activity
-but can never move stock themselves.
+branch shops. The OFFICE (the owner Gerry, plus admin logins he mints — 0099)
+holds all stock centrally, delivers to shops, and approves every sale/loss
+before stock deducts. Employees **record** activity but can never move stock
+themselves — and a handful of record-rewriting powers (prices, voids, catalog
+retire, accounts, settings) belong to Gerry alone.
 
 ---
 
@@ -37,7 +39,7 @@ but can never move stock themselves.
 The `app/` directory uses three route groups, each with its own layout and role gate:
 
 - **`app/(auth)/`** — unauthenticated (login).
-- **`app/(owner)/`** — owner-only pages; layout redirects non-owners.
+- **`app/(owner)/`** — office pages (owner + admin since 0099); layout redirects everyone else. Three areas inside re-gate to Gerry alone via `requirePrimaryOwner()`: /reports, /settings, /expenses/reports (/shops became office-wide in 0104 — credentials + close re-gate inside the page).
 - **`app/(shop)/`** — employee (shop) pages; layout redirects non-employees.
 
 Two routes sit outside all three on purpose: `app/receipt/[saleId]` (both roles
@@ -49,7 +51,7 @@ someone who cannot sign in — `proxy.ts` lets `/auth/*` through unauthenticated
 (`client`, `server`, `proxy` middleware, `admin` service-role) and `lib/auth.ts`.
 
 ### Roles
-- **Owner (Gerry)** — one account; full control. The ONLY role that sees **Reports**, **Settings**, **Shops & Employees**, and **Expenses → Reports**, and the only one that can manage logins, open/close shops, or write settings (0099).
+- **Owner (Gerry)** — one account; full control. The ONLY role that sees **Reports**, **Settings**, and **Expenses → Reports**, and the only one that can manage logins, close/reopen shops, or write settings (0099; Shops & Employees became office-wide in 0104 with those two carve-outs).
 - **Admin (office)** — logins Gerry mints under Settings → Admins (0099). Runs ALL daily operations — receiving, deliveries, approvals, expenses, payables, catalog, suki cards — exactly like the owner, minus the four Gerry-only areas. Deactivating one (`profiles.active=false`) cuts app AND database access instantly; deleting is possible only while the account has no recorded history (attribution FKs refuse otherwise). Enforcement is two-speed **by design**: accounts/shops/settings are DB-enforced (`is_primary_owner()`); the hidden pages are app-enforced (`requirePrimaryOwner()` redirects) — the admin is trusted staff, not an adversary. **Four things the admin does NOT get, all DB-enforced** because each is a way to rewrite or erase the record rather than merely see more: editing cost/selling price after entry (0100), voiding an utang payment (0101), and **retiring or merging a catalog product** (0102 — a retire is the one catalog action that removes evidence, and a merge additionally redirects the source's supplier price history onto another product). The admin still creates catalog rows via Receiving and edits everything non-destructive: names, SKUs, photos, reorder levels, fitments, preferred supplier, categories.
 - **Employee (shop)** — **one shared login per shop**. Records sales/losses and edits product photos for its own shop only. Helpers/cashiers are tracked as *staff* records (people without app logins, managed under Shops & Employees — they carry a birthday for the reminder), separate from the shop login.
 
@@ -180,7 +182,7 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 | `/movements` | Movements | The `stock_movements` ledger as a **book**, three tabs (`?tab=`): **Journal** (every movement, filtered by location/type/product/actor/date/search, server-side paginated, each row deep-linked to its source document) · **Stock Card** (`?tab=ledger`) per product × location with Opening → running → Closing balance · **Engine History** (`?tab=engines`) scan-a-serial chain of custody |
 | `/movements/stock-card/print` | Stock Card | Printable bin card (params: `part`, `shop`, `from`, `to`) with the Settings letterhead + signature line |
 
-### Owner — Sales & Service (5)
+### Owner — Sales & Service (4)
 | Route | Page | Purpose |
 |-------|------|---------|
 | `/approvals` | Approval Queue | **(a)** Pending: review shop submission batches (sales + losses), one-click Approve-all + per-item actions, live updates. **(b)** Reviewed History: every decided sale/loss/utang payment, filterable (shop · type · status · date · search) with server-side pagination; click a row for a deep-linked slide-over detail (`?item=<type>:<id>`) |
@@ -191,20 +193,20 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 ### Owner — Shops & Employees (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/shops` | Shops & Employees | Purely operational since the IA reorg: manage shops (map pins, credentials, close-shop), 2-col cards. Per-branch profitability lives at `/reports?tab=shops`. Shop **color picker** (0050): palette swatches previewing the actual badge, taken colors disabled with the owning shop named, live preview; the shop's color drives its card tile, map pin, chart series, and every `<ShopBadge>` across the app. Shop **logo** (0057): optional per-branch image (reuses the product-image upload pipeline → `product-images` bucket) printed on that branch's receipts + warranty certificates in place of the anchor. **Staff manager** (0083, when Payroll was removed): each shop card lists its **employees** (the people, not app logins) with Add/Edit/Remove — a slim record (name · shop · birthday · photo · notes · active). The `staff` table stays because the birthday holds the Dashboard/nav **birthday reminder** (`staff_birthdays_today`, 0079); close-shop still blocks on active staff assigned here |
+| `/shops` | Shops & Employees | **Office-wide since 0104** (was Gerry-only under 0099): the admin manages shops daily — details, map pins, colors, logos, and the staff records — while **shop LOGIN credentials (create/replace/enable) and CLOSING a shop render for Gerry alone** (actions re-check `role==='owner'`; profiles RLS backs credentials, a BEFORE UPDATE trigger blocks a non-Gerry `deleted_at` flip, hard DELETE is a Gerry-only policy). Purely operational since the IA reorg: manage shops (map pins, credentials, close-shop), 2-col cards. Per-branch profitability lives at `/reports?tab=shops`. Shop **color picker** (0050): palette swatches previewing the actual badge, taken colors disabled with the owning shop named, live preview; the shop's color drives its card tile, map pin, chart series, and every `<ShopBadge>` across the app. Shop **logo** (0057): optional per-branch image (reuses the product-image upload pipeline → `product-images` bucket) printed on that branch's receipts in place of the anchor (it also printed on warranty certificates until 0103 retired them). **Staff manager** (0083, when Payroll was removed): each shop card lists its **employees** (the people, not app logins) with Add/Edit/Remove — a slim record (name · shop · birthday · photo · notes · active). The `staff` table stays because the birthday holds the Dashboard/nav **birthday reminder** (`staff_birthdays_today`, 0079); close-shop still blocks on active staff assigned here |
 | `/shops/[id]/stock` | Shop Stock | View a single shop's on-hand stock |
 
 ### Owner — Expenses (3)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/expenses` | Expenses | Operating-expense log with private receipt uploads. Since Payroll was removed (0083) this is also where **wages** are recorded, if the owner wants them in the P&L — they flow into shop opex / company overhead like any operating cost. A **Print** button outputs a letterheaded report of exactly the **currently-filtered** rows (a filtered view prints filtered, all matching rows unpaginated) with the active-filter line + approved-only totals; isolated via a route-scoped `@media print` so only the sheet prints |
+| `/expenses` | Expenses | Operating-expense log with private receipt uploads. Office-wide daily work; **voiding an expense is Gerry-only since 0105** (the Void item renders for him alone; a DB trigger backs it). Since Payroll was removed (0083) this is also where **wages** are recorded, if the owner wants them in the P&L — they flow into shop opex / company overhead like any operating cost. A **Print** button outputs a letterheaded report of exactly the **currently-filtered** rows (a filtered view prints filtered, all matching rows unpaginated) with the active-filter line + approved-only totals; isolated via a route-scoped `@media print` so only the sheet prints |
 | `/expenses/categories` | Expense Categories | Manage expense categories |
 | `/expenses/reports` | Expense Reports | Expense summaries with export |
 
 ### Owner — Administration (1)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/settings` | Settings | **Gerry-only (0099).** Six sections (`?tab=`): **Business** (identity printed on all six documents + defaults) · **Account** (change password/email behind a current-password re-auth gate, reset email) · **Admins** (0099: create office logins, deactivate/reactivate, change name/email/password, delete-while-historyless) · **Alerts** (`warranty_expiry_alert_days`, `supplier_limit_warn_pct`, `quote_stale_days`, suki rates) · **Notifications** (channel status, read-only) · **System** (pg_cron health, connection badges — no secrets). The Payroll section was removed with Payroll (0083) |
+| `/settings` | Settings | **Gerry-only (0099).** Six sections (`?tab=`): **Business** (identity printed on all five documents + defaults) · **Account** (change password/email behind a current-password re-auth gate, reset email) · **Admins** (0099: create office logins, deactivate/reactivate, change name/email/password, delete-while-historyless) · **Alerts** (`warranty_expiry_alert_days`, `supplier_limit_warn_pct`, `quote_stale_days`, suki rates) · **Notifications** (channel status, read-only) · **System** (pg_cron health, connection badges — no secrets). The Payroll section was removed with Payroll (0083) |
 
 ### Shop / Employee (10)
 | Route | Page | Purpose |
@@ -235,7 +237,8 @@ Queue, Warranties, Shops & Employees (incl. the slim staff/birthday manager),
 Expenses, Receivables/Utang,
 Stock Alerts (+ Delivery Requests, a tab on Deliveries), Suppliers (directory ·
 receiving · payables — the Price Comparison tab was retired),
-Settings (5 sections incl. credential change + system health), and the 7-page
+Settings (6 sections incl. credential change, admin-account management +
+system health), and the 10-page
 Shop app (incl. shop-recorded expenses riding the approval batch). Payroll was
 **removed (0083)** — the client runs it externally, and the warranty
 certificate was retired (0103 — physical cards printed externally, the app
@@ -442,7 +445,9 @@ channel and drain pending dispatches — no schema redesign. **SMS is not built.
 (receivables ledger — customers owe us), `supplier_payments` (payables ledger —
 we owe suppliers), `stock_movements` (append-only ledger).
 
-**Service:** `warranties`, `warranty_claims`.
+**Service:** `warranties` (+`warranty_serial` since 0103 — the PHYSICAL card's
+number, unique case-insensitively, set via `fn_set_warranty_serial`),
+`warranty_claims`.
 
 **Counts:** `count_snapshots`(+`count_snapshot_lines`).
 
@@ -528,7 +533,7 @@ never a stored flag. Receivable balances are
 mutable running total; `sales.balance_due_centavos` stays the at-sale snapshot
 the printed receipt shows.
 
-### Migrations (`supabase/migrations/`, 0001–0072)
+### Migrations (`supabase/migrations/`, 0001–0103; 0085–0098 retired)
 `0001` schema · `0002` RLS + safe views · `0003` seed · `0004` receiving fns ·
 `0005` delivery fns · `0006` record (sale/loss) fns · `0007` line descriptions ·
 `0008` approval engine + realtime · `0009` count fns · `0010`/`0011` product &
@@ -1026,7 +1031,28 @@ deleted (`/warranties/[id]/certificate`, `/shop/warranties/[id]/certificate`,
 repoints the warranty but keeps the row, so the recorded card follows the
 customer. `test-warranties`/`test-shop-warranties` extended (record, scope,
 uniqueness); `test-warranty-preview` deleted with its feature; the HTTP doc
-suites now assert the certificate pages 404.
+suites now assert the certificate pages 404. · `0104` **Shops & Employees
+moves to the office** (revises 0099's blanket shops lock at Gerry's request):
+the admin runs the page daily — shop details/pins/colors/logos (shops
+INSERT/UPDATE policies widen to `is_owner()`) and staff records (already
+office-tier RLS) — while **closing/reopening a shop** (`deleted_at`, BEFORE
+UPDATE trigger `enforce_shop_close_lock`, the 0100 pattern) and **hard
+DELETE** (Gerry-only policy) stay above the admin. Shop LOGIN credentials
+were never table writes — the service-role actions keep their strict
+`role==='owner'` guard and profiles RLS (0099) backs them. App: /shops
+leaves the Gerry-only nav set; the credential + close controls render only
+for Gerry (`primary` prop). `test-admin-accounts` flipped: admin
+edits/creates shops, cannot close/delete; owner closes + reopens. · `0105`
+**expense void is Gerry-only** (the 0101 rule, expense edition): a void
+erases a money record from lists/reports AND deletes its receipt photo.
+0013's blanket office FOR ALL splits (select/insert/update office; DELETE
+Gerry) + BEFORE UPDATE trigger `enforce_expense_void_lock` on `deleted_at`
+— verified NOTHING else soft-deletes an expense (no shop cancel path, no
+definer fn), so zero collateral. The office keeps recording/editing/
+categorising and approving shop claims. App: the Void menu item renders only
+for Gerry; `voidExpense` re-checks `isPrimaryOwner()`.
+`test-admin-accounts` extended: admin records + edits an expense, cannot
+void it; owner voids.
 
 ### Cost visibility — narrowed, not opened (0053)
 "Cost is owner-only" (the discipline behind 0038 and the safe views) was
@@ -1068,26 +1094,28 @@ a survivor so pricing/comparison roll up. Resolution is always
 `fn_receiving_balance`, `fn_record_supplier_payment`,
 `fn_check_supplier_limit_alerts`, `fn_check_supplier_overdue` (daily via
 pg_cron `supplier-overdue-daily`, 01:15 UTC),
-`fn_cron_job_health`, `fn_stock_card`, `fn_shop_warranty_preview`,
-plus count functions. (All 14 payroll/contribution RPCs were dropped by 0083.)
+`fn_cron_job_health`, `fn_stock_card`, `fn_set_warranty_serial` (0103),
+plus count functions. (All 14 payroll/contribution RPCs were dropped by 0083;
+`fn_shop_warranty_preview` was dropped by 0103 with the certificates.)
+Helper predicates: `is_owner()` (OFFICE tier since 0099) and
+`is_primary_owner()` (Gerry alone).
 
-**Read-only by contract:** `fn_cron_job_health`, `fn_stock_card` and
-`fn_shop_warranty_preview` write nothing — they are `SECURITY DEFINER` only
-because pg_cron, window functions, and owner-only source tables (`engines` +
-the `default_warranty_months` dial) are unreachable through a shop's PostgREST
-session. Each re-checks its caller (`is_owner()`, plus `auth_shop_id()` for the
-warranty preview's own-shop scope) for the reason 0042 exists: a definer
-function without a role check is the hole RLS exists to close.
+**Read-only by contract:** `fn_cron_job_health` and `fn_stock_card` write
+nothing — they are `SECURITY DEFINER` only because pg_cron and window
+functions are unreachable through a shop's PostgREST session. Each re-checks
+its caller (`is_owner()`) for the reason 0042 exists: a definer function
+without a role check is the hole RLS exists to close.
 
 **Enforced now, not by memory (`test-definer-guards.mjs`).** Every definer
 function granted to `authenticated` must guard its caller in-body. This is a
 STATIC test over the migration SQL — it fails the build the moment a new
 function is authenticated-callable without a guard. 0042 fixed two such holes;
 the audit found three more that shipped *after* 0042 (`fn_supplier_outstanding`,
-`fn_receiving_balance`, `fn_sale_balance` — fixed in **0047**). Two functions are
-documented exceptions in that test: `fn_warranty_alert_days` (returns only a
-non-sensitive settings int) and `fn_apply_entry_contributions` (transitively
-guarded via `fn_contribution_basis`). The guard for the cron-called balance
+`fn_receiving_balance`, `fn_sale_balance` — fixed in **0047**). The exceptions
+list still names `fn_warranty_alert_days` (returns only a non-sensitive
+settings int) and the payroll-era `fn_apply_entry_contributions` (dropped with
+Payroll 0083 — the stale entry is inert). The guard token set includes
+`is_primary_owner()` since 0101. The guard for the cron-called balance
 functions is `is_owner() OR auth.uid() IS NULL` — **not** a plain `is_owner()`,
 because the daily pg_cron sweeps run with no JWT (is_owner() false there), so an
 owner-only guard would silently kill overdue/limit alerts. See 0047's header.
@@ -1128,14 +1156,15 @@ lib/
   pnl.ts                   THE profit math — imported by /reports?tab=pnl AND
                            /shops/reports so the two can never disagree
   business-identity.ts     getBusinessIdentity(supabase) — the letterhead for
-                           all six documents, read from `public_settings`
+                           all five documents, read from `public_settings`
 components/
   shell/                   app-shell (sidebar/nav), approvals-badge, nav-badges
                            (live sidebar counts: Deliveries · Stock Alerts ·
                            Receivables · Warranties), print-button, section-tabs
   ui/                      shadcn/ui primitives
   data-table/ image-upload-field · product-image · receipt-image · location-picker · date-picker · view-toggle · confirm-dialog
-supabase/migrations/       0001–0072 (schema, RLS, functions, features)
+supabase/migrations/       0001–0103 (schema, RLS, functions, features;
+                           0085–0098 = a reverted experiment, numbers retired)
 scripts/                   test-*.mjs verification scripts (one per deliverable)
 ```
 
@@ -1176,7 +1205,9 @@ a client `*-view.tsx` / `*-form.tsx` component; mutations go through server
 actions in a colocated `actions.ts` that call the RPC functions above.
 
 ### Verification
-**`npm test`** runs every suite and prints one table (~1,100 assertions, ~4 min).
+**`npm test`** runs every suite and prints one table (~1,540 assertions,
+~5 min on the 1-month dev dataset; the ledger-reconciling suites scale with
+data volume — the full 3y seed roughly doubles the wall time).
 Add `--with-http` to include `test-reports` and `test-settings-documents`, which
 need `npm run dev`. `--only=<substr>` runs a subset. Suites run **sequentially** —
 several assert on global counts, so parallel runs make them flap.
@@ -1253,13 +1284,21 @@ approved loss @cost, damaged engine→soft-delete+loss, approve re-checks the sh
 reconciliation, shop_returns RLS + return_slip party-scoping),
 convert-request (pure classifier: available/partial-capped/no-stock for parts +
 engines, serials never reused), counts, shop-recording, approvals, batch-submission,
-warranties, shop-warranties, warranty-preview (0055: point-of-sale cert before
-approval, engine→model→settings term fallback, own-shop guard, voids with the
-sale; 0056/0057: branch location + logo path thread onto the cert),
+warranties (+0103: owner records the physical card's number, upper-cased,
+searchable in the registry), shop-warranties (+0103: selling shop records its
+card number, other shops blocked, duplicates refused case-insensitively;
+the warranty-preview suite was DELETED with its feature in 0103),
 warranty-claims (0069/0070: shop files repair/replace/refund → owner approve/
 reject/cancel; replace books replacement-out loss @cost + warranty repoint +
 defective→master, refund→company expense, authority + third-shop RLS),
-receivables,
+receivables (+0101: neither the recording shop nor any other can void a
+payment — only the owner; balance/history/alert unchanged),
+admin-accounts (0099: office tier split, CHECK, deactivation-cuts-DB-access,
+employee/anon unchanged; exits 2 until 0099),
+price-lock (0100: admin blocked from both money columns on parts+engines,
+mixed updates refused whole, no-change updates pass, owner + service role
+free; behavioral gate — exits 2 until 0100),
+catalog-retire-lock (0102: retire/merge is Gerry-only; exits 2 until 0102),
 discount-cards (0072: suki cards — owner-only issuing + one-active-per-customer,
 SC prefix, shop lookup returns customer+rates only, card price server-derived
 with cost+1 cap, client price clamped to the card price, inactive card dead,
@@ -1278,7 +1317,8 @@ gross − shop opex, no labor term), expenses, images, shop-images, admin,
 close-shop, reports, settings, settings-documents (HTTP), pnl (0083: no labor
 term; net = gross profit − shrinkage − opex − overhead), movements,
 supplier-comparison, ia-redirects (HTTP). (The `payroll`, `payroll-contributions`
-and `payroll-vale` suites were deleted with Payroll, 0083.)
+and `payroll-vale` suites were deleted with Payroll, 0083; `warranty-preview`
+was deleted with the certificates, 0103.)
 
 **`test-pnl` imports `lib/pnl.ts` directly** rather than scraping the rendered
 page or re-deriving the arithmetic — a test that reimplements the math proves

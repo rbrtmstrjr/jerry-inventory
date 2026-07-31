@@ -169,8 +169,10 @@ export interface AppShellProps {
 }
 
 /** Pages that exist only for Gerry — hidden from the admin's nav AND gated
- *  server-side in each page (the nav is convenience, the gate is the rule). */
-const GERRY_ONLY_HREFS = new Set(["/reports", "/shops"]);
+ *  server-side in each page (the nav is convenience, the gate is the rule).
+ *  /shops left this set in 0104 — it's office-wide now, with credentials +
+ *  close re-gated to Gerry inside the page. */
+const GERRY_ONLY_HREFS = new Set(["/reports"]);
 
 function isActive(pathname: string, href: string, allHrefs: string[]) {
   if (pathname === href) return true;

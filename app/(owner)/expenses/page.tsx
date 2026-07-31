@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/auth";
 import { getBusinessIdentity } from "@/lib/business-identity";
 import { TableSkeleton } from "@/components/shell/streaming-skeletons";
 import {
@@ -88,6 +89,9 @@ async function ExpensesBody() {
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
+  // 0105: the Void action renders only for Gerry
+  const profile = await getProfile();
+
   return (
     <ExpensesView
       expenses={expenses}
@@ -95,6 +99,7 @@ async function ExpensesBody() {
       shops={shopsRes.data ?? []}
       deliveries={deliveries}
       business={business}
+      primary={profile?.role === "owner"}
     />
   );
 }

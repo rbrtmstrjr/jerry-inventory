@@ -9,9 +9,17 @@ import { SHOP_COLOR_KEYS } from "@/lib/shop-colors";
 
 type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
+/** Gerry alone — shop LOGIN credentials and closing a shop (0104). */
 async function requireOwnerAction(): Promise<string | null> {
   const profile = await getProfile();
   if (!profile || profile.role !== "owner") return null;
+  return profile.id;
+}
+
+/** Office tier (0104): daily shop upkeep — details, logo, staff records. */
+async function requireOfficeAction(): Promise<string | null> {
+  const profile = await getProfile();
+  if (!profile || (profile.role !== "owner" && profile.role !== "admin")) return null;
   return profile.id;
 }
 
@@ -62,8 +70,8 @@ export async function setShopLogo(
   shopId: string,
   logoPath: string | null
 ): Promise<ActionResult> {
-  const ownerId = await requireOwnerAction();
-  if (!ownerId) return { ok: false, error: "Only the owner can edit shops" };
+  const ownerId = await requireOfficeAction();
+  if (!ownerId) return { ok: false, error: "Only the office can edit shops" };
   if (!z.uuid().safeParse(shopId).success) return { ok: false, error: "Invalid shop" };
 
   const supabase = await createClient();
@@ -390,8 +398,8 @@ const staffSchema = z.object({
 });
 
 export async function upsertStaff(input: unknown): Promise<ActionResult> {
-  if (!(await requireOwnerAction())) {
-    return { ok: false, error: "Only the owner can manage staff" };
+  if (!(await requireOfficeAction())) {
+    return { ok: false, error: "Only the office can manage staff" };
   }
   const parsed = staffSchema.safeParse(input);
   if (!parsed.success) {
@@ -411,8 +419,8 @@ export async function upsertStaff(input: unknown): Promise<ActionResult> {
 
 /** Soft-delete — the record stays, it just leaves lists + birthday reminders. */
 export async function softDeleteStaff(id: string): Promise<ActionResult> {
-  if (!(await requireOwnerAction())) {
-    return { ok: false, error: "Only the owner can manage staff" };
+  if (!(await requireOfficeAction())) {
+    return { ok: false, error: "Only the office can manage staff" };
   }
   if (!z.uuid().safeParse(id).success) return { ok: false, error: "Invalid id" };
   const supabase = await createClient();

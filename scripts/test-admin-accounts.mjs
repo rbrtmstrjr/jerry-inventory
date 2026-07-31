@@ -13,7 +13,7 @@
  */
 import {
   owner, admin, anonClient, signIn, RUN, check, section, summary,
-  provisionShop, seedPart, cleanup,
+  provisionShop, seedPart, seedExpenseCategory, cleanup,
 } from "./_harness.mjs";
 
 // ── gate: 0099 must be applied ──────────────────────────────────────────────
@@ -75,17 +75,49 @@ try {
       .update({ business_name: `ZZ-TEST ${RUN}` }).eq("id", 1).select("id");
     check("admin cannot WRITE settings (0 rows)", (su ?? []).length === 0, JSON.stringify(su));
 
+    // 0104: shop UPKEEP is office-wide; closing + hard delete stay Gerry's
     const { data: sh } = await adm.from("shops")
-      .update({ name: `ZZ-TEST Renamed ${RUN}` }).eq("id", shop.id).select("id");
-    check("admin cannot write shops (0 rows)", (sh ?? []).length === 0);
+      .update({ name: shop.name }).eq("id", shop.id).select("id");
+    check("admin edits shop details (0104 office-wide)", (sh ?? []).length === 1);
 
-    const { error: ins } = await adm.from("shops").insert({ name: `ZZ-TEST Rogue ${RUN}` });
-    check("admin cannot open a shop", !!ins, ins?.message);
+    const { data: made, error: ins } = await adm.from("shops")
+      .insert({ name: `ZZ-TEST AdminMade ${RUN}` }).select("id").single();
+    check("admin can open a shop (0104)", !ins && !!made, ins?.message);
+
+    const { error: close } = await adm.from("shops")
+      .update({ deleted_at: new Date().toISOString() }).eq("id", shop.id);
+    check("admin CANNOT close a shop (trigger)",
+      /only the owner can close/i.test(close?.message ?? ""), close?.message);
+
+    const { data: del } = await adm.from("shops")
+      .delete().eq("id", made?.id ?? "00000000-0000-4000-8000-000000000000").select("id");
+    check("admin CANNOT hard-delete a shop (0 rows)", (del ?? []).length === 0);
+    if (made?.id) await admin.from("shops").delete().eq("id", made.id);
 
     const { error: mint } = await adm.from("profiles").insert({
       id: crypto.randomUUID(), full_name: `ZZ-TEST Rogue ${RUN}`, role: "admin",
     });
     check("admin cannot mint a login (profiles RLS)", !!mint, mint?.message);
+
+    // 0105: expense void is Gerry's — the office records/edits, never erases
+    const cat = await seedExpenseCategory({ label: "AdmVoid" });
+    const { data: exp, error: expErr } = await adm.from("expenses").insert({
+      scope: "company", shop_id: null, category_id: cat.id, amount: 10000,
+      expense_date: new Date().toISOString().slice(0, 10),
+      description: `ZZ-TEST adm expense ${RUN}`, status: "approved",
+      source: "owner", recorded_by: adminUserId,
+    }).select("id").single();
+    check("admin records an expense (daily work)", !expErr && !!exp, expErr?.message);
+
+    const { error: voidErr } = await adm.from("expenses")
+      .update({ deleted_at: new Date().toISOString() }).eq("id", exp.id);
+    check("admin CANNOT void an expense (trigger)",
+      /only the owner can void an expense/i.test(voidErr?.message ?? ""), voidErr?.message);
+
+    const { data: gv } = await owner.from("expenses")
+      .update({ deleted_at: new Date().toISOString() }).eq("id", exp.id).select("id");
+    check("owner voids the expense", (gv ?? []).length === 1);
+    await admin.from("expenses").delete().eq("id", exp.id);
   }
 
   section("Gerry keeps full power");
@@ -98,9 +130,12 @@ try {
       .update({ business_name: same.business_name }).eq("id", 1).select("id");
     check("owner can still write settings", (su ?? []).length === 1);
 
-    const { data: sh } = await owner.from("shops")
-      .update({ name: shop.name }).eq("id", shop.id).select("id");
-    check("owner can still write shops", (sh ?? []).length === 1);
+    const { data: closed } = await owner.from("shops")
+      .update({ deleted_at: new Date().toISOString() }).eq("id", shop.id).select("id");
+    check("owner closes a shop (0104)", (closed ?? []).length === 1);
+    const { data: reopened } = await owner.from("shops")
+      .update({ deleted_at: null }).eq("id", shop.id).select("id");
+    check("owner reopens it", (reopened ?? []).length === 1);
 
     const { data: pu } = await owner.from("profiles")
       .update({ full_name: `ZZ-TEST Admin ${RUN}` }).eq("id", adminUserId).select("id");

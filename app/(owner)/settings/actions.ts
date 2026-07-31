@@ -322,11 +322,14 @@ export async function deleteAdminAccount(input: unknown): Promise<ActionResult> 
   const admin = createAdminClient();
   const { error } = await admin.auth.admin.deleteUser(parsed.data.id);
   if (error) {
+    // GoTrue's FK-refused delete surfaces as a bodyless 500 (message "{}"),
+    // so anything unreadable gets the real explanation instead
+    const msg = typeof error.message === "string" ? error.message : "";
     return {
       ok: false,
-      error: /database error/i.test(error.message)
+      error: !/[a-z]/i.test(msg) || /database error/i.test(msg)
         ? "This admin already has recorded history, so the account can't be deleted — deactivate it instead."
-        : error.message,
+        : msg,
     };
   }
 

@@ -45,7 +45,7 @@ export async function processProductImage(file: File): Promise<ProcessedImage> {
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch {
     throw new Error(
-      "Couldn't read that image (HEIC photos aren't supported here) — export it as JPG or PNG first."
+      "Couldn't read that image — the file may be damaged, or a HEIC photo (not supported here). Try exporting it as JPG or PNG."
     );
   }
 

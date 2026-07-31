@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getProfile } from "@/lib/auth";
 import { fetchAll } from "@/lib/pnl";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -77,17 +78,28 @@ async function ShopsBody() {
     pendingByShop[r.shop_id] = (pendingByShop[r.shop_id] ?? 0) + 1;
   }
 
+  // This page renders shop LOGINS only (employee role). Owner/admin emails are
+  // a Gerry-only surface (Settings → Admins), so we must not let them reach the
+  // client payload — scope the email map to the shop-login ids the page shows.
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const shopLoginIds = new Set(
+    (profilesRes.data ?? [])
+      .filter((p: any) => p.role === "employee")
+      .map((p: any) => p.id)
+  );
+
   // emails live in auth.users — fetch via admin (server-side, owner page)
   const emailById = new Map<string, string>();
   try {
     const admin = createAdminClient();
     const { data } = await admin.auth.admin.listUsers({ perPage: 200 });
-    for (const u of data?.users ?? []) emailById.set(u.id, u.email ?? "");
+    for (const u of data?.users ?? []) {
+      if (shopLoginIds.has(u.id)) emailById.set(u.id, u.email ?? "");
+    }
   } catch {
     // service key missing — page still renders without emails
   }
 
-  /* eslint-disable @typescript-eslint/no-explicit-any */
   const employees: EmployeeRow[] = (profilesRes.data ?? []).map((p: any) => ({
     id: p.id,
     full_name: p.full_name,
@@ -95,6 +107,7 @@ async function ShopsBody() {
     shop_id: p.shop_id,
     shop_name: p.shops?.name ?? null,
     active: p.active,
+    // only shop logins carry an email into the payload (SEC-4.1)
     email: emailById.get(p.id) ?? "",
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -118,7 +131,16 @@ async function ShopsBody() {
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  return <ShopsView shops={shops} employees={employees} staff={staff} />;
+  // 0104: credentials + close render only for Gerry
+  const profile = await getProfile();
+  return (
+    <ShopsView
+      shops={shops}
+      employees={employees}
+      staff={staff}
+      primary={profile?.role === "owner"}
+    />
+  );
 }
 
 function ShopsSkeleton() {

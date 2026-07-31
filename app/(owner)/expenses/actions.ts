@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { isPrimaryOwner } from "@/lib/auth";
 
 type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -84,8 +85,12 @@ export async function upsertExpense(input: unknown): Promise<ActionResult> {
   return { ok: true, id: data.id };
 }
 
-/** Void (soft-delete) an expense — history stays queryable if ever needed. */
+/** Void (soft-delete) an expense — history stays queryable if ever needed.
+ *  0105: Gerry-only (a void erases a money record + its receipt photo);
+ *  the DB trigger re-checks, this just gives a sentence instead of an error. */
 export async function voidExpense(id: string): Promise<ActionResult> {
+  if (!(await isPrimaryOwner()))
+    return { ok: false, error: "Only the owner can void an expense" };
   const supabase = await createClient();
 
   const blocked = await assertEditable(supabase, id);

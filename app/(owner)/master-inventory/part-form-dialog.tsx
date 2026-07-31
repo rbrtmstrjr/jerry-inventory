@@ -43,7 +43,9 @@ const pesoField = z
 const formSchema = z
   .object({
     name: z.string().trim().min(1, "Name is required"),
-    category_id: z.string().min(1, "Pick a category"),
+    // Optional to match both entry paths (Add product / Receiving) — a
+    // category-less product must stay editable (photo, name) without one.
+    category_id: z.string(),
     sku: z.string().optional(),
     barcode: z.string().optional(),
     unit: z.string().trim().min(1, "Unit is required"),

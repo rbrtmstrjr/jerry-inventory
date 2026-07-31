@@ -122,10 +122,14 @@ export function ShopsView({
   shops,
   employees,
   staff: payrollStaff,
+  primary = false,
 }: {
   shops: ShopRow[];
   employees: EmployeeRow[];
   staff: StaffLite[];
+  /** 0104: the page is office-wide, but LOGIN credentials and CLOSING a shop
+   *  are Gerry-only — those controls render only for the primary owner. */
+  primary?: boolean;
 }) {
   // shop dialog
   const [shopDialog, setShopDialog] = React.useState(false);
@@ -333,30 +337,39 @@ export function ShopsView({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link href={`/reports?tab=shops&shop=${shop.id}`}>
-                          <BarChart3 className="size-4" /> View Reports
-                        </Link>
-                      </DropdownMenuItem>
+                      {/* Reports is a Gerry-only page — don't dead-link the admin */}
+                      {primary && (
+                        <DropdownMenuItem asChild>
+                          <Link href={`/reports?tab=shops&shop=${shop.id}`}>
+                            <BarChart3 className="size-4" /> View Reports
+                          </Link>
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem onClick={() => openShopDialog(shop)}>
                         <Pencil className="size-4" /> Edit Shop Details
                       </DropdownMenuItem>
-                      {staff.length > 0 ? (
-                        <DropdownMenuItem onClick={() => setCredsFor(staff[0])}>
-                          <KeyRound className="size-4" /> Change Credentials
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem onClick={() => openEmpDialog(null, shop.id)}>
-                          <KeyRound className="size-4" /> Create Login
-                        </DropdownMenuItem>
+                      {/* 0104: credentials + closing are Gerry's alone */}
+                      {primary &&
+                        (staff.length > 0 ? (
+                          <DropdownMenuItem onClick={() => setCredsFor(staff[0])}>
+                            <KeyRound className="size-4" /> Change Credentials
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => openEmpDialog(null, shop.id)}>
+                            <KeyRound className="size-4" /> Create Login
+                          </DropdownMenuItem>
+                        ))}
+                      {primary && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => setClosing(shop)}
+                          >
+                            <Trash2 className="size-4" /> Close Permanently
+                          </DropdownMenuItem>
+                        </>
                       )}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onClick={() => setClosing(shop)}
-                      >
-                        <Trash2 className="size-4" /> Close Permanently
-                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -407,13 +420,19 @@ export function ShopsView({
                   <p className="text-sm text-muted-foreground">
                     No login account yet — the shop can&apos;t sign in.
                   </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openEmpDialog(null, shop.id)}
-                  >
-                    <Plus className="size-4" /> Create shop login
-                  </Button>
+                  {primary ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openEmpDialog(null, shop.id)}
+                    >
+                      <Plus className="size-4" /> Create shop login
+                    </Button>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Only the owner can create the login.
+                    </p>
+                  )}
                 </div>
               )}
 

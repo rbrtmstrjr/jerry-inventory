@@ -129,12 +129,15 @@ export function ExpensesView({
   shops,
   deliveries,
   business,
+  primary = false,
 }: {
   expenses: ExpenseRow[];
   categories: CategoryOption[];
   shops: { id: string; name: string }[];
   deliveries: DeliveryOption[];
   business: BusinessIdentity;
+  /** 0105: voiding an expense is Gerry-only — the Void action renders for him alone. */
+  primary?: boolean;
 }) {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<ExpenseRow | null>(null);
@@ -366,13 +369,18 @@ export function ExpensesView({
               >
                 <Pencil className="size-4" /> Edit
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => setVoiding(row.original)}
-              >
-                <Trash2 className="size-4" /> Void
-              </DropdownMenuItem>
+              {/* 0105: erasing a money record is Gerry's alone */}
+              {primary && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => setVoiding(row.original)}
+                  >
+                    <Trash2 className="size-4" /> Void
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (

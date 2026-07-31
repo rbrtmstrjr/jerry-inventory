@@ -61,7 +61,8 @@ section("Old routes redirect — bookmarks and notification links survive");
     ["/master-inventory/suppliers", "/suppliers?tab=directory"],
     ["/suppliers/payables", "/suppliers?tab=payables"],
     ["/shops/reports", "/reports?tab=shops"],
-    ["/delivery-requests", "/deliveries?tab=requests"],
+    // Requests moved again — a request is a stock-alert signal, not a movement.
+    ["/delivery-requests", "/stock-alerts?tab=requests"],
     // Bulk Add retired by 0048; points straight at receiving's final home.
     ["/master-inventory/bulk-add", "/suppliers?tab=receiving"],
     // Receiving moved to Suppliers — it's a supplier transaction.

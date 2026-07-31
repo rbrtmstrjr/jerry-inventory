@@ -21,12 +21,20 @@ export async function getProfile(): Promise<Profile | null> {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, full_name, role, shop_id, active")
-    .eq("id", user.id)
-    .single();
+  const query = () =>
+    supabase
+      .from("profiles")
+      .select("id, full_name, role, shop_id, active")
+      .eq("id", user.id)
+      .maybeSingle();
 
+  // Retry once, then throw: a transient query failure must not read as
+  // "signed out" (it bounced signed-in users through /login → /dashboard).
+  let res = await query();
+  if (res.error) res = await query();
+  if (res.error) throw new Error(`Profile lookup failed: ${res.error.message}`);
+
+  const { data } = res;
   if (!data || !data.active) return null; // deactivated accounts get nothing
   const { active: _active, ...profile } = data;
   return profile as Profile;
