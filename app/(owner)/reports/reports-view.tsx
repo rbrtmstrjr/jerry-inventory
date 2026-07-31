@@ -20,12 +20,14 @@ import {
   AlertTriangle,
   Anchor,
   Download,
+  Info,
   PhilippinePeso,
   Truck,
 } from "lucide-react";
 
 import { formatCentavos } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
+import { exportSalesCsv } from "./actions";
 import { isShopColorKey, shopColorVars } from "@/lib/shop-colors";
 import type { ShopOption } from "@/lib/db-types";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +63,8 @@ import { ph_today } from "@/lib/ph-date";
 export interface ReportData {
   from: string;
   to: string;
+  /** true when the requested range exceeded MAX_REPORT_DAYS and `from` was moved up */
+  rangeClamped?: boolean;
   shopFilter: string;
   shops: ShopOption[];
   totals: {
@@ -81,16 +85,6 @@ export interface ReportData {
   topParts: { name: string; qty: number; revenue: number }[];
   enginesSold: { description: string; shop: string; date: string; price_centavos: number }[];
   lowStock: { part: string; shop: string; qty: number; reorder_level: number }[];
-  salesCsv: Record<string, string | number>[];
-  lossesCsv: Record<string, string | number>[];
-  transitLosses: {
-    date: string;
-    shop: string;
-    item: string;
-    qty: number;
-    value_centavos: number;
-    reason: string;
-  }[];
 }
 
 const REASON_LABEL: Record<string, string> = {
@@ -151,6 +145,25 @@ export function ReportsView({ data }: { data: ReportData }) {
   const router = useRouter();
   const [from, setFrom] = React.useState(data.from);
   const [to, setTo] = React.useState(data.to);
+  // CSV export is on-demand (0111): the RPC that feeds this page returns
+  // aggregates, not per-line rows, so the detail is fetched only on click.
+  const [csvLoading, setCsvLoading] = React.useState<"sales" | "losses" | null>(null);
+
+  async function exportCsv(kind: "sales" | "losses") {
+    setCsvLoading(kind);
+    try {
+      const res = await exportSalesCsv(data.from, data.to, data.shopFilter);
+      if (res.ok) {
+        const rows = kind === "sales" ? res.salesCsv : res.lossesCsv;
+        downloadCsv(
+          `${kind}_${data.from}_${data.to}.csv`,
+          rows as unknown as Record<string, string | number>[]
+        );
+      }
+    } finally {
+      setCsvLoading(null);
+    }
+  }
 
   // Shop identity color; colorless shops keep their chart-N slot as before
   const colorKeyByName = new Map(data.shops.map((s) => [s.name, s.color_key]));
@@ -263,17 +276,17 @@ export function ReportsView({ data }: { data: ReportData }) {
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
-            onClick={() => downloadCsv(`sales_${data.from}_${data.to}.csv`, data.salesCsv)}
-            disabled={data.salesCsv.length === 0}
+            onClick={() => exportCsv("sales")}
+            disabled={csvLoading !== null}
           >
-            <Download className="size-4" /> Sales CSV
+            <Download className="size-4" /> {csvLoading === "sales" ? "Exporting…" : "Sales CSV"}
           </Button>
           <Button
             variant="outline"
-            onClick={() => downloadCsv(`losses_${data.from}_${data.to}.csv`, data.lossesCsv)}
-            disabled={data.lossesCsv.length === 0}
+            onClick={() => exportCsv("losses")}
+            disabled={csvLoading !== null}
           >
-            <Download className="size-4" /> Losses CSV
+            <Download className="size-4" /> {csvLoading === "losses" ? "Exporting…" : "Losses CSV"}
           </Button>
           <PrintButton label="Print / Save PDF" />
         </div>
@@ -284,6 +297,15 @@ export function ReportsView({ data }: { data: ReportData }) {
         Gerwin Trading — Report {format(new Date(data.from), "MMM d, yyyy")} to{" "}
         {format(new Date(data.to), "MMM d, yyyy")}
       </p>
+
+      {data.rangeClamped && (
+        <Card className="border-muted-foreground/20 bg-muted/40 print:hidden">
+          <CardContent className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+            <Info className="size-4 shrink-0" />
+            Showing the last 12 months. Pick a narrower range to see older data.
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stat tiles */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

@@ -342,8 +342,12 @@ async function factsFromRowWalk(
           .from("stock_movements")
           .select("id, qty_change, parts(cost_centavos), engines(cost_centavos)")
           .eq("movement_type", "transit_writeoff")
-          .gte("created_at", from)
-          .lte("created_at", `${to}T23:59:59.999`)
+          // Anchor the [from,to] bounds to Philippine time (+08:00, no DST) so a
+          // write-off's UTC created_at is matched by PH calendar day — same
+          // semantics as business_date. Bare bounds compared at UTC midnight
+          // dropped write-offs made in the PH-morning / UTC-previous-day window.
+          .gte("created_at", `${from}T00:00:00+08:00`)
+          .lte("created_at", `${to}T23:59:59.999+08:00`)
       ),
     ]);
 

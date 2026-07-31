@@ -4,6 +4,7 @@ import { requirePrimaryOwner } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/pnl";
 import { ph_today } from "@/lib/ph-date";
+import { clampReportRange } from "@/lib/report-range";
 import { ReportSkeleton } from "@/components/shell/streaming-skeletons";
 import { ExpenseReports, type ExpenseReportData } from "./expense-reports";
 
@@ -39,8 +40,9 @@ async function ExpenseReportsBody({
   const today = ph_today();
   const isDate = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
-  const to = isDate(params.to) ? params.to! : today;
-  const from = isDate(params.from) ? params.from! : addDays(to, -30);
+  const rawTo = isDate(params.to) ? params.to! : today;
+  const rawFrom = isDate(params.from) ? params.from! : addDays(rawTo, -30);
+  const { from, to } = clampReportRange(rawFrom, rawTo);
   const shopFilter = params.shop && params.shop !== "all" ? params.shop : null;
 
   const supabase = await createClient();

@@ -1,7 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { ph_today } from "@/lib/ph-date";
 import { fetchAll } from "@/lib/pnl";
+import { clampReportRange } from "@/lib/report-range";
 import { ReportsView, type ReportData } from "./reports-view";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 function addDays(iso: string, days: number): string {
   const d = new Date(iso + "T00:00:00Z");
@@ -9,11 +12,44 @@ function addDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Every date in [from, to], capped at 400 — matches the old JS trend loop.
+function dayRange(from: string, to: string): string[] {
+  const days: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    days.push(d);
+    if (days.length > 400) break;
+  }
+  return days;
+}
+
+interface ReportContext {
+  from: string;
+  to: string;
+  clamped: boolean;
+  shopFilter: string | null;
+  shops: { id: string; name: string; color_key: string | null }[];
+  shopNames: string[];
+  pendingCount: number;
+  lowStock: ReportData["lowStock"];
+}
+
 /**
  * Sales & Inventory tab body. Extracted from the page so it can STREAM inside a
  * <Suspense> — the page shell (heading + tabs) paints instantly while this
- * fetches. Every big set is keyset-paginated (fetchAll) so totals stay correct
- * at scale.
+ * fetches.
+ *
+ * FAST PATH (0111): one SQL aggregate RPC (`fn_sales_report`) replaces the old
+ * fetchAll-every-sale-line JS row-walk — proven byte-identical to it by
+ * scripts/test-sales-report.mjs (36/36). GRACEFUL FALLBACK (lib/dashboard.ts
+ * pattern): if the RPC errors — e.g. migration 0111 isn't applied yet — this
+ * recomputes the exact same numbers the old way, just heavier, so the page
+ * never breaks.
+ *
+ * Per-line CSV detail is no longer fetched here at all — the RPC returns
+ * aggregates, not rows, so CSV export moved to an on-demand server action
+ * (./actions.ts#exportSalesCsv) fired only when the owner clicks Export.
+ * `low stock` stays a direct fetchAll: it's a CURRENT snapshot, not
+ * range-bound, so it was never part of the row-walk this RPC replaces.
  */
 export async function SalesTab({
   params,
@@ -22,11 +58,142 @@ export async function SalesTab({
 }) {
   const today = ph_today();
   const isDate = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
-  const to = isDate(params.to) ? params.to! : today;
-  const from = isDate(params.from) ? params.from! : addDays(to, -6);
+  const rawTo = isDate(params.to) ? params.to! : today;
+  const rawFrom = isDate(params.from) ? params.from! : addDays(rawTo, -6);
+  const { from, to, clamped } = clampReportRange(rawFrom, rawTo);
   const shopFilter = params.shop && params.shop !== "all" ? params.shop : null;
 
   const supabase = await createClient();
+
+  const [rpcRes, shopsRes, pendingS, pendingL, allStock] = await Promise.all([
+    supabase.rpc("fn_sales_report", { p_from: from, p_to: to, p_shop_id: shopFilter }),
+    supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
+    supabase
+      .from("sales")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["pending", "questioned"])
+      .is("deleted_at", null),
+    supabase
+      .from("losses")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["pending", "questioned"])
+      .is("deleted_at", null),
+    // range-independent (current snapshot) — out of scope for the aggregate RPC
+    fetchAll(() =>
+      supabase
+        .from("stock_levels")
+        .select("id, qty, shop_id, shops(name), parts!inner(name, reorder_level, deleted_at)")
+        .not("shop_id", "is", null)
+    ),
+  ]);
+
+  const shops = shopsRes.data ?? [];
+  const shopNames = shops.map((s) => s.name);
+  const pendingCount = (pendingS.count ?? 0) + (pendingL.count ?? 0);
+
+  const lowStock = (allStock as any[])
+    .filter(
+      (r: any) =>
+        !r.parts.deleted_at && r.parts.reorder_level > 0 && r.qty <= r.parts.reorder_level
+    )
+    .map((r: any) => ({
+      part: r.parts.name as string,
+      shop: (r.shops?.name ?? "?") as string,
+      qty: r.qty as number,
+      reorder_level: r.parts.reorder_level as number,
+    }))
+    .sort((a: any, b: any) => a.qty - b.qty);
+
+  const ctx: ReportContext = { from, to, clamped, shopFilter, shops, shopNames, pendingCount, lowStock };
+
+  const data: ReportData =
+    !rpcRes.error && rpcRes.data
+      ? buildFromRpc(rpcRes.data as any, ctx)
+      : await buildFallback(supabase, ctx);
+
+  return <ReportsView data={data} />;
+}
+
+// ---- fast path: shape the RPC's jsonb result into ReportData ----
+function buildFromRpc(rpc: any, ctx: ReportContext): ReportData {
+  const { from, to, clamped, shopFilter, shops, shopNames, pendingCount, lowStock } = ctx;
+  const shopNameById = new Map(shops.map((s) => [s.id, s.name]));
+  const nameOf = (id: string | null) => (id ? shopNameById.get(id) ?? "?" : "?");
+
+  // trend: rpc rows are (date, shop_id, revenue) — pivot to one row per date
+  // with a column per shop NAME, same shape the chart expects.
+  const dayMap = new Map<string, Record<string, number>>();
+  for (const d of dayRange(from, to)) dayMap.set(d, {});
+  for (const t of rpc.trend as any[]) {
+    const day = dayMap.get(t.date);
+    if (!day) continue;
+    const name = nameOf(t.shop_id);
+    day[name] = (day[name] ?? 0) + Number(t.revenue);
+  }
+  const trend = [...dayMap.entries()].map(([date, byShop]) => ({
+    date,
+    ...Object.fromEntries(shopNames.map((n) => [n, byShop[n] ?? 0])),
+  }));
+
+  const byShopMap = new Map<string, { revenue: number; count: number }>();
+  for (const r of rpc.by_shop as any[]) {
+    byShopMap.set(nameOf(r.shop_id), { revenue: Number(r.revenue), count: Number(r.count) });
+  }
+  const byShop = shopNames.map((name) => ({
+    shop: name,
+    ...(byShopMap.get(name) ?? { revenue: 0, count: 0 }),
+  }));
+
+  const byReason = (rpc.by_reason as any[]).map((r) => ({
+    reason: r.reason as string,
+    value: Number(r.value),
+    qty: Number(r.qty),
+  }));
+
+  const topParts = (rpc.top_parts as any[]).map((p) => ({
+    name: p.name as string,
+    qty: Number(p.qty),
+    revenue: Number(p.revenue),
+  }));
+
+  const enginesSold = (rpc.engines_sold_list as any[]).map((e) => ({
+    description: e.description as string,
+    shop: nameOf(e.shop_id),
+    date: e.date as string,
+    price_centavos: Number(e.price_centavos),
+  }));
+
+  const t = rpc.totals;
+  return {
+    from,
+    to,
+    rangeClamped: clamped,
+    shopFilter: shopFilter ?? "all",
+    shops,
+    totals: {
+      revenue: Number(t.revenue),
+      salesCount: Number(t.sales_count),
+      lossValue: Number(t.loss_value),
+      lossCount: Number(t.loss_count),
+      transitLossValue: Number(t.transit_value),
+      transitLossQty: Number(t.transit_qty),
+      enginesSold: Number(t.engines_sold),
+      pendingCount,
+    },
+    trend,
+    shopNames,
+    byShop,
+    byReason,
+    topParts,
+    enginesSold,
+    lowStock,
+  };
+}
+
+// ---- fallback path: the original JS row-walk, minus CSV/transit-row detail
+// (CSV moved on-demand; transitLosses row list was never rendered by the view) ----
+async function buildFallback(supabase: any, ctx: ReportContext): Promise<ReportData> {
+  const { from, to, clamped, shopFilter, shops, shopNames, pendingCount, lowStock } = ctx;
 
   const buildSales = () => {
     let q = supabase
@@ -55,71 +222,32 @@ export async function SalesTab({
     return q;
   };
 
-  // Stock lost BETWEEN master and a shop. Deliberately a different thing from
-  // a shop loss (nasira/nawala at the branch) and from a return (arrived fine,
-  // sent back later) — Jerry needs to see transit shrinkage on its own.
   const buildTransit = () =>
     supabase
       .from("stock_movements")
-      .select(
-        // shops must name the FK: deliveries has TWO relationships to shops
-        // since 0054 (shop_id = destination, from_shop_id = transfer source).
-        "id, qty_change, created_at, note, part_id, engine_id, parts(name, cost_centavos), engines(serial_number, cost_centavos), deliveries(shops!deliveries_shop_id_fkey(name))"
-      )
+      .select("id, qty_change, created_at, part_id, engine_id, parts(cost_centavos), engines(cost_centavos)")
       .eq("movement_type", "transit_writeoff")
       .gte("created_at", from)
       .lte("created_at", `${to}T23:59:59.999Z`);
 
-  // Paginated via fetchAll — a bare select is silently capped at the API's
-  // 1,000-row max, which at load-test scale undercounted every total here.
-  const [allSales, allLosses, shopsRes, allStock, pendingS, pendingL, allTransit] =
-    await Promise.all([
-      fetchAll(buildSales),
-      fetchAll(buildLosses),
-      supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),
-      fetchAll(() =>
-        supabase
-          .from("stock_levels")
-          .select("id, qty, shop_id, shops(name), parts!inner(name, reorder_level, deleted_at)")
-          .not("shop_id", "is", null)
-      ),
-      supabase
-        .from("sales")
-        .select("id", { count: "exact", head: true })
-        .in("status", ["pending", "questioned"])
-        .is("deleted_at", null),
-      supabase
-        .from("losses")
-        .select("id", { count: "exact", head: true })
-        .in("status", ["pending", "questioned"])
-        .is("deleted_at", null),
-      fetchAll(buildTransit),
-    ]);
+  const [allSales, allLosses, allTransit] = await Promise.all([
+    fetchAll(buildSales),
+    fetchAll(buildLosses),
+    fetchAll(buildTransit),
+  ]);
 
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  const transitLosses = (allTransit as any[]).map((m: any) => {
-    const qty = Math.abs(m.qty_change);
-    const cost = m.parts?.cost_centavos ?? m.engines?.cost_centavos ?? 0;
-    return {
-      date: (m.created_at as string).slice(0, 10),
-      shop: m.deliveries?.shops?.name ?? "?",
-      item: m.parts?.name ?? m.engines?.serial_number ?? "Item",
-      qty,
-      value_centavos: cost * qty,
-      reason: m.note ?? "",
-    };
-  });
   const sales = allSales as any[];
   const losses = allLosses as any[];
-  const shops = shopsRes.data ?? [];
+  const transit = allTransit as any[];
 
-  // ---- aggregate: trend by day per shop ----
-  const shopNames = shops.map((s) => s.name);
+  const transitLossValue = transit.reduce(
+    (s, m) => s + Math.abs(m.qty_change) * (m.parts?.cost_centavos ?? m.engines?.cost_centavos ?? 0),
+    0
+  );
+  const transitLossQty = transit.reduce((s, m) => s + Math.abs(m.qty_change), 0);
+
   const dayMap = new Map<string, Record<string, number>>();
-  for (let d = from; d <= to; d = addDays(d, 1)) {
-    dayMap.set(d, {});
-    if (dayMap.size > 400) break; // hard cap on range length
-  }
+  for (const d of dayRange(from, to)) dayMap.set(d, {});
   for (const s of sales) {
     const day = dayMap.get(s.business_date);
     if (!day) continue;
@@ -131,7 +259,6 @@ export async function SalesTab({
     ...Object.fromEntries(shopNames.map((n) => [n, byShop[n] ?? 0])),
   }));
 
-  // ---- by shop ----
   const byShopMap = new Map<string, { revenue: number; count: number }>();
   for (const s of sales) {
     const name = s.shops?.name ?? "?";
@@ -145,7 +272,6 @@ export async function SalesTab({
     ...(byShopMap.get(name) ?? { revenue: 0, count: 0 }),
   }));
 
-  // ---- losses by reason ----
   const byReasonMap = new Map<string, { value: number; qty: number }>();
   for (const l of losses) {
     const e = byReasonMap.get(l.reason) ?? { value: 0, qty: 0 };
@@ -155,7 +281,6 @@ export async function SalesTab({
   }
   const byReason = [...byReasonMap.entries()].map(([reason, v]) => ({ reason, ...v }));
 
-  // ---- top-selling parts + engines sold ----
   const topMap = new Map<string, { qty: number; revenue: number }>();
   const enginesSold: ReportData["enginesSold"] = [];
   for (const s of sales) {
@@ -181,44 +306,10 @@ export async function SalesTab({
     .sort((a, b) => b.qty - a.qty)
     .slice(0, 10);
 
-  // ---- low stock (current, not range-bound) ----
-  const lowStock = (allStock as any[])
-    .filter(
-      (r: any) =>
-        !r.parts.deleted_at && r.parts.reorder_level > 0 && r.qty <= r.parts.reorder_level
-    )
-    .map((r: any) => ({
-      part: r.parts.name as string,
-      shop: (r.shops?.name ?? "?") as string,
-      qty: r.qty as number,
-      reorder_level: r.parts.reorder_level as number,
-    }))
-    .sort((a: any, b: any) => a.qty - b.qty);
-
-  // ---- CSV detail rows ----
-  const salesCsv = sales.flatMap((s: any) =>
-    (s.sale_lines ?? []).map((l: any) => ({
-      date: s.business_date,
-      shop: s.shops?.name ?? "?",
-      item: l.description ?? "Item",
-      type: l.engine_id ? "engine" : "part",
-      qty: l.qty,
-      line_total_centavos: l.line_total_centavos,
-    }))
-  );
-  const lossesCsv = losses.map((l: any) => ({
-    date: l.business_date,
-    shop: l.shops?.name ?? "?",
-    item: l.description ?? "Item",
-    reason: l.reason,
-    qty: l.qty,
-    value_centavos: l.value_centavos ?? 0,
-  }));
-  /* eslint-enable @typescript-eslint/no-explicit-any */
-
-  const data: ReportData = {
+  return {
     from,
     to,
+    rangeClamped: clamped,
     shopFilter: shopFilter ?? "all",
     shops,
     totals: {
@@ -226,10 +317,10 @@ export async function SalesTab({
       salesCount: sales.length,
       lossValue: losses.reduce((s, l) => s + (l.value_centavos ?? 0), 0),
       lossCount: losses.length,
-      transitLossValue: transitLosses.reduce((s, t) => s + t.value_centavos, 0),
-      transitLossQty: transitLosses.reduce((s, t) => s + t.qty, 0),
+      transitLossValue,
+      transitLossQty,
       enginesSold: enginesSold.length,
-      pendingCount: (pendingS.count ?? 0) + (pendingL.count ?? 0),
+      pendingCount,
     },
     trend,
     shopNames,
@@ -238,10 +329,6 @@ export async function SalesTab({
     topParts,
     enginesSold,
     lowStock,
-    salesCsv,
-    lossesCsv,
-    transitLosses,
   };
-
-  return <ReportsView data={data} />;
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
