@@ -179,7 +179,20 @@ export function NotificationBell({ variant }: { variant: "owner" | "employee" })
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
+      {/* The bell is NOT the last header control (theme toggle + avatar sit to
+          its right), so align="end" anchors the panel to the BELL's right edge
+          and leaves a dead gap against the screen edge — it reads as floating
+          mid-screen on a phone. On mobile the panel is therefore exactly the
+          viewport minus its two 12px gutters, which collisionPadding pins
+          flush to BOTH edges (so its right edge meets the screen's right
+          edge); from sm up it goes back to hanging off the bell at w-80.
+          max-h-[70svh] keeps the list clear of the browser chrome. */}
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        collisionPadding={12}
+        className="w-[calc(100vw-1.5rem)] sm:w-80 max-h-[70svh] overflow-hidden p-0"
+      >
         <div className="flex items-center justify-between border-b px-3 py-2">
           <span className="text-sm font-semibold">Notifications</span>
           {unread > 0 && (
@@ -189,7 +202,10 @@ export function NotificationBell({ variant }: { variant: "owner" | "employee" })
           )}
         </div>
 
-        <div className="thin-scrollbar max-h-96 overflow-y-auto">
+        {/* 24rem on roomy screens, but never taller than the popover minus its
+            header row — otherwise the list overflows the 70svh cap on short
+            phones and the last notification sits under the browser bar. */}
+        <div className="thin-scrollbar max-h-[min(24rem,calc(70svh-3rem))] overflow-y-auto">
           {items.length === 0 && (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground">
               Nothing yet — stock alerts show up here.

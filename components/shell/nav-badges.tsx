@@ -31,6 +31,14 @@ function useNavCount(
   // paint (no slow pop-in), then keep it live via realtime + focus refresh.
   const [count, setCount] = React.useState<number | null>(initialCount ?? null);
 
+  // Per-INSTANCE channel topic. supabase.channel(topic) hands back the EXISTING
+  // channel when the topic is already taken, and adding a postgres_changes
+  // callback to an already-subscribed channel throws. The nav renders twice on
+  // mobile — the desktop aside is `hidden md:flex` (hidden, still mounted) and
+  // the burger sheet mounts a second copy — so a shared topic crashed the page
+  // the moment the sheet opened. useId is unique per component instance.
+  const instanceId = React.useId();
+
   React.useEffect(() => {
     const supabase = createClient();
     let cancelled = false;
@@ -46,7 +54,7 @@ function useNavCount(
 
     run();
 
-    const channel = supabase.channel(`nav-badge-${tables.join("_")}`);
+    const channel = supabase.channel(`nav-badge-${tables.join("_")}-${instanceId}`);
     for (const t of tables) {
       channel.on("postgres_changes", { event: "*", schema: "public", table: t }, run);
     }
@@ -64,7 +72,8 @@ function useNavCount(
       window.removeEventListener("focus", run);
       document.removeEventListener("visibilitychange", onVisible);
     };
-    // load + tables are module-scope constants per badge → intentionally stable.
+    // load + tables are module-scope constants per badge, instanceId is stable
+    // for the life of the component → intentionally stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

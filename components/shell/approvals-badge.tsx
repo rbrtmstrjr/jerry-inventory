@@ -16,6 +16,11 @@ export function ApprovalsBadge({
 }) {
   const [count, setCount] = React.useState<number | null>(initialCount ?? null);
 
+  // Per-INSTANCE topic — the nav renders twice on mobile (hidden desktop aside
+  // + burger sheet), and reusing a subscribed channel's topic throws when the
+  // second mount adds its postgres_changes callbacks. Same fix as nav-badges.
+  const instanceId = React.useId();
+
   React.useEffect(() => {
     const supabase = createClient();
     let cancelled = false;
@@ -32,7 +37,7 @@ export function ApprovalsBadge({
 
     load();
     const channel = supabase
-      .channel("approvals-badge")
+      .channel(`approvals-badge-${instanceId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "sales" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "losses" }, load)
       .subscribe();
@@ -41,6 +46,8 @@ export function ApprovalsBadge({
       cancelled = true;
       supabase.removeChannel(channel);
     };
+    // instanceId is stable for the life of the component → intentionally stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!count) return null;

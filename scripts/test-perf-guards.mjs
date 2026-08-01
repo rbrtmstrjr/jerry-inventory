@@ -60,4 +60,32 @@ const auth = readFileSync("lib/auth.ts", "utf8");
 check("lib/auth.ts imports react cache", /import\s*\{[^}]*\bcache\b[^}]*\}\s*from\s*"react"/.test(auth));
 check("getProfile is wrapped in cache(", /getProfile\s*=\s*cache\(/.test(auth));
 
+// ---------------------------------------------------------------------------
+// Nav badges must use PER-INSTANCE realtime topics.
+//
+// supabase.channel(topic) returns the EXISTING channel when that topic is
+// already taken, and adding a postgres_changes callback to an already
+// subscribed channel throws. The nav renders TWICE on mobile — the desktop
+// aside is `hidden md:flex` (hidden by CSS, still mounted) and the burger
+// sheet mounts a second copy — so a hard-coded topic crashed the whole page
+// to the error boundary the moment the sheet opened. Caught in mobile QA.
+// ---------------------------------------------------------------------------
+section("Nav badges use per-instance realtime topics (mobile sheet renders a 2nd copy)");
+for (const file of [
+  "components/shell/nav-badges.tsx",
+  "components/shell/approvals-badge.tsx",
+]) {
+  const src = readFileSync(file, "utf8");
+  const bare = [...src.matchAll(/\.channel\(\s*["'`]([^"'`$]*)["'`]\s*\)/g)].map((m) => m[1]);
+  check(
+    `${file}: no hard-coded channel topic`,
+    bare.length === 0,
+    bare.length ? `bare topic(s): ${bare.join(", ")}` : ""
+  );
+  check(
+    `${file}: topic includes a per-instance id`,
+    /\.channel\(`[^`]*\$\{instanceId\}[^`]*`\)/.test(src)
+  );
+}
+
 summary();
