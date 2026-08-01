@@ -13,6 +13,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
 
+// Refuse to touch a non-disposable database (see scripts/_env-guard.mjs).
+import { assertWritableEnv } from "./_env-guard.mjs";
+assertWritableEnv("demo-cleanup (it deletes demo rows)");
+
 const MANIFEST = new URL("./.demo-fixtures.json", import.meta.url);
 if (!existsSync(MANIFEST)) {
   console.error("No scripts/.demo-fixtures.json — nothing to clean.");

@@ -19,6 +19,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 
+// Refuse to touch a non-disposable database (see scripts/_env-guard.mjs).
+import { assertWritableEnv } from "./_env-guard.mjs";
+assertWritableEnv("db-fresh-start (it DELETES all operational data)");
+
 const YES = process.argv.includes("--yes");
 // Fallback only — the owner is detected from the role='owner' profile below.
 const ADMIN_EMAIL = "gerwintrading@test.com";

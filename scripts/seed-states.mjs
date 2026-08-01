@@ -32,6 +32,10 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
+// Refuse to touch a non-disposable database (see scripts/_env-guard.mjs).
+import { assertWritableEnv } from "./_env-guard.mjs";
+assertWritableEnv("seed-states");
+
 const env = Object.fromEntries(
   readFileSync(new URL("../.env.local", import.meta.url), "utf8")
     .split(/\r?\n/)

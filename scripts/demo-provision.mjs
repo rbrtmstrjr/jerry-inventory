@@ -12,6 +12,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
+// Refuse to touch a non-disposable database (see scripts/_env-guard.mjs).
+import { assertWritableEnv } from "./_env-guard.mjs";
+assertWritableEnv("demo-provision");
+
 const MANIFEST = new URL("./.demo-fixtures.json", import.meta.url);
 if (existsSync(MANIFEST)) {
   console.error("scripts/.demo-fixtures.json already exists — a demo set is already provisioned.");

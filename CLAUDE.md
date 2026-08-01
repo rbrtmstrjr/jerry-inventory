@@ -1204,6 +1204,24 @@ Each route is a server component `page.tsx` (data fetch + metadata) that renders
 a client `*-view.tsx` / `*-form.tsx` component; mutations go through server
 actions in a colocated `actions.ts` that call the RPC functions above.
 
+### Environments — staging vs production (`docs/DEPLOYMENT.md`)
+One repo, one Vercel project, **two Supabase projects**; the app names neither
+(it reads env vars), so the split is entirely Vercel's Production vs Preview
+variable scopes. Schema travels `write migration → db push to staging → QA →
+db push to production` — the CLI accepts the existing `0001_`-style names and
+tracks applied versions in `supabase_migrations.schema_migrations`.
+
+**The risk was never Vercel — it was `.env.local`.** 24 scripts write with the
+SERVICE ROLE key (RLS-bypassing): the seeds, the sweep, `db-fresh-start` (which
+DELETES everything), and the whole test harness. Pointed at production they
+would corrupt or erase the client's books, and db-fresh-start's own "is there
+an owner?" stop does NOT help — production HAS an owner, so it passes.
+`scripts/_env-guard.mjs` therefore requires `.env.local` to declare
+`SUPABASE_ENV=staging|local`; anything else — `production`, a typo, a missing
+marker — is refused. It is an **allowlist that fails CLOSED**: a blocklist
+fails open the day a new project isn't added to it. `test-env-guard.mjs` proves
+the logic AND that every write script calls the guard.
+
 ### Verification
 **`npm test`** runs every suite and prints one table (~1,540 assertions,
 ~5 min on the 1-month dev dataset; the ledger-reconciling suites scale with
