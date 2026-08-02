@@ -23,7 +23,9 @@ retire, accounts, settings) belong to Gerry alone.
 | Data/UI | TanStack Table (data grids), Recharts (charts), react-hook-form + Zod (forms/validation), sonner (toasts) |
 | Maps | Leaflet + OpenStreetMap (shop location pins) |
 | Barcodes | JSBarcode (Code128 label printing) |
-| Hosting | Vercel (project `maccky-marine-inventory`); Supabase project `pruhoaqaurhzyvwwnjdk` (ap-southeast-1) |
+| Hosting | Vercel (project `maccky-marine-inventory`, functions in `sin1`), live at **www.gerwintrading.com** |
+| Database | **TWO** Supabase projects, both ap-southeast-1 (Singapore) — **PRODUCTION `wjvkrkbojnemfiuuitmu`** (the client's real books) and **STAGING `pruhoaqaurhzyvwwnjdk`** (disposable; every script, seed and test suite targets this one). See `docs/DEPLOYMENT.md` |
+| Auth email | Resend SMTP, sender `noreply@gerwintrading.com` (DKIM/SPF/DMARC on the domain, DNS at Porkbun) — password reset does not work without it |
 
 **Conventions**
 - Money is stored as integer **centavos** (bigint); helpers in `lib/format.ts` (`formatCentavos`, `parsePesosToCentavos`).
