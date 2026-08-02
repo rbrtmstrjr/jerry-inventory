@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ph_today } from "@/lib/ph-date";
 import { fetchAll } from "@/lib/pnl";
 import { clampReportRange } from "@/lib/report-range";
+import { getBusinessIdentity } from "@/lib/business-identity";
 import { ReportsView, type ReportData } from "./reports-view";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -111,7 +112,12 @@ export async function SalesTab({
       ? buildFromRpc(rpcRes.data as any, ctx)
       : await buildFallback(supabase, ctx);
 
-  return <ReportsView data={data} />;
+  // The printed range header used to hard-code "Gerwin Trading" — every other
+  // printable document reads the name from Settings, so a rename left this one
+  // sheet stale. Read it from the same source as the rest.
+  const business = await getBusinessIdentity(supabase);
+
+  return <ReportsView data={data} businessName={business.business_name} />;
 }
 
 // ---- fast path: shape the RPC's jsonb result into ReportData ----

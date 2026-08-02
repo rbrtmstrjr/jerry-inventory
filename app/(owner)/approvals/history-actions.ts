@@ -143,6 +143,19 @@ function mapMovements(rows: any[], shopName: string): MovementRow[] {
   }));
 }
 
+/** PostgREST answers a `.single()` that matched nothing with PGRST116 and a
+ *  driver-shaped message ("Cannot coerce the result to a single JSON object").
+ *  Showing that to the owner leaks database internals for the ordinary case of
+ *  a stale or mistyped deep link, and the `?? "Not found"` fallback never fired
+ *  because `error.message` is always populated. Translate the miss. */
+function detailError(error: { code?: string; message?: string } | null): string {
+  if (!error) return "Not found";
+  if (error.code === "PGRST116" || /coerce|rows returned/i.test(error.message ?? "")) {
+    return "Not found";
+  }
+  return error.message ?? "Not found";
+}
+
 export async function getReviewedDetail(
   itemType: string,
   id: string
@@ -179,7 +192,7 @@ export async function getReviewedDetail(
       .eq("id", parsed.data.id)
       .is("deleted_at", null)
       .single();
-    if (error || !data) return { ok: false, error: error?.message ?? "Not found" };
+    if (error || !data) return { ok: false, error: detailError(error) };
     const s = data as any;
     const shopName = s.shops?.name ?? "?";
 
@@ -265,7 +278,7 @@ export async function getReviewedDetail(
       .eq("id", parsed.data.id)
       .is("deleted_at", null)
       .single();
-    if (error || !data) return { ok: false, error: error?.message ?? "Not found" };
+    if (error || !data) return { ok: false, error: detailError(error) };
     const l = data as any;
     const shopName = l.shops?.name ?? "?";
 
@@ -318,7 +331,7 @@ export async function getReviewedDetail(
       .eq("id", parsed.data.id)
       .is("deleted_at", null)
       .single();
-    if (error || !data) return { ok: false, error: error?.message ?? "Not found" };
+    if (error || !data) return { ok: false, error: detailError(error) };
     const e = data as any;
 
     return {
@@ -360,7 +373,7 @@ export async function getReviewedDetail(
     .eq("id", parsed.data.id)
     .is("deleted_at", null)
     .single();
-  if (error || !data) return { ok: false, error: error?.message ?? "Not found" };
+  if (error || !data) return { ok: false, error: detailError(error) };
   const p = data as any;
 
   // Balance before → after: replay the approved payments that landed before

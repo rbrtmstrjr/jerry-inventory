@@ -1,0 +1,33 @@
+-- 0098 — add 'admin' to user_role, ALONE, so 0099 can use it.
+--
+-- (Reuses one of the retired 0085–0098 numbers. Those were the reverted
+--  insider-threat experiment and hold nothing, so the slot is free — and it is
+--  the only range that sorts BETWEEN 0095 and 0099, which is what this needs.)
+--
+-- WHY THIS FILE EXISTS — a staging/production divergence, not a schema change.
+--
+-- Postgres refuses to USE an enum value that was ADDED in the same transaction
+-- (SQLSTATE 55P04, "unsafe use of new value"). 0099 does both: line 39 adds
+-- 'admin' to user_role, then line 44 uses it in the profiles_role_shop CHECK.
+--
+-- That was invisible until now because every migration on staging was applied
+-- BY HAND in the SQL editor, where each statement commits on its own — so the
+-- ADD was committed long before the CHECK ran. `supabase db push` wraps each
+-- migration FILE in ONE transaction, so the same SQL fails:
+--
+--     ERROR: unsafe use of new value "admin" of enum type user_role (55P04)
+--     At statement: 2 ... alter table public.profiles add constraint …
+--
+-- The codebase already knows this rule — 0027 and 0069 are standalone enum
+-- migrations for exactly this reason ("an enum value can't be added and used in
+-- one txn — see 0027"). 0099 simply missed it, and hand-application hid it.
+--
+-- 0099 IS DELIBERATELY NOT EDITED. It is applied on staging, and editing an
+-- applied migration is how environments silently diverge. Instead this file
+-- runs FIRST and commits the value; 0099's own
+--     alter type public.user_role add value if not exists 'admin';
+-- then finds it already present and does nothing, so no new value is pending in
+-- 0099's transaction and its CHECK constraint is legal. Both files stay correct
+-- on their own, and the pair is idempotent on a database that already has
+-- 'admin' (staging) as well as one that does not (production).
+alter type public.user_role add value if not exists 'admin';

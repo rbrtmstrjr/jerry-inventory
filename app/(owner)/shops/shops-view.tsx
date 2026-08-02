@@ -576,6 +576,7 @@ export function ShopsView({
                 currentPath={editingShop?.logo_path ?? null}
                 action={shopLogoAction}
                 onActionChange={setShopLogoAction}
+                subject="shop logo"
               />
             </div>
 
@@ -618,6 +619,17 @@ export function ShopsView({
                 />
                 {shopColor === null && "(neutral — tap a circle to pick, tap again to clear; greyed = taken)"}
               </div>
+              {/* The palette holds 10 keys and a colour is unique among LIVE
+                  shops, so the 11th branch finds every circle greyed out. Say so
+                  — ten mysteriously disabled circles read as a broken picker. */}
+              {SHOP_COLOR_KEYS.every((key) =>
+                shops.some((s) => s.color_key === key && s.id !== editingShop?.id)
+              ) && (
+                <p className="text-xs text-muted-foreground">
+                  All {SHOP_COLOR_KEYS.length} colors are in use by other shops, so
+                  this one stays neutral. A color frees up when a shop is closed.
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label>Map pin (optional)</Label>
@@ -893,13 +905,16 @@ function CloseShopDialog({
 
   const blockers = shop
     ? [
+        // A return is SHOP-initiated since 0065 — the office can't start one, so
+        // pointing here at a "New Return" tab (retired with that migration) sent
+        // the owner to a control that no longer exists.
         shop.part_units > 0 && {
           text: `${shop.part_units} part unit(s) still at this shop`,
-          fix: "Deliveries & Returns → New Return",
+          fix: "the shop returns them from Transfers → Return to Admin; approve it under Deliveries & Returns → Transfers & Returns",
         },
         shop.engine_count > 0 && {
           text: `${shop.engine_count} engine(s) still at this shop`,
-          fix: "Deliveries & Returns → New Return",
+          fix: "the shop returns them from Transfers → Return to Admin; approve it under Deliveries & Returns → Transfers & Returns",
         },
         loginActive && {
           text: "The shop's login is still enabled",
@@ -1092,6 +1107,7 @@ function StaffDialog({
               currentPath={staff?.image_path ?? null}
               action={photo}
               onActionChange={setPhoto}
+              subject="employee photo"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">

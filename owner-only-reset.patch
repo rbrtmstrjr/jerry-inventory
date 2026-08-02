@@ -1,0 +1,2347 @@
+diff --git a/app/(auth)/login/actions.ts b/app/(auth)/login/actions.ts
+new file mode 100644
+index 0000000..faa9c7f
+--- /dev/null
++++ b/app/(auth)/login/actions.ts
+@@ -0,0 +1,200 @@
++"use server";
++
++import { headers } from "next/headers";
++import { createClient as createSupabaseClient } from "@supabase/supabase-js";
++import { z } from "zod";
++
++import { isPrimaryOwner } from "@/lib/auth";
++import { createAdminClient } from "@/lib/supabase/admin";
++
++/**
++ * Owner-only password reset.
++ *
++ * WHY THIS EXISTS: Gerry mints and can change every shop and admin credential,
++ * so email-based self-service reset gives those accounts no capability the
++ * system lacks — only attack surface. Compromise a branch's shared inbox and
++ * you have that branch's login. This narrows the reset path to the one account
++ * nobody else can rescue.
++ *
++ * WHY THE SERVICE ROLE WITH NO SIGNED-IN CALLER: lib/supabase/admin.ts carries
++ * the rule "every caller must verify the current user is the owner BEFORE
++ * touching this client". The public action cannot — being locked out is the
++ * entire premise. It is a deliberate exception, and it is safe ONLY because
++ * that function is a sealed box: one string in, one constant out, and its sole
++ * side effect is Supabase mailing the owner's own stored address.
++ *
++ * TWO ACTIONS, ON PURPOSE — one silent, one truthful:
++ *
++ *   requestOwnerPasswordReset            PUBLIC / UNAUTHENTICATED (the login
++ *                                        page). Returns the same value on
++ *                                        every path. Anything else is an
++ *                                        oracle for the owner's address.
++ *
++ *   requestOwnerPasswordResetAuthenticated
++ *                                        OWNER-GATED (Settings → Account,
++ *                                        behind requirePrimaryOwner()). The
++ *                                        caller has already proved he is the
++ *                                        owner and the address is his own, so
++ *                                        there is no secret left to protect —
++ *                                        and hiding a rate-limit error from
++ *                                        him would cost him the only signal
++ *                                        that the mail never went out.
++ *
++ * Both share resolveOwnerEmail() + sendOwnerReset() below so the two can never
++ * drift into disagreeing about who the owner is or where the mail goes.
++ *
++ * KNOWN, ACCEPTED LIMITATION — the timing side-channel on the public action is
++ * REAL and is NOT throttled. On a MISS this never calls /auth/v1/recover, so
++ * Supabase's recovery rate limiter never engages: an attacker can probe as fast
++ * as our own server answers. Nor is the tell subtle — a match performs a whole
++ * SMTP send, hundreds of milliseconds slower than a miss. Do not write that the
++ * platform protects this; it does not.
++ *
++ * It is accepted anyway. What leaks is a single email address that is already
++ * guessable, and the only way to flatten it is to fire a decoy recovery request
++ * on every miss — which would pour mail through the same shared free-tier
++ * mailer the owner's own recovery depends on, on demand, from an unauthenticated
++ * endpoint. That is a worse hole than the one it closes. The mitigation that
++ * actually matters is operational: put the owner's mailbox on a domain he
++ * controls and turn 2FA on there (spec §7).
++ */
++
++const schema = z.object({ email: z.string().trim().min(1).max(200) });
++
++/* ── shared internals — neither action may reimplement these ─────────────── */
++
++/**
++ * The owner's STORED address, or null when there isn't one.
++ *
++ * Never derived from caller input: the owner is resolved by role, and the
++ * address comes off his auth record. ORDER BY id so that if a second owner row
++ * ever exists, which one wins is deterministic rather than whatever the planner
++ * returned that day.
++ */
++async function resolveOwnerEmail(): Promise<string | null> {
++  const admin = createAdminClient();
++
++  const { data: ownerProfile } = await admin
++    .from("profiles")
++    .select("id")
++    .eq("role", "owner")
++    .eq("active", true)
++    .is("deleted_at", null)
++    .order("id")
++    .limit(1)
++    .maybeSingle();
++  if (!ownerProfile) return null;
++
++  const { data: ownerUser } = await admin.auth.admin.getUserById(ownerProfile.id);
++  const ownerEmail = ownerUser?.user?.email?.trim() ?? "";
++  return ownerEmail || null;
++}
++
++/**
++ * Mail the recovery link to `ownerEmail`. Returns null on success, or a
++ * human-readable reason on failure — the CALLER decides whether that reason is
++ * safe to hand back. Always logs, whoever is asking.
++ */
++async function sendOwnerReset(ownerEmail: string): Promise<string | null> {
++  // Origin from the request, not an env var, so preview deploys keep working.
++  // Supabase's redirect allowlist is the real guard against a spoofed Host.
++  const h = await headers();
++  const host = h.get("host");
++  if (!host) return "Could not work out this site's address.";
++  // Never interpolate the raw header — it is attacker-supplied. Only the two
++  // schemes we actually serve are legal, and https is the default.
++  const proto = h.get("x-forwarded-proto") === "http" ? "http" : "https";
++  const origin = `${proto}://${host}`;
++
++  // A bare anon client: no cookies, no session, nothing to leak. Sends to the
++  // STORED address — never a caller-supplied string.
++  const anon = createSupabaseClient(
++    process.env.NEXT_PUBLIC_SUPABASE_URL!,
++    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
++    { auth: { persistSession: false, autoRefreshToken: false } }
++  );
++
++  const { error } = await anon.auth.resetPasswordForEmail(ownerEmail, {
++    redirectTo: `${origin}/auth/callback?next=/auth/reset`,
++  });
++  if (!error) return null;
++  console.error("[owner-reset] send failed:", error.code ?? error.message);
++  return error.message || "Sending the reset email failed.";
++}
++
++/* ── 1. PUBLIC — the login page's "Forgot password?" ──────────────────────── */
++
++export type OwnerResetResult = { ok: true };
++
++/** The one and only return value of the PUBLIC action. Never construct another. */
++const DONE: OwnerResetResult = { ok: true };
++
++/**
++ * >>> INVARIANT: every path returns the SAME value. <<<
++ *
++ * The moment this returns different data, shapes, or errors depending on the
++ * input, it becomes an oracle that confirms the owner's email address to anyone
++ * who can POST to it — and anyone can, this is the signed-out login page. Do
++ * not add a branch that reports failure. If you need a truthful answer, you are
++ * looking for the authenticated twin below.
++ */
++export async function requestOwnerPasswordReset(
++  input: unknown
++): Promise<OwnerResetResult> {
++  try {
++    const parsed = schema.safeParse(input);
++    if (!parsed.success) return DONE;
++    const submitted = parsed.data.email.trim().toLowerCase();
++
++    const ownerEmail = await resolveOwnerEmail();
++    if (!ownerEmail) return DONE;
++    if (ownerEmail.toLowerCase() !== submitted) return DONE;
++
++    // Logged inside the helper, deliberately not returned: surfacing a send
++    // failure here would confirm the submitted address matched.
++    await sendOwnerReset(ownerEmail);
++  } catch (e) {
++    console.error("[owner-reset] unexpected:", e);
++  }
++  return DONE;
++}
++
++/* ── 2. OWNER-GATED — Settings → Account ─────────────────────────────────── */
++
++export type OwnerResetAuthedResult = { ok: boolean; error?: string };
++
++/**
++ * The same send, told honestly.
++ *
++ * Reachable only from Settings → Account, which requirePrimaryOwner() already
++ * gates; this re-checks the tier itself rather than trusting that. The anti-
++ * oracle rule above does NOT apply here: the caller IS the owner and the
++ * address IS his own, so there is nothing left to conceal — while staying
++ * silent would leave him staring at "sent" when Supabase rate-limited the mail.
++ *
++ * Takes NO email parameter on purpose. The address is derived server-side from
++ * the owner record, so this cannot be aimed at somebody else's mailbox even by
++ * the owner himself.
++ */
++export async function requestOwnerPasswordResetAuthenticated(): Promise<OwnerResetAuthedResult> {
++  try {
++    if (!(await isPrimaryOwner())) {
++      return { ok: false, error: "Only the owner can do that" };
++    }
++
++    const ownerEmail = await resolveOwnerEmail();
++    if (!ownerEmail) {
++      return { ok: false, error: "No owner account with a sign-in email was found." };
++    }
++
++    const failure = await sendOwnerReset(ownerEmail);
++    if (failure) return { ok: false, error: failure };
++    return { ok: true };
++  } catch (e) {
++    console.error("[owner-reset:authed] unexpected:", e);
++    return {
++      ok: false,
++      error: e instanceof Error ? e.message : "Sending the reset email failed.",
++    };
++  }
++}
+diff --git a/app/(auth)/login/login-form.tsx b/app/(auth)/login/login-form.tsx
+index f2367cf..34c9184 100644
+--- a/app/(auth)/login/login-form.tsx
++++ b/app/(auth)/login/login-form.tsx
+@@ -8,6 +8,7 @@ import { z } from "zod";
+ import { Eye, EyeOff, Loader2, TriangleAlert } from "lucide-react";
+ 
+ import { createClient } from "@/lib/supabase/client";
++import { requestOwnerPasswordReset } from "./actions";
+ import { Button } from "@/components/ui/button";
+ import {
+   Dialog,
+@@ -190,9 +191,22 @@ export function LoginForm({ initialError }: { initialError?: string }) {
+ }
+ 
+ /**
+- * The way back in. This is the only recovery path that works when nobody can
+- * sign in — if it breaks, Jerry is locked out of his own business with no
+- * support desk to call, so it stays as simple as it can possibly be.
++ * The way back in — OWNER ONLY.
++ *
++ * Shop and admin credentials are minted and changed by the owner, so a reset
++ * path for them is attack surface with no matching capability: whoever reads a
++ * branch's shared inbox would own that branch's login. Only the owner's
++ * registered address can produce a link, and the SERVER decides that — this
++ * dialog never learns whether the address matched.
++ *
++ * That is also why no provider error is surfaced here any more. A friendly
++ * "too many reset emails just went out" message is only reachable when the
++ * address MATCHED, so printing it would confirm the owner's address to anyone
++ * probing this form. Send failures are logged server-side instead; see
++ * app/(auth)/login/actions.ts.
++ *
++ * If it breaks, Gerry is locked out of his own business with no support desk
++ * to call, so it stays as simple as it can possibly be.
+  */
+ function ForgotPasswordDialog({
+   onOpenChange,
+@@ -213,15 +227,10 @@ function ForgotPasswordDialog({
+     }
+     setError(null);
+     setBusy(true);
+-    const supabase = createClient();
+-    const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
+-      redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset`,
+-    });
++    // Deliberately ignores the result: the action returns the same value
++    // whether or not the address matched. There is nothing to branch on.
++    await requestOwnerPasswordReset({ email });
+     setBusy(false);
+-    if (err) {
+-      setError(err.message);
+-      return;
+-    }
+     setSent(true);
+   }
+ 
+@@ -229,21 +238,27 @@ function ForgotPasswordDialog({
+     <Dialog open onOpenChange={onOpenChange}>
+       <DialogContent>
+         <DialogHeader>
+-          <DialogTitle>Reset your password</DialogTitle>
++          <DialogTitle>Reset owner password</DialogTitle>
+           <DialogDescription>
+-            We&apos;ll email you a link to set a new one.
++            Only the owner&apos;s registered email can receive a reset link.
++            Shop and admin passwords are changed by the owner directly — contact
++            him.
+           </DialogDescription>
+         </DialogHeader>
+ 
+         {sent ? (
+           <div className="grid gap-2 text-sm">
+-            {/* Deliberately does not confirm whether that address has an account
+-                — saying "no such user" would let anyone test addresses against
+-                this login. Supabase answers the same way for the same reason. */}
++            {/* Says the same thing whether or not the address matched. Telling
++                the user "that is not the owner's email" would turn this form
++                into an oracle for locating his mailbox. */}
+             <p>
+-              If <strong>{email}</strong> has an account, a reset link is on its
++              If that address matches the owner&apos;s, a reset link is on its
+               way. It lasts about an hour.
+             </p>
++            <p className="text-muted-foreground">
++              No other address will receive a link. If nothing arrives, check
++              the spelling and try again.
++            </p>
+             <p className="text-muted-foreground">
+               Open the link in this same browser — for security the link is tied
+               to the browser that asked for it.
+@@ -251,14 +266,14 @@ function ForgotPasswordDialog({
+           </div>
+         ) : (
+           <div className="grid gap-2">
+-            <Label htmlFor="forgot-email">Email</Label>
++            <Label htmlFor="forgot-email">Owner email</Label>
+             <Input
+               id="forgot-email"
+               type="email"
+               autoComplete="email"
+               value={email}
+               onChange={(e) => setEmail(e.target.value)}
+-              placeholder="you@example.com"
++              placeholder="owner@example.com"
+             />
+             {error && (
+               <p className="text-sm text-destructive" role="alert">
+diff --git a/app/(owner)/settings/account-section.tsx b/app/(owner)/settings/account-section.tsx
+index 7fcd48b..782362a 100644
+--- a/app/(owner)/settings/account-section.tsx
++++ b/app/(owner)/settings/account-section.tsx
+@@ -5,6 +5,7 @@ import { KeyRound, Loader2, Mail, MailCheck, ShieldCheck } from "lucide-react";
+ import { toast } from "sonner";
+ 
+ import { createClient } from "@/lib/supabase/client";
++import { requestOwnerPasswordResetAuthenticated } from "@/app/(auth)/login/actions";
+ import { Button } from "@/components/ui/button";
+ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+ import { Input } from "@/components/ui/input";
+@@ -18,7 +19,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
+  * verified against Supabase, before the change is attempted. A live session is
+  * explicitly not enough: the threat is a walked-away laptop or a lifted
+  * session, and in both of those the attacker already has the session. Only the
+- * password proves the person at the keyboard is Jerry.
++ * password proves the person at the keyboard is Gerry.
+  *
+  * Verify and change happen in ONE submit, deliberately. A two-step wizard would
+  * park a `verified: true` flag in client state, and a flag in client state is
+@@ -325,7 +326,15 @@ function ChangeEmailCard({ email }: { email: string | null }) {
+  * The lockout safety net. No re-auth gate here on purpose — the whole point is
+  * that it works when you CAN'T prove who you are. It only ever mails the
+  * address already on the account, so it hands nothing to anyone who isn't
+- * already reading Jerry's inbox.
++ * already reading Gerry's inbox.
++ *
++ * This calls the OWNER-GATED action, not the login page's public one. The
++ * public action is deliberately silent — identical answer on every path, so it
++ * can't confirm the owner's address to a stranger. Here there is no stranger:
++ * the page is requirePrimaryOwner()-gated and the address is the signed-in
++ * owner's own. Staying silent would buy nothing and cost him the one signal
++ * that matters — a Supabase rate limit means the mail never left, and "Reset
++ * link sent" would send him to an inbox to wait for nothing.
+  */
+ function ResetCard({ email }: { email: string | null }) {
+   const [busy, setBusy] = React.useState(false);
+@@ -334,13 +343,12 @@ function ResetCard({ email }: { email: string | null }) {
+   async function onSend() {
+     if (!email) return;
+     setBusy(true);
+-    const supabase = createClient();
+-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+-      redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset`,
+-    });
++    // No argument: the action derives the owner's address server-side, so this
++    // card cannot aim a reset link at anything but the account it belongs to.
++    const res = await requestOwnerPasswordResetAuthenticated();
+     setBusy(false);
+-    if (error) {
+-      toast.error(error.message);
++    if (!res.ok) {
++      toast.error(res.error ?? "Could not send the reset email.");
+       return;
+     }
+     setSent(true);
+diff --git a/app/(owner)/settings/actions.ts b/app/(owner)/settings/actions.ts
+index 8469738..6e9d6ca 100644
+--- a/app/(owner)/settings/actions.ts
++++ b/app/(owner)/settings/actions.ts
+@@ -5,6 +5,7 @@ import { z } from "zod";
+ import { createClient } from "@/lib/supabase/server";
+ import { createAdminClient } from "@/lib/supabase/admin";
+ import { getProfile } from "@/lib/auth";
++import { LOGIN_EMAIL_DOMAIN, isLoginEmailDomain } from "@/lib/login-email";
+ 
+ type ActionResult = { ok: true } | { ok: false; error: string };
+ 
+@@ -172,9 +173,13 @@ export async function updateAlertSettings(input: unknown): Promise<ActionResult>
+ // profiles insert/update/delete is is_primary_owner()-only, so even a direct
+ // PostgREST call from an admin session dies at the database.
+ // ---------------------------------------------------------------------------
++// Admin logins are usernames, not mailboxes — same rule as shop logins, and
++// for the same reason (lib/login-email.ts).
+ const createAdminSchema = z.object({
+   full_name: z.string().trim().min(1, "Name is required"),
+-  email: z.email("Valid email required"),
++  email: z
++    .email("Valid email required")
++    .refine(isLoginEmailDomain, `Admin logins must use @${LOGIN_EMAIL_DOMAIN}`),
+   password: z.string().min(8, "Password needs at least 8 characters"),
+ });
+ 
+@@ -259,7 +264,10 @@ const updateCredsSchema = z
+   .object({
+     id: z.uuid(),
+     full_name: z.string().trim().min(1).optional(),
+-    email: z.email("Valid email required").optional(),
++    email: z
++      .email("Valid email required")
++      .refine(isLoginEmailDomain, `Admin logins must use @${LOGIN_EMAIL_DOMAIN}`)
++      .optional(),
+     password: z.string().min(8, "Password needs at least 8 characters").optional(),
+   })
+   .refine((v) => v.full_name || v.email || v.password, {
+diff --git a/app/(owner)/settings/admin-accounts-section.tsx b/app/(owner)/settings/admin-accounts-section.tsx
+index e91a2f0..77b9486 100644
+--- a/app/(owner)/settings/admin-accounts-section.tsx
++++ b/app/(owner)/settings/admin-accounts-section.tsx
+@@ -31,6 +31,7 @@ import {
+ import { Input } from "@/components/ui/input";
+ import { Label } from "@/components/ui/label";
+ import { ConfirmDialog } from "@/components/confirm-dialog";
++import { LOGIN_EMAIL_DOMAIN } from "@/lib/login-email";
+ import {
+   createAdminAccount,
+   deleteAdminAccount,
+@@ -235,6 +236,10 @@ function AddAdminDialog({
+           <div className="grid gap-1.5">
+             <Label htmlFor="adm-email">Sign-in email</Label>
+             <Input id="adm-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
++            <p className="text-xs text-muted-foreground">
++              Must end in <code>@{LOGIN_EMAIL_DOMAIN}</code> — admin logins sign
++              in with an email but never receive one.
++            </p>
+           </div>
+           <div className="grid gap-1.5">
+             <Label htmlFor="adm-pass">Password</Label>
+@@ -312,6 +317,10 @@ function EditAdminDialog({
+           <div className="grid gap-1.5">
+             <Label htmlFor="adm-edit-email">Sign-in email</Label>
+             <Input id="adm-edit-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
++            <p className="text-xs text-muted-foreground">
++              Must end in <code>@{LOGIN_EMAIL_DOMAIN}</code> — admin logins sign
++              in with an email but never receive one.
++            </p>
+           </div>
+           <div className="grid gap-1.5">
+             <Label htmlFor="adm-edit-pass">New password</Label>
+diff --git a/app/(owner)/shops/actions.ts b/app/(owner)/shops/actions.ts
+index 4449cde..85875ce 100644
+--- a/app/(owner)/shops/actions.ts
++++ b/app/(owner)/shops/actions.ts
+@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
+ import { createAdminClient } from "@/lib/supabase/admin";
+ import { getProfile } from "@/lib/auth";
+ import { SHOP_COLOR_KEYS } from "@/lib/shop-colors";
++import { LOGIN_EMAIL_DOMAIN, isLoginEmailDomain } from "@/lib/login-email";
+ 
+ type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
+ 
+@@ -180,8 +181,13 @@ export async function closeShop(id: string): Promise<ActionResult> {
+ // ---------------------------------------------------------------------------
+ // Employees (auth admin — owner verified first, service role only after)
+ // ---------------------------------------------------------------------------
++// Shop logins use email as a USERNAME, never a contact channel — see
++// lib/login-email.ts. Forcing a non-routable domain is what makes Supabase's
++// public recover endpoint harmless for these accounts.
+ const employeeSchema = z.object({
+-  email: z.email("Valid email required"),
++  email: z
++    .email("Valid email required")
++    .refine(isLoginEmailDomain, `Shop logins must use @${LOGIN_EMAIL_DOMAIN}`),
+   password: z.string().min(8, "Password needs at least 8 characters"),
+   full_name: z.string().trim().min(1, "Name is required"),
+   shop_id: z.uuid("Pick a shop"),
+@@ -282,7 +288,9 @@ export async function updateEmployee(input: unknown): Promise<ActionResult> {
+  */
+ const credentialsSchema = z.object({
+   id: z.uuid(),
+-  email: z.email("Valid email required"),
++  email: z
++    .email("Valid email required")
++    .refine(isLoginEmailDomain, `Shop logins must use @${LOGIN_EMAIL_DOMAIN}`),
+   password: z
+     .string()
+     .min(8, "Password needs at least 8 characters")
+diff --git a/app/(owner)/shops/shops-view.tsx b/app/(owner)/shops/shops-view.tsx
+index a396403..194b343 100644
+--- a/app/(owner)/shops/shops-view.tsx
++++ b/app/(owner)/shops/shops-view.tsx
+@@ -67,6 +67,7 @@ import {
+ } from "@/components/location-picker";
+ import { ShopBadge } from "@/components/shop-badge";
+ import { SHOP_COLOR_KEYS, shopColorVars } from "@/lib/shop-colors";
++import { LOGIN_EMAIL_DOMAIN } from "@/lib/login-email";
+ import {
+   ImageUploadField,
+   type ImageAction,
+@@ -678,6 +679,10 @@ export function ShopsView({
+                     value={empEmail}
+                     onChange={(e) => setEmpEmail(e.target.value)}
+                   />
++                  <p className="text-xs text-muted-foreground">
++                    Must end in <code>@{LOGIN_EMAIL_DOMAIN}</code> — these logins
++                    sign in with an email but never receive one.
++                  </p>
+                 </div>
+                 <div className="grid gap-2">
+                   <Label htmlFor="emp-pass">Password (min 8 chars)</Label>
+@@ -835,6 +840,10 @@ function CredentialsDialog({
+               value={email}
+               onChange={(e) => setEmail(e.target.value)}
+             />
++            <p className="text-xs text-muted-foreground">
++              Must end in <code>@{LOGIN_EMAIL_DOMAIN}</code> — these logins sign
++              in with an email but never receive one.
++            </p>
+           </div>
+           <div className="grid gap-2">
+             <Label htmlFor="cred-pass">New password</Label>
+diff --git a/docs/superpowers/plans/2026-08-02-owner-only-password-reset.md b/docs/superpowers/plans/2026-08-02-owner-only-password-reset.md
+new file mode 100644
+index 0000000..3a9be23
+--- /dev/null
++++ b/docs/superpowers/plans/2026-08-02-owner-only-password-reset.md
+@@ -0,0 +1,953 @@
++# Owner-Only Password Reset — Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Make "Forgot password?" work only for the owner's registered email, and make shop/admin logins structurally unresettable by giving them mailboxes that cannot receive mail.
++
++**Architecture:** Two layers. A server action compares the submitted address against the owner's stored address and returns an identical result on every path, so the dialog leaks nothing. Underneath, shop and admin logins are forced onto `@gerwintrading.invalid` — an RFC 2606 reserved TLD that can never resolve — so even a request that bypasses our UI and hits Supabase's public `/auth/v1/recover` endpoint directly generates mail that is delivered nowhere.
++
++**Tech Stack:** Next.js 16 (App Router, server actions), React 19, TypeScript, Zod 4, Supabase (GoTrue auth + service-role admin API), Node test scripts (`scripts/test-*.mjs`).
++
++**Spec:** [`docs/superpowers/specs/2026-08-02-owner-only-password-reset-design.md`](../specs/2026-08-02-owner-only-password-reset-design.md)
++
++## Global Constraints
++
++- **Never run `git commit` or `git push`.** This project's owner runs every commit himself. Commit steps below state exactly what to stage and the message to use — surface the command, do not execute it.
++- **Money, dates, soft-delete conventions are untouched by this work.** No migration, no RLS change, no ledger impact.
++- **Zod 4 API**: this codebase uses `z.email()` / `z.uuid()`, not `z.string().email()`. Match it.
++- **The designated login domain is exactly `gerwintrading.invalid`.** Defined once in `lib/login-email.ts`; never hardcode it elsewhere.
++- **The server action must return the identical value on every path.** Any branch that varies its output turns it into an oracle for the owner's email address.
++- **Never send reset mail to the submitted string.** Only ever to the owner's stored address, read server-side.
++- Run `npx tsc --noEmit` after any TypeScript change; it must exit 0.
++
++---
++
++## File Structure
++
++| File | Responsibility | Task |
++|---|---|---|
++| `lib/login-email.ts` | **Create.** The domain constant + two pure predicates. Single source of truth for the rule. | 1 |
++| `scripts/test-lib-unit.mjs` | **Modify.** Unit coverage for the predicates — no DB. | 1 |
++| `app/(auth)/login/actions.ts` | **Create.** `requestOwnerPasswordReset` — the only place the owner match happens. | 2 |
++| `app/(auth)/login/login-form.tsx` | **Modify.** `ForgotPasswordDialog` calls the action; copy states the owner-only rule. | 3 |
++| `app/(owner)/shops/actions.ts` | **Modify.** Domain rule on `employeeSchema` + `credentialsSchema`. | 4 |
++| `app/(owner)/settings/actions.ts` | **Modify.** Domain rule on `createAdminSchema` + `updateCredsSchema`. | 4 |
++| `app/(owner)/settings/account-section.tsx` | **Modify.** `ResetCard` routes through the shared action. | 5 |
++| `scripts/migrate-login-emails.mjs` | **Create.** One-off, dry-run-by-default migration of the 15 existing accounts. | 6 |
++| `scripts/test-owner-reset.mjs` | **Create.** Static wiring check + the live invariant. Auto-discovered by `test-all.mjs`. | 7 |
++
++**Two predicates, deliberately.** `isLoginEmailDomain` is strict (exactly `gerwintrading.invalid`) and guards the credential write paths so Gerry cannot get creative. `isNonRoutableEmail` is broad (any RFC 2606 reserved TLD plus `.local`) and backs the invariant check, which must tolerate the harness's own `@test.local` fixtures — `scripts/_harness.mjs` provisions throwaway accounts on that domain via the service role, and those are legitimate.
++
++---
++
++### Task 1: The domain rule as a pure, tested module
++
++**Files:**
++- Create: `lib/login-email.ts`
++- Test: `scripts/test-lib-unit.mjs` (modify — append a new section)
++
++**Interfaces:**
++- Consumes: nothing
++- Produces:
++  - `LOGIN_EMAIL_DOMAIN: string` — the literal `"gerwintrading.invalid"`
++  - `isLoginEmailDomain(email: string): boolean` — strict, exact-domain match
++  - `isNonRoutableEmail(email: string): boolean` — broad, reserved-TLD match
++
++- [ ] **Step 1: Write the failing test**
++
++Append to `scripts/test-lib-unit.mjs`. Add the import at the top of the file, next to the existing `lib/format.ts` and `lib/ph-date.ts` imports:
++
++```js
++import {
++  LOGIN_EMAIL_DOMAIN, isLoginEmailDomain, isNonRoutableEmail,
++} from "../lib/login-email.ts";
++```
++
++Append this section at the end of the file, **before** the final `console.log` summary and `process.exit`:
++
++```js
++console.log("\nisLoginEmailDomain — strict: only the designated login domain:");
++check("constant is gerwintrading.invalid", LOGIN_EMAIL_DOMAIN === "gerwintrading.invalid", LOGIN_EMAIL_DOMAIN);
++check("shop-ternate@gerwintrading.invalid", isLoginEmailDomain("shop-ternate@gerwintrading.invalid"));
++check("uppercase domain accepted", isLoginEmailDomain("A@GERWINTRADING.INVALID"));
++check("surrounding space tolerated", isLoginEmailDomain(" a@gerwintrading.invalid "));
++check("gmail rejected", !isLoginEmailDomain("shop@gmail.com"));
++check("lookalike subdomain rejected", !isLoginEmailDomain("a@x.gerwintrading.invalid"));
++check("suffix-only match rejected", !isLoginEmailDomain("a@notgerwintrading.invalid"));
++check("other .invalid domain rejected", !isLoginEmailDomain("a@other.invalid"));
++check("no @ rejected", !isLoginEmailDomain("gerwintrading.invalid"));
++check("empty local part rejected", !isLoginEmailDomain("@gerwintrading.invalid"));
++check("empty string rejected", !isLoginEmailDomain(""));
++
++console.log("\nisNonRoutableEmail — broad: any address that cannot receive mail:");
++check(".invalid", isNonRoutableEmail("a@gerwintrading.invalid"));
++check(".test (harness fixtures)", isNonRoutableEmail("zz-admin@test.local") || isNonRoutableEmail("zz@x.test"));
++check(".local (harness fixtures)", isNonRoutableEmail("zz-admin@test.local"));
++check(".example", isNonRoutableEmail("a@foo.example"));
++check("gmail.com is routable", !isNonRoutableEmail("a@gmail.com"));
++check("gerwin-test.ph is routable", !isNonRoutableEmail("shop@gerwin-test.ph"));
++check("test.com is routable (real domain)", !isNonRoutableEmail("gerry@test.com"));
++check("no @ rejected", !isNonRoutableEmail("nope"));
++check("empty string rejected", !isNonRoutableEmail(""));
++```
++
++- [ ] **Step 2: Run the test to verify it fails**
++
++```bash
++node scripts/test-lib-unit.mjs
++```
++Expected: FAIL — `Cannot find module '../lib/login-email.ts'`.
++
++- [ ] **Step 3: Write the implementation**
++
++Create `lib/login-email.ts`:
++
++```ts
++/**
++ * The one domain shop and admin logins may use.
++ *
++ * Email is a USERNAME for those accounts, never a contact channel — nobody
++ * mails a branch. Giving them an address that cannot receive mail is what
++ * makes Supabase's public /auth/v1/recover endpoint harmless: a request that
++ * bypasses our UI still produces mail, and that mail is delivered nowhere.
++ *
++ * `.invalid` is reserved by RFC 2606 as permanently unresolvable, so nobody
++ * can ever register it. A domain we merely do not own today (gerwin-test.ph)
++ * can be bought tomorrow, at which point every shop reset lands in the
++ * buyer's inbox.
++ */
++export const LOGIN_EMAIL_DOMAIN = "gerwintrading.invalid";
++
++/** RFC 2606 reserved TLDs, plus `.local` (mDNS, never routable on the internet). */
++const RESERVED_TLDS = new Set(["invalid", "test", "example", "localhost", "local"]);
++
++/** Lowercased domain part, or null when the string is not shaped like an email. */
++function domainOf(email: string): string | null {
++  const at = email.trim().lastIndexOf("@");
++  const trimmed = email.trim();
++  if (at <= 0 || at === trimmed.length - 1) return null;
++  return trimmed.slice(at + 1).toLowerCase();
++}
++
++/**
++ * STRICT — exactly the designated login domain. Guards the credential write
++ * paths so a shop or admin login can never be minted on a real mailbox.
++ */
++export function isLoginEmailDomain(email: string): boolean {
++  return domainOf(email) === LOGIN_EMAIL_DOMAIN;
++}
++
++/**
++ * BROAD — any address that cannot receive mail. Backs the invariant check,
++ * which must tolerate the test harness's own `@test.local` fixtures
++ * (scripts/_harness.mjs provisions those through the service role, which
++ * bypasses the Zod rule above by design).
++ */
++export function isNonRoutableEmail(email: string): boolean {
++  const domain = domainOf(email);
++  if (!domain) return false;
++  const dot = domain.lastIndexOf(".");
++  if (dot < 0) return false;
++  return RESERVED_TLDS.has(domain.slice(dot + 1));
++}
++```
++
++- [ ] **Step 4: Run the test to verify it passes**
++
++```bash
++node scripts/test-lib-unit.mjs
++```
++Expected: PASS — every new check ✓, exit 0.
++
++- [ ] **Step 5: Typecheck**
++
++```bash
++npx tsc --noEmit
++```
++Expected: exit 0.
++
++- [ ] **Step 6: Stage for commit (do not run `git commit` — surface it to the user)**
++
++```bash
++git add lib/login-email.ts scripts/test-lib-unit.mjs
++git commit -m "feat: add login email domain rule as a pure, tested module"
++```
++
++---
++
++### Task 2: The owner-match server action
++
++**Files:**
++- Create: `app/(auth)/login/actions.ts`
++
++**Interfaces:**
++- Consumes: `createAdminClient()` from `lib/supabase/admin` (existing)
++- Produces: `requestOwnerPasswordReset(input: unknown): Promise<{ ok: true }>` — used by Task 3 and Task 5
++
++- [ ] **Step 1: Write the implementation**
++
++There is no unit test for this task — the action is a Next server action and cannot be invoked from a Node script. Its security property (identical output on every path) is enforced by the single `return DONE` and asserted structurally in Task 7. Its comparison logic is the already-tested predicate style from Task 1.
++
++Create `app/(auth)/login/actions.ts`:
++
++```ts
++"use server";
++
++import { headers } from "next/headers";
++import { createClient as createSupabaseClient } from "@supabase/supabase-js";
++import { z } from "zod";
++
++import { createAdminClient } from "@/lib/supabase/admin";
++
++/**
++ * Owner-only password reset.
++ *
++ * WHY THIS EXISTS: Gerry mints and can change every shop and admin credential,
++ * so email-based self-service reset gives those accounts no capability the
++ * system lacks — only attack surface. Compromise a branch's shared inbox and
++ * you have that branch's login. This narrows the reset path to the one account
++ * nobody else can rescue.
++ *
++ * WHY THE SERVICE ROLE WITH NO SIGNED-IN CALLER: lib/supabase/admin.ts carries
++ * the rule "every caller must verify the current user is the owner BEFORE
++ * touching this client". This action cannot — being locked out is the entire
++ * premise. It is a deliberate exception, and it is safe ONLY because this
++ * function is a sealed box: one string in, one constant out, and its sole side
++ * effect is Supabase mailing the owner's own stored address.
++ *
++ * >>> INVARIANT: every path returns the SAME value. <<<
++ * The moment this returns different data, shapes, or errors depending on the
++ * input, it becomes an oracle that confirms the owner's email address to
++ * anyone who can POST to it. Do not add a branch that reports failure.
++ *
++ * KNOWN, ACCEPTED LIMITATION: the matching path makes one extra network call,
++ * so a determined attacker could in principle time the difference. Closing
++ * that would mean issuing a decoy request on every miss; it is not worth the
++ * complexity when Supabase already rate-limits recovery and the address being
++ * protected is guessable anyway.
++ */
++
++const schema = z.object({ email: z.string().trim().min(1).max(200) });
++
++export type OwnerResetResult = { ok: true };
++
++/** The one and only return value. Never construct another. */
++const DONE: OwnerResetResult = { ok: true };
++
++export async function requestOwnerPasswordReset(
++  input: unknown
++): Promise<OwnerResetResult> {
++  try {
++    const parsed = schema.safeParse(input);
++    if (!parsed.success) return DONE;
++
++    const submitted = parsed.data.email.trim().toLowerCase();
++    if (!/^\S+@\S+\.\S+$/.test(submitted)) return DONE;
++
++    const admin = createAdminClient();
++
++    // The owner is a single account: profiles.role = 'owner'.
++    const { data: ownerProfile } = await admin
++      .from("profiles")
++      .select("id")
++      .eq("role", "owner")
++      .eq("active", true)
++      .is("deleted_at", null)
++      .limit(1)
++      .maybeSingle();
++    if (!ownerProfile) return DONE;
++
++    const { data: ownerUser } = await admin.auth.admin.getUserById(ownerProfile.id);
++    const ownerEmail = ownerUser?.user?.email?.trim() ?? "";
++    if (!ownerEmail) return DONE;
++    if (ownerEmail.toLowerCase() !== submitted) return DONE;
++
++    // Origin from the request, not an env var, so preview deploys keep working.
++    // Supabase's redirect allowlist is the real guard against a spoofed Host.
++    const h = await headers();
++    const host = h.get("host");
++    if (!host) return DONE;
++    const proto = h.get("x-forwarded-proto") ?? "https";
++    const origin = `${proto}://${host}`;
++
++    // A bare anon client: no cookies, no session, nothing to leak. Sends to the
++    // STORED address — never the caller-supplied string.
++    const anon = createSupabaseClient(
++      process.env.NEXT_PUBLIC_SUPABASE_URL!,
++      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
++      { auth: { persistSession: false, autoRefreshToken: false } }
++    );
++
++    const { error } = await anon.auth.resetPasswordForEmail(ownerEmail, {
++      redirectTo: `${origin}/auth/callback?next=/auth/reset`,
++    });
++
++    // Logged, never returned. A rate-limit or send failure is invisible to the
++    // caller by design — surfacing it would confirm the address matched.
++    if (error) {
++      console.error("[owner-reset] send failed:", error.code ?? error.message);
++    }
++  } catch (e) {
++    console.error("[owner-reset] unexpected:", e);
++  }
++  return DONE;
++}
++```
++
++- [ ] **Step 2: Typecheck**
++
++```bash
++npx tsc --noEmit
++```
++Expected: exit 0.
++
++- [ ] **Step 3: Verify the build compiles the new server action**
++
++```bash
++npx next build
++```
++Expected: compiles successfully. A `"use server"` file that exports a non-async value fails here, so this is the real gate.
++
++- [ ] **Step 4: Stage for commit (do not run `git commit`)**
++
++```bash
++git add "app/(auth)/login/actions.ts"
++git commit -m "feat: owner-only password reset server action"
++```
++
++---
++
++### Task 3: Rewrite the login dialog
++
++**Files:**
++- Modify: `app/(auth)/login/login-form.tsx` (the `ForgotPasswordDialog` component, currently lines 197-296)
++
++**Interfaces:**
++- Consumes: `requestOwnerPasswordReset` from Task 2
++- Produces: nothing consumed by later tasks
++
++- [ ] **Step 1: Add the import**
++
++At the top of `app/(auth)/login/login-form.tsx`, alongside the existing imports:
++
++```ts
++import { requestOwnerPasswordReset } from "./actions";
++```
++
++- [ ] **Step 2: Replace the whole `ForgotPasswordDialog` component**
++
++Replace the component (its doc comment through its closing brace) with:
++
++```tsx
++/**
++ * The way back in — OWNER ONLY.
++ *
++ * Shop and admin credentials are minted and changed by the owner, so a reset
++ * path for them is attack surface with no matching capability: whoever reads a
++ * branch's shared inbox would own that branch's login. Only the owner's
++ * registered address can produce a link, and the server decides that — this
++ * dialog never learns whether the address matched.
++ *
++ * If it breaks, Gerry is locked out of his own business with no support desk
++ * to call, so it stays as simple as it can possibly be.
++ */
++function ForgotPasswordDialog({
++  onOpenChange,
++  defaultEmail,
++}: {
++  onOpenChange: (v: boolean) => void;
++  defaultEmail?: string;
++}) {
++  const [email, setEmail] = React.useState(defaultEmail ?? "");
++  const [busy, setBusy] = React.useState(false);
++  const [sent, setSent] = React.useState(false);
++  const [error, setError] = React.useState<string | null>(null);
++
++  async function onSend() {
++    if (!/^\S+@\S+\.\S+$/.test(email)) {
++      setError("Enter a valid email address");
++      return;
++    }
++    setError(null);
++    setBusy(true);
++    // Deliberately ignores the result: the action returns the same value
++    // whether or not the address matched. There is nothing to branch on.
++    await requestOwnerPasswordReset({ email });
++    setBusy(false);
++    setSent(true);
++  }
++
++  return (
++    <Dialog open onOpenChange={onOpenChange}>
++      <DialogContent>
++        <DialogHeader>
++          <DialogTitle>Reset owner password</DialogTitle>
++          <DialogDescription>
++            Only the owner&apos;s registered email can receive a reset link.
++            Shop and admin passwords are changed by the owner directly — contact
++            him.
++          </DialogDescription>
++        </DialogHeader>
++
++        {sent ? (
++          <div className="grid gap-2 text-sm">
++            {/* Says the same thing whether or not the address matched. Telling
++                the user "that is not the owner's email" would turn this form
++                into an oracle for locating his mailbox. */}
++            <p>
++              If that address matches the owner&apos;s, a reset link is on its
++              way. It lasts about an hour.
++            </p>
++            <p className="text-muted-foreground">
++              No other address will receive a link. If nothing arrives, check
++              the spelling and try again.
++            </p>
++            <p className="text-muted-foreground">
++              Open the link in this same browser — for security the link is tied
++              to the browser that asked for it.
++            </p>
++          </div>
++        ) : (
++          <div className="grid gap-2">
++            <Label htmlFor="forgot-email">Owner email</Label>
++            <Input
++              id="forgot-email"
++              type="email"
++              autoComplete="email"
++              value={email}
++              onChange={(e) => setEmail(e.target.value)}
++              placeholder="owner@example.com"
++            />
++            {error && (
++              <p className="text-sm text-destructive" role="alert">
++                {error}
++              </p>
++            )}
++          </div>
++        )}
++
++        <DialogFooter>
++          {sent ? (
++            <Button onClick={() => onOpenChange(false)}>Done</Button>
++          ) : (
++            <Button onClick={onSend} disabled={busy || !email}>
++              {busy && <Loader2 className="size-4 animate-spin" />}
++              Send reset link
++            </Button>
++          )}
++        </DialogFooter>
++      </DialogContent>
++    </Dialog>
++  );
++}
++```
++
++- [ ] **Step 3: Remove the now-unused client import if it is orphaned**
++
++`createClient` from `@/lib/supabase/client` is still used by `LoginForm.onSubmit` for `signInWithPassword`. **Leave the import in place.** Verify with:
++
++```bash
++grep -n "createClient" "app/(auth)/login/login-form.tsx"
++```
++Expected: at least one remaining usage inside `onSubmit`.
++
++- [ ] **Step 4: Typecheck and lint**
++
++```bash
++npx tsc --noEmit && npx next lint --file "app/(auth)/login/login-form.tsx"
++```
++Expected: exit 0. An unused import would fail lint here.
++
++- [ ] **Step 5: Verify in the browser**
++
++```bash
++npm run dev
++```
++Open `/login`, click **Forgot password?**. Confirm: title reads "Reset owner password", the description names the owner-only rule, and submitting *any* syntactically valid address shows the same "If that address matches the owner's…" panel.
++
++- [ ] **Step 6: Stage for commit (do not run `git commit`)**
++
++```bash
++git add "app/(auth)/login/login-form.tsx"
++git commit -m "feat: forgot-password dialog is owner-only and leaks nothing"
++```
++
++---
++
++### Task 4: Enforce the domain on every credential write
++
++**Files:**
++- Modify: `app/(owner)/shops/actions.ts` — `employeeSchema` (line ~184), `credentialsSchema` (line ~283)
++- Modify: `app/(owner)/settings/actions.ts` — `createAdminSchema` (line ~175), `updateCredsSchema` (line ~258)
++
++**Interfaces:**
++- Consumes: `LOGIN_EMAIL_DOMAIN`, `isLoginEmailDomain` from Task 1
++- Produces: nothing consumed by later tasks
++
++- [ ] **Step 1: Add the import to `app/(owner)/shops/actions.ts`**
++
++```ts
++import { LOGIN_EMAIL_DOMAIN, isLoginEmailDomain } from "@/lib/login-email";
++```
++
++- [ ] **Step 2: Apply the rule to both shop schemas**
++
++Replace `employeeSchema`:
++
++```ts
++// Shop logins use email as a USERNAME, never a contact channel — see
++// lib/login-email.ts. Forcing a non-routable domain is what makes Supabase's
++// public recover endpoint harmless for these accounts.
++const employeeSchema = z.object({
++  email: z
++    .email("Valid email required")
++    .refine(isLoginEmailDomain, `Shop logins must use @${LOGIN_EMAIL_DOMAIN}`),
++  password: z.string().min(8, "Password needs at least 8 characters"),
++  full_name: z.string().trim().min(1, "Name is required"),
++  shop_id: z.uuid("Pick a shop"),
++});
++```
++
++Replace `credentialsSchema`:
++
++```ts
++const credentialsSchema = z.object({
++  id: z.uuid(),
++  email: z
++    .email("Valid email required")
++    .refine(isLoginEmailDomain, `Shop logins must use @${LOGIN_EMAIL_DOMAIN}`),
++  password: z
++    .string()
++    .min(8, "Password needs at least 8 characters")
++    .optional()
++    .or(z.literal("")),
++  active: z.boolean(),
++});
++```
++
++- [ ] **Step 3: Add the import to `app/(owner)/settings/actions.ts`**
++
++```ts
++import { LOGIN_EMAIL_DOMAIN, isLoginEmailDomain } from "@/lib/login-email";
++```
++
++- [ ] **Step 4: Apply the rule to both admin schemas**
++
++Replace `createAdminSchema`:
++
++```ts
++const createAdminSchema = z.object({
++  full_name: z.string().trim().min(1, "Name is required"),
++  email: z
++    .email("Valid email required")
++    .refine(isLoginEmailDomain, `Admin logins must use @${LOGIN_EMAIL_DOMAIN}`),
++  password: z.string().min(8, "Password needs at least 8 characters"),
++});
++```
++
++Replace `updateCredsSchema`. Note the `.refine` sits on the email **before** `.optional()`, so an omitted email is still allowed but a supplied one is checked:
++
++```ts
++const updateCredsSchema = z
++  .object({
++    id: z.uuid(),
++    full_name: z.string().trim().min(1).optional(),
++    email: z
++      .email("Valid email required")
++      .refine(isLoginEmailDomain, `Admin logins must use @${LOGIN_EMAIL_DOMAIN}`)
++      .optional(),
++    password: z.string().min(8, "Password needs at least 8 characters").optional(),
++  })
++  .refine((v) => v.full_name || v.email || v.password, {
++    message: "Nothing to change",
++  });
++```
++
++- [ ] **Step 5: Add hint text to both credential dialogs**
++
++The two components are:
++- `app/(owner)/shops/shops-view.tsx` — renders `createEmployee` + `updateShopCredentials`
++- `app/(owner)/settings/admin-accounts-section.tsx` — renders `createAdminAccount` + `updateAdminCredentials`
++
++In each, add this import:
++
++```ts
++import { LOGIN_EMAIL_DOMAIN } from "@/lib/login-email";
++```
++
++Then, directly below each email `<Input>` in those files, add:
++
++```tsx
++<p className="text-xs text-muted-foreground">
++  Must end in <code>@{LOGIN_EMAIL_DOMAIN}</code> — these logins sign in with an
++  email but never receive one.
++</p>
++```
++
++Find the exact input elements with:
++
++```bash
++grep -n 'type="email"' "app/(owner)/shops/shops-view.tsx" "app/(owner)/settings/admin-accounts-section.tsx"
++```
++
++- [ ] **Step 6: Typecheck and build**
++
++```bash
++npx tsc --noEmit && npx next build
++```
++Expected: both exit 0.
++
++- [ ] **Step 7: Verify by hand**
++
++`npm run dev`, sign in as the owner. Shops & Employees → create a shop login with `x@gmail.com` → expect **"Shop logins must use @gerwintrading.invalid"**. Retry with `x@gerwintrading.invalid` → accepted. Repeat in Settings → Admins.
++
++- [ ] **Step 8: Stage for commit (do not run `git commit`)**
++
++```bash
++git add "app/(owner)/shops/actions.ts" "app/(owner)/settings/actions.ts" app
++git commit -m "feat: shop and admin logins must use the non-routable domain"
++```
++
++---
++
++### Task 5: Route the Settings reset card through the shared action
++
++**Files:**
++- Modify: `app/(owner)/settings/account-section.tsx` — the `ResetCard` component, `onSend` at line ~334
++
++**Interfaces:**
++- Consumes: `requestOwnerPasswordReset` from Task 2
++- Produces: nothing
++
++- [ ] **Step 1: Add the import**
++
++```ts
++import { requestOwnerPasswordReset } from "@/app/(auth)/login/actions";
++```
++
++- [ ] **Step 2: Replace `onSend`**
++
++The card passes the signed-in user's own email. That page is gated by `requirePrimaryOwner()`, so it is always the owner's address and satisfies the same match — no special case needed.
++
++```ts
++  async function onSend() {
++    if (!email) return;
++    setBusy(true);
++    // Same path as the login dialog (app/(auth)/login/actions.ts): one code
++    // path for password recovery. Returns the same value regardless, so there
++    // is nothing to branch on — this page is requirePrimaryOwner()-gated, so
++    // `email` is always the owner's address.
++    await requestOwnerPasswordReset({ email });
++    setBusy(false);
++    setSent(true);
++  }
++```
++
++- [ ] **Step 3: Leave the existing imports alone — verified still in use**
++
++`createClient` is used at lines 86 and 127 (the change-password and change-email forms), and `toast` is used throughout that file. **Both imports stay.** Confirm nothing was orphaned:
++
++```bash
++npx next lint --file "app/(owner)/settings/account-section.tsx"
++```
++Expected: exit 0, no unused-import warnings.
++
++- [ ] **Step 4: Typecheck and lint**
++
++```bash
++npx tsc --noEmit && npx next lint --file "app/(owner)/settings/account-section.tsx"
++```
++Expected: exit 0.
++
++- [ ] **Step 5: Stage for commit (do not run `git commit`)**
++
++```bash
++git add "app/(owner)/settings/account-section.tsx"
++git commit -m "refactor: settings reset card uses the shared owner-reset action"
++```
++
++---
++
++### Task 6: Migrate the 15 existing shop and admin accounts
++
++**Files:**
++- Create: `scripts/migrate-login-emails.mjs`
++
++**Interfaces:**
++- Consumes: `LOGIN_EMAIL_DOMAIN` from Task 1, `assertWritableEnv` from `scripts/_env-guard.mjs`
++- Produces: nothing
++
++- [ ] **Step 1: Write the script**
++
++Create `scripts/migrate-login-emails.mjs`:
++
++```js
++/**
++ * ONE-OFF — move every shop and admin login onto the non-routable domain.
++ *
++ * Email is a USERNAME for these accounts (see lib/login-email.ts). Once they
++ * cannot receive mail, Supabase's public /auth/v1/recover endpoint is harmless
++ * for them and password recovery is exclusively "ask the owner" — which is how
++ * the system was already designed to work.
++ *
++ * The OWNER is deliberately skipped: his mailbox must stay real and reachable,
++ * because his is the one account nobody else can rescue.
++ *
++ *   node scripts/migrate-login-emails.mjs          # dry run (default)
++ *   node scripts/migrate-login-emails.mjs --yes    # apply
++ */
++import { readFileSync } from "node:fs";
++import { createClient } from "@supabase/supabase-js";
++
++// Refuse to touch a non-disposable database (see scripts/_env-guard.mjs).
++import { assertWritableEnv } from "./_env-guard.mjs";
++assertWritableEnv("migrate-login-emails");
++
++// Imported, never re-declared — one source of truth for the rule. Node strips
++// the .ts types the same way scripts/test-lib-unit.mjs already relies on.
++import { LOGIN_EMAIL_DOMAIN } from "../lib/login-email.ts";
++
++const APPLY = process.argv.includes("--yes");
++
++const env = Object.fromEntries(
++  readFileSync(new URL("../.env.local", import.meta.url), "utf8")
++    .split(/\r?\n/).filter((l) => l.includes("=") && !l.startsWith("#"))
++    .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)])
++);
++const a = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
++  auth: { persistSession: false },
++});
++
++const { data: profiles, error: pErr } = await a
++  .from("profiles").select("id, role, active").is("deleted_at", null);
++if (pErr) { console.error("profiles read failed:", pErr.message); process.exit(1); }
++
++const { data: userPage, error: uErr } = await a.auth.admin.listUsers({ page: 1, perPage: 1000 });
++if (uErr) { console.error("auth listUsers failed:", uErr.message); process.exit(1); }
++const emailById = new Map(userPage.users.map((u) => [u.id, u.email ?? ""]));
++
++// Owner is skipped on purpose — see the header.
++const targets = profiles
++  .filter((p) => p.role !== "owner")
++  .map((p) => ({ ...p, email: emailById.get(p.id) ?? "" }))
++  .filter((p) => p.email && !p.email.toLowerCase().endsWith(`@${LOGIN_EMAIL_DOMAIN}`));
++
++const localPart = (e) => e.slice(0, e.lastIndexOf("@")).toLowerCase();
++const planned = targets.map((t) => ({
++  ...t, next: `${localPart(t.email)}@${LOGIN_EMAIL_DOMAIN}`,
++}));
++
++// Uniqueness across the WHOLE computed set, checked before anything is written
++// — a half-applied rename would leave accounts nobody can sign in as.
++const seen = new Map();
++const collisions = [];
++for (const p of planned) {
++  if (seen.has(p.next)) collisions.push(`${p.next}  (${seen.get(p.next)} and ${p.email})`);
++  else seen.set(p.next, p.email);
++}
++const existing = new Set(
++  userPage.users.map((u) => (u.email ?? "").toLowerCase())
++    .filter((e) => e.endsWith(`@${LOGIN_EMAIL_DOMAIN}`))
++);
++for (const p of planned) {
++  if (existing.has(p.next)) collisions.push(`${p.next}  (already in use by another account)`);
++}
++if (collisions.length) {
++  console.error("REFUSED — the rewrite would create duplicate addresses:");
++  for (const c of collisions) console.error("  " + c);
++  console.error("\nNothing was written. Resolve the local parts first.");
++  process.exit(1);
++}
++
++console.log(`${APPLY ? "APPLYING" : "DRY RUN"} — ${planned.length} account(s) to migrate\n`);
++console.log("role      before                              after");
++for (const p of planned) {
++  console.log(String(p.role).padEnd(9), p.email.padEnd(35), p.next);
++}
++const ownerCount = profiles.filter((p) => p.role === "owner").length;
++console.log(`\nowner accounts skipped: ${ownerCount}`);
++
++if (!APPLY) {
++  console.log("\nNothing written. Re-run with --yes to apply.");
++  process.exit(0);
++}
++
++let done = 0;
++for (const p of planned) {
++  const { error } = await a.auth.admin.updateUserById(p.id, {
++    email: p.next, email_confirm: true,
++  });
++  if (error) { console.error(`  ✗ ${p.email}: ${error.message}`); continue; }
++  done++;
++  console.log(`  ✓ ${p.email} → ${p.next}`);
++}
++console.log(`\n${done}/${planned.length} migrated.`);
++process.exit(done === planned.length ? 0 : 1);
++```
++
++- [ ] **Step 2: Run the dry run**
++
++```bash
++node scripts/migrate-login-emails.mjs
++```
++Expected: a table of 15 rows (13 shop + 2 admin), `owner accounts skipped: 1`, and "Nothing written."
++
++**STOP HERE and show the dry-run output to the user before applying.** This writes to the database Vercel Production points at.
++
++- [ ] **Step 3: Apply, once the user approves the dry run**
++
++```bash
++node scripts/migrate-login-emails.mjs --yes
++```
++Expected: `15/15 migrated.`
++
++- [ ] **Step 4: Verify sign-in still works**
++
++`npm run dev`, sign in with one migrated shop login using its **new** address and its unchanged password. Expected: lands on `/shop`.
++
++- [ ] **Step 5: Stage for commit (do not run `git commit`)**
++
++```bash
++git add scripts/migrate-login-emails.mjs
++git commit -m "chore: one-off migration of shop and admin logins to the non-routable domain"
++```
++
++---
++
++### Task 7: Lock the rule in with tests
++
++**Files:**
++- Create: `scripts/test-owner-reset.mjs` (auto-discovered — `test-all.mjs` globs `test-*.mjs`, no registration needed)
++
++**Interfaces:**
++- Consumes: `isNonRoutableEmail` from Task 1, `owner`/`check`/`section`/`summary` from `scripts/_harness.mjs`
++- Produces: nothing
++
++- [ ] **Step 1: Write the suite**
++
++Create `scripts/test-owner-reset.mjs`:
++
++```js
++/**
++ * Owner-only password reset — the two things that can silently regress.
++ *
++ * 1. STATIC: the domain rule is actually wired into all four credential write
++ *    paths. Zod schemas live in server actions, which a Node script cannot
++ *    invoke — so this asserts over the SOURCE, the same way
++ *    test-definer-guards.mjs asserts over migration SQL. It fails the moment
++ *    someone edits a schema and drops the refine.
++ *
++ * 2. LIVE: every active non-owner account has a non-routable address. This is
++ *    the assertion that catches an account created through a path this design
++ *    did not anticipate.
++ *
++ * Run: node scripts/test-owner-reset.mjs
++ */
++import { readFileSync } from "node:fs";
++import { owner, admin, check, section, summary } from "./_harness.mjs";
++import { isNonRoutableEmail } from "../lib/login-email.ts";
++
++const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
++
++section("The domain rule is wired into every credential write path");
++{
++  const shops = read("app/(owner)/shops/actions.ts");
++  const settings = read("app/(owner)/settings/actions.ts");
++
++  check("shops/actions.ts imports the rule", shops.includes("isLoginEmailDomain"));
++  check("settings/actions.ts imports the rule", settings.includes("isLoginEmailDomain"));
++
++  // One refine per schema: employee + credentials, createAdmin + updateCreds.
++  const shopRefines = (shops.match(/refine\(isLoginEmailDomain/g) ?? []).length;
++  const settingsRefines = (settings.match(/refine\(isLoginEmailDomain/g) ?? []).length;
++  check(`shops: 2 schemas guarded (found ${shopRefines})`, shopRefines === 2, `${shopRefines}`);
++  check(`settings: 2 schemas guarded (found ${settingsRefines})`, settingsRefines === 2, `${settingsRefines}`);
++}
++
++section("The reset action cannot become an oracle");
++{
++  const action = read("app/(auth)/login/actions.ts");
++  // Every early exit returns the same constant. A literal object return would
++  // be a second shape and is the regression this catches.
++  const returns = (action.match(/return\s+DONE;/g) ?? []).length;
++  check(`all exits return DONE (found ${returns})`, returns >= 5, `${returns}`);
++  check("no literal { ok: ... } returns", !/return\s*\{\s*ok:/.test(action));
++  check("sends to the stored address, not the submitted one",
++    action.includes("resetPasswordForEmail(ownerEmail"));
++}
++
++section("Live: every active non-owner login is non-routable");
++{
++  const { data: profiles, error } = await owner
++    .from("profiles").select("id, role, active").is("deleted_at", null);
++  check("read profiles", !error, error?.message);
++
++  const { data: page } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
++  const emailById = new Map((page?.users ?? []).map((u) => [u.id, u.email ?? ""]));
++
++  const offenders = (profiles ?? [])
++    .filter((p) => p.role !== "owner" && p.active)
++    .map((p) => ({ role: p.role, email: emailById.get(p.id) ?? "" }))
++    .filter((p) => p.email && !isNonRoutableEmail(p.email));
++
++  check(
++    `no active non-owner account can receive mail (${offenders.length} offender(s))`,
++    offenders.length === 0,
++    offenders.map((o) => `${o.role}:${o.email}`).join(", ")
++  );
++
++  // The owner is the deliberate exception and MUST stay reachable.
++  const ownerProfile = (profiles ?? []).find((p) => p.role === "owner" && p.active);
++  const ownerEmail = ownerProfile ? emailById.get(ownerProfile.id) ?? "" : "";
++  check("owner still has a routable address", !!ownerEmail && !isNonRoutableEmail(ownerEmail),
++    ownerEmail || "(none)");
++}
++
++summary();
++```
++
++- [ ] **Step 2: Run the suite**
++
++```bash
++node scripts/test-owner-reset.mjs
++```
++Expected: all checks ✓, exit 0. If the live section reports offenders, Task 6's migration has not been applied yet — apply it, then re-run.
++
++- [ ] **Step 3: Confirm it is picked up by the full run**
++
++```bash
++node scripts/test-all.mjs --only=owner-reset
++```
++Expected: the suite appears in the results table and passes.
++
++- [ ] **Step 4: Run the neighbouring suites for regressions**
++
++```bash
++node scripts/test-all.mjs --only=admin-accounts
++node scripts/test-lib-unit.mjs
++```
++Expected: both pass. `test-admin-accounts` provisions accounts through the service role, which bypasses Zod by design, so it must be unaffected.
++
++- [ ] **Step 5: Stage for commit (do not run `git commit`)**
++
++```bash
++git add scripts/test-owner-reset.mjs
++git commit -m "test: lock in the owner-only reset rule and the non-routable invariant"
++```
++
++---
++
++## Final verification
++
++- [ ] `npx tsc --noEmit` — exit 0
++- [ ] `npx next build` — compiles
++- [ ] `node scripts/test-all.mjs` — full suite green
++- [ ] Manual: `/login` → Forgot password → any address shows the same panel
++- [ ] Manual: the owner's real address produces an email that lands on `/auth/reset`
++- [ ] Manual: Shops & Employees rejects a `@gmail.com` shop login
++
++## Follow-ups (NOT in this plan)
++
++- **Gerry's account email is `@test.com`, a domain a stranger owns.** This design does nothing until that is a mailbox he controls. Operational, not code.
++- **`SUPABASE_ENV=staging` while the project is production.** The migration script's guard passes because of it; so would `db-fresh-start`, which deletes everything. Tracked separately.
++- **Custom SMTP.** Supabase's built-in mailer is development-grade and rate-limited, and owner lockout recovery now depends entirely on it.
+diff --git a/docs/superpowers/specs/2026-08-02-owner-only-password-reset-design.md b/docs/superpowers/specs/2026-08-02-owner-only-password-reset-design.md
+new file mode 100644
+index 0000000..e706c2c
+--- /dev/null
++++ b/docs/superpowers/specs/2026-08-02-owner-only-password-reset-design.md
+@@ -0,0 +1,324 @@
++# Owner-only password reset — design
++
++**Date:** 2026-08-02
++**Status:** approved, awaiting implementation plan
++**Touches:** `app/(auth)/login/`, `app/(owner)/shops/actions.ts`, `app/(owner)/settings/actions.ts`, `app/(owner)/settings/account-section.tsx`, `lib/`, `scripts/`
++
++---
++
++## 1. The problem
++
++`/login` offers **Forgot password?**, which calls
++`supabase.auth.resetPasswordForEmail(email, { redirectTo })` straight from the
++browser — [login-form.tsx:217](../../../app/(auth)/login/login-form.tsx). There
++is no role gate. Any account with a reachable mailbox can be reset by whoever
++reads that mailbox.
++
++That matters because of who owns credentials in this system. Gerry mints every
++shop login ([shops/actions.ts:215](../../../app/(owner)/shops/actions.ts)) and
++every admin ([settings/actions.ts:191](../../../app/(owner)/settings/actions.ts)),
++and can change either at will
++([shops/actions.ts:317](../../../app/(owner)/shops/actions.ts),
++[settings/actions.ts:282](../../../app/(owner)/settings/actions.ts)). So for
++shops and admins, email-based self-service reset grants **no capability the
++system lacks** — it is pure added attack surface. Compromise a branch's inbox
++and you have that branch's login; compromise an admin's inbox and you have an
++office-tier account that can approve batches and move stock.
++
++Shop logins are the weakest link specifically because they are **shared per
++branch**. A shared credential recovered through a shared mailbox is the loosest
++root of trust in the application.
++
++### 1.1 State of the accounts (audited 2026-08-02, read-only)
++
++16 live profiles: **1 owner, 2 admins, 13 shop logins**.
++
++| Role | Domain | Business-controlled? |
++|---|---|---|
++| owner | `@test.com` | No — real domain, third-party owned |
++| admin ×2 | `@test.com`, `@gerwin.com` | No — both real, third-party owned |
++| shop ×13 | `@gerwin-test.ph` | Almost certainly unregistered |
++
++Every one of these is placeholder data; real client users are not yet onboarded.
++Two consequences, both load-bearing for this design:
++
++1. Reset mail for **any** account currently routes to a domain Gerwin does not
++   own. For `@test.com` and `@gerwin.com` it reaches a stranger's infrastructure.
++2. Restructuring the email scheme is cheap **now** and expensive later. Once
++   branch staff sign in daily with these addresses, changing a username is a
++   coordinated rollout.
++
++---
++
++## 2. What we are building
++
++**Forgot password becomes owner-only.** The dialog accepts an email, the server
++compares it against the owner's registered address, and a reset link is sent only
++on a match. Shops and admins recover by contacting Gerry — which is already how
++the system is designed to work.
++
++---
++
++## 3. Why one layer is not enough
++
++`resetPasswordForEmail` is not a call to our server. It is a direct browser call
++to Supabase's GoTrue API authenticated with the **public anon key**, which ships
++in the JS bundle by design. Anyone can reproduce it without loading our page:
++
++```
++POST https://<ref>.supabase.co/auth/v1/recover
++apikey: <public anon key>
++{"email":"ternate@example.com"}
++```
++
++It is not a table, so RLS cannot reach it. **Gating the dialog is therefore
++theatre** — it stops honest users and zero attackers.
++
++The control needs two layers:
++
++| Layer | Stops | Enforced by |
++|---|---|---|
++| **App gate** — server-side match against the owner's email | Anyone using our UI | Server action + service role |
++| **Non-routable mailboxes** — shop/admin logins have no inbox | Anyone bypassing the UI via the raw endpoint | Physics: `.invalid` never resolves |
++
++Non-routable alone would leave a dialog that appears to work for everyone.
++Together the control is both real and legible.
++
++### 3.1 Rejected alternative — Supabase Auth Hook
++
++A Send-Email hook could inspect the account and drop recovery mail for
++non-owners. It is genuine enforcement and preserves real mailboxes on shop/admin
++accounts. Rejected because it adds a hosted endpoint and a plan-availability
++dependency to buy something we get for free once the mailboxes do not exist.
++
++### 3.2 Rejected alternative — in-app MFA
++
++Out of scope. Migrations 0085–0098 were a three-role/2FA/oversight experiment
++that was applied and then **fully reverted at the owner's request**; those
++migration numbers are retired. This design does not reopen that decision.
++
++---
++
++## 4. Components
++
++### 4.1 Server action — `requestOwnerPasswordReset`
++
++New file `app/(auth)/login/actions.ts`.
++
++1. Zod-validate the email's format.
++2. Service-role client → the single `profiles` row with `role='owner'`, `active`,
++   `deleted_at is null`.
++3. `admin.auth.admin.getUserById(ownerId)` → the owner's stored email.
++4. Compare case-insensitively (trim + lowercase) against the submitted string.
++5. On match, send the reset **to the stored address**, never to the submitted
++   string — the submitted value is attacker-controlled and only ever used for
++   comparison.
++6. **Always** `return { ok: true }`. Same value on every path, including
++   validation failure and internal error.
++
++**Why the service-role client is used with no authenticated caller.**
++[admin.ts](../../../lib/supabase/admin.ts) carries the rule *"Every caller must
++verify the current user is the owner BEFORE touching this client."* This action
++cannot: being locked out is the entire premise. It is a deliberate, documented
++exception, and it is safe only because the action is a sealed box — one string
++in, one constant out, and its sole side effect is Supabase mailing the owner's
++own registered address.
++
++> **Invariant:** `requestOwnerPasswordReset` must never grow a branch that
++> returns different data, different shapes, or different error states. The
++> moment its output varies with the input, it becomes an oracle for the owner's
++> email address. This reasoning belongs in the file header.
++
++The invariant is scoped to **this** action, which is reachable signed-out. The
++same file also exports an owner-gated twin that deliberately reports failure —
++see §4.5 for why that is not a contradiction.
++
++**Timing.** A match makes an extra network call and a full SMTP send; a miss
++does not. That difference is observable and is **not** rate-limited, because on
++a miss `/auth/v1/recover` is never called, so Supabase's recovery limiter never
++engages. It is accepted: what leaks is one guessable address, and the only fix —
++a decoy send per miss — would let an unauthenticated endpoint pump mail through
++the same free-tier mailer the owner's own recovery depends on. §7 is the real
++mitigation.
++
++**`redirectTo`** derives from the request `Host` header rather than a new env
++var, so preview deploys keep working. Supabase's redirect allowlist — configured
++2026-08-02 with `https://www.gerwintrading.com/**`,
++`https://gerwintrading.com/**`, `https://maccky-marine-inventory.vercel.app/**`
++— is the real guard against a spoofed host.
++
++### 4.2 Dialog rewrite — `login-form.tsx`
++
++`ForgotPasswordDialog` calls the server action instead of the Supabase client.
++Copy states the rule up front so a locked-out shop employee is not left guessing:
++
++> **Reset owner password**
++> Only the owner's registered email can receive a reset link. Shop and admin
++> passwords are changed by the owner directly — contact him.
++
++Success state is identical whether or not the address matched:
++
++> If that address matches the owner's, a reset link is on the way.
++
++**Accepted trade-off.** Supabase's `over_email_send_rate_limit` can no longer be
++surfaced — showing it would confirm the address matched. Gerry would see the
++success message and receive nothing. Mitigation: log the condition server-side.
++The existing code has a bespoke message for this error
++([login-form.tsx:225](../../../app/(auth)/login/login-form.tsx)), which suggests
++it has been hit in practice, so it is worth knowing it now fails quietly.
++
++### 4.3 Enforced domain rule
++
++New `lib/login-email.ts` exports the domain constant and **two** pure
++predicates — pure so [test-lib-unit.mjs](../../../scripts/test-lib-unit.mjs) can
++cover them directly without a database.
++
++*(Design amended during implementation: this section originally named a single
++`isNonRoutableLoginEmail()`. One predicate could not serve both callers — see
++below.)*
++
++| Export | Answers | Used by |
++|---|---|---|
++| `LOGIN_EMAIL_DOMAIN` | the one legal domain | schemas, hint text, seed + migration scripts |
++| `isLoginEmailDomain(email)` | **STRICT** — is this exactly `@gerwintrading.invalid`? | the four Zod refines |
++| `isNonRoutableEmail(email)` | **BROAD** — can this address receive mail at all? | the invariant check, the migration's skip list |
++
++**Why it is split.** The write paths must be strict: a login minted on
++`@someone-else.invalid` is unreachable but not *ours*, and accepting it would
++let the scheme drift one account at a time. The invariant check must be broad:
++the test harness provisions throwaway logins on `@test.local` through the
++service role, which bypasses Zod by design, and a strict check would fail on
++fixtures that are already perfectly safe. Collapsing the two would mean either
++loosening the write paths or making the invariant flap against the harness.
++`isNonRoutableEmail` accepts any RFC 2606 reserved TLD plus `.local`, so
++`isLoginEmailDomain(x)` implies `isNonRoutableEmail(x)` but not the reverse.
++
++**`isLoginEmailDomain` is a domain check, not an email validator.** It reads
++only the part after the last `@`, so it says yes to `a@b@gerwintrading.invalid`.
++It is always paired with `z.email()` in the schemas, which is what rejects that
++shape; the doc-comment and the unit tests both state this explicitly so nobody
++lifts it out on its own.
++
++Wired into the Zod schemas at all four write points:
++
++- [shops/actions.ts:184](../../../app/(owner)/shops/actions.ts) — create shop login
++- [shops/actions.ts:285](../../../app/(owner)/shops/actions.ts) — update shop credentials
++- [settings/actions.ts:177](../../../app/(owner)/settings/actions.ts) — create admin
++- [settings/actions.ts:262](../../../app/(owner)/settings/actions.ts) — update admin
++
++Both dialogs gain hint text naming the required domain.
++
++**Chosen domain: `gerwintrading.invalid`.** RFC 2606 reserves `.invalid` as
++permanently non-resolvable, so no one can ever register it. A domain we merely
++do not own today — `gerwin-test.ph` — can be bought tomorrow, at which point
++every shop reset email lands in the buyer's inbox.
++
++This follows the codebase's standing preference for enforcement over convention:
++0049 revoked catalog `INSERT` rather than removing a button, on the grounds that
++a re-added dialog should break at the database rather than fail silently in
++production.
++
++### 4.4 Migration script
++
++`scripts/migrate-login-emails.mjs`:
++
++- calls `_env-guard.mjs` like every other write script
++- **dry-run by default**, `--yes` to apply
++- rewrites the 15 shop/admin addresses to `<localpart>@gerwintrading.invalid`,
++  **preserving the local part verbatim**. Local parts are already unique among
++  these accounts (auth emails are unique and all shop logins currently share one
++  domain), so preserving them cannot introduce a collision.
++- **aborts before writing anything** if the rewrite would nonetheless produce a
++  duplicate, rather than half-applying. Uniqueness is checked across the whole
++  computed set first.
++- **skips the owner** — that account must keep a real, reachable mailbox
++- prints a before/after table and a summary count
++
++> ⚠️ The env guard will **pass** here because `.env.local` declares
++> `SUPABASE_ENV=staging`, while this project (`pruhoaqaurhzyvwwnjdk`) is what
++> Vercel Production points at — verified 2026-08-02 by reading
++> `NEXT_PUBLIC_SUPABASE_URL` out of the live production bundle. The script does
++> the right thing regardless, but the marker is wrong and `db-fresh-start` is
++> gated on the same allowlist. Tracked separately; not fixed by this design.
++
++### 4.5 Settings → Account card
++
++[account-section.tsx](../../../app/(owner)/settings/account-section.tsx) routes
++through the same file, sharing the owner lookup and the send with the login
++dialog — one code path for password recovery, one place for tests to target.
++
++*(Design amended during implementation: this section originally said the card
++"keeps working unchanged from the user's point of view" by calling the public
++action with the signed-in email. That was wrong, and the first implementation
++inherited the mistake — the card announced "Reset link sent" even when the send
++had failed, because the public action cannot say otherwise.)*
++
++The card calls a **second, owner-gated action**,
++`requestOwnerPasswordResetAuthenticated()`:
++
++- it calls `isPrimaryOwner()` first and refuses anyone else, so it re-checks the
++  tier rather than trusting the page's gate;
++- it takes **no email parameter** — the address is derived server-side from the
++  owner record, so the card cannot be aimed at another mailbox;
++- it returns the **real** result, provider error message included.
++
++§4.1's identical-output invariant is a control for an **unauthenticated**
++endpoint: it exists so a stranger cannot use the reply to confirm the owner's
++address. On this page there is no stranger — `requirePrimaryOwner()` has already
++run and the address is the caller's own — so the rule buys nothing here and
++costs the owner his only diagnostic. Supabase's `over_email_send_rate_limit`
++means the mail never left; he needs to see that, not a false "sent". The two
++actions share `resolveOwnerEmail()` and `sendOwnerReset()`, so only the honesty
++of the reply differs, never the behaviour.
++
++---
++
++## 5. Tests
++
++| Suite | Assertion |
++|---|---|
++| `test-lib-unit.mjs` | both predicates: accept `.invalid`, reject real domains, case-insensitive, lookalike/suffix/subdomain, trailing-dot FQDN, bare-label domains, and the documented non-guarantee that `isLoginEmailDomain` is not a standalone email validator |
++| `test-admin-accounts.mjs` | the domain **rule** rejects routable domains (gmail, the old `@gerwin-test.ph`, the owner's real domain, lookalikes) and accepts the login domain |
++| `test-owner-reset.mjs` | the rule is wired into all four schemas; the public action's every exit returns the shared constant; the owner-gated twin checks `isPrimaryOwner()` and takes no email; **no** non-owner profile — active or deactivated — has a routable auth email |
++
++The invariant check is the one that matters long-term: it catches an account
++created through a path this design did not anticipate. It covers **inactive**
++accounts too, because `updateEmployee` can set `active: true` and its schema has
++no email field — so reactivation never re-runs the domain check.
++
++**What is NOT covered, and why.** Spec-as-written wanted `test-admin-accounts`
++to prove that creating a login with a routable domain is *refused end to end*.
++It cannot: the rule lives in a Zod refine inside a `"use server"` action, which
++a Node script cannot invoke, and the harness creates accounts through the
++service role, which reaches GoTrue without passing Zod at all. The coverage is
++therefore split — behaviour of the decision (the predicate) in
++`test-admin-accounts`, presence of the wiring (the refine) in `test-owner-reset`,
++and the live end state (no routable non-owner address exists) in the invariant.
++Together those three fail on any realistic regression; none of them alone does.
++
++The server action itself is not directly callable from a Node script. Its
++security-critical property — identical output on every path — is covered by
++keeping the comparison logic in the pure, unit-tested predicate and keeping the
++action's own body branch-free in its return value.
++
++---
++
++## 6. Out of scope
++
++- **In-app MFA** — see §3.2.
++- **Supabase Auth Hooks** — see §3.1.
++- **Custom SMTP.** Supabase's built-in mailer is development-grade and
++  rate-limited. Since owner lockout recovery depends on it, configuring real
++  SMTP is worth doing before client handover — but it is independent of this
++  change.
++- **The `SUPABASE_ENV` marker vs. production mismatch** — see §4.4.
++
++## 7. Blocker for the design to be effective
++
++**Gerry's account email is `@test.com`, a domain a stranger owns.** This entire
++design rests on the owner's mailbox being real, reachable, and controlled by
++him. Changing it is an operational task, not code, but until it is done the
++owner-only reset path delivers to somebody else's infrastructure.
++
++Recommended alongside: 2FA on that mailbox. It is the root of trust for the
++whole business — worth more than any control inside the app.
+diff --git a/lib/login-email.ts b/lib/login-email.ts
+new file mode 100644
+index 0000000..7d634ab
+--- /dev/null
++++ b/lib/login-email.ts
+@@ -0,0 +1,66 @@
++/**
++ * The one domain shop and admin logins may use.
++ *
++ * Email is a USERNAME for those accounts, never a contact channel — nobody
++ * mails a branch. Giving them an address that cannot receive mail is what
++ * makes Supabase's public /auth/v1/recover endpoint harmless: a request that
++ * bypasses our UI still produces mail, and that mail is delivered nowhere.
++ *
++ * `.invalid` is reserved by RFC 2606 as permanently unresolvable, so nobody
++ * can ever register it. A domain we merely do not own today (gerwin-test.ph)
++ * can be bought tomorrow, at which point every shop reset lands in the
++ * buyer's inbox.
++ */
++export const LOGIN_EMAIL_DOMAIN = "gerwintrading.invalid";
++
++/**
++ * RFC 2606 reserved TLDs, plus `.local` (mDNS, never routable on the internet)
++ * and the bare `localhost` label. `localhost` is only reachable via the no-dot
++ * branch in `isNonRoutableEmail` — `a@localhost` has no TLD to split off — so
++ * that branch has to exist for this entry to mean anything.
++ */
++const RESERVED_TLDS = new Set(["invalid", "test", "example", "localhost", "local"]);
++
++/**
++ * Lowercased domain part, or null when the string is not shaped like an email.
++ *
++ * Canonicalises the trailing dot of a fully-qualified name: `foo.invalid.` and
++ * `foo.invalid` are the same domain, and DNS says so. Without this an FQDN form
++ * slipped past `isNonRoutableEmail` by leaving an empty TLD after the split.
++ */
++function domainOf(email: string): string | null {
++  const trimmed = email.trim();
++  const at = trimmed.lastIndexOf("@");
++  if (at <= 0 || at === trimmed.length - 1) return null;
++  const domain = trimmed.slice(at + 1).toLowerCase().replace(/\.+$/, "");
++  return domain || null;
++}
++
++/**
++ * STRICT — exactly the designated login domain. Guards the credential write
++ * paths so a shop or admin login can never be minted on a real mailbox.
++ *
++ * NOT A STANDALONE VALIDATOR. It answers one question — "is the part after the
++ * last @ our login domain?" — and nothing else. It says yes to `a@b@<domain>`
++ * and to values carrying embedded whitespace, because it only ever looks at the
++ * tail. It MUST be paired with `z.email()` (as it is at all four credential
++ * write points), which is what rejects those shapes. Used alone it is a domain
++ * check, not an email check.
++ */
++export function isLoginEmailDomain(email: string): boolean {
++  return domainOf(email) === LOGIN_EMAIL_DOMAIN;
++}
++
++/**
++ * BROAD — any address that cannot receive mail. Backs the invariant check,
++ * which must tolerate the test harness's own `@test.local` fixtures
++ * (scripts/_harness.mjs provisions those through the service role, which
++ * bypasses the Zod rule above by design).
++ */
++export function isNonRoutableEmail(email: string): boolean {
++  const domain = domainOf(email);
++  if (!domain) return false;
++  // No dot at all → the whole label IS the TLD (`a@localhost`, `a@invalid`).
++  const dot = domain.lastIndexOf(".");
++  return RESERVED_TLDS.has(dot < 0 ? domain : domain.slice(dot + 1));
++}
+diff --git a/scripts/migrate-login-emails.mjs b/scripts/migrate-login-emails.mjs
+new file mode 100644
+index 0000000..fd2d06f
+--- /dev/null
++++ b/scripts/migrate-login-emails.mjs
+@@ -0,0 +1,143 @@
++/**
++ * ONE-OFF — move every shop and admin login onto the non-routable domain.
++ *
++ * Email is a USERNAME for these accounts (see lib/login-email.ts). Once they
++ * cannot receive mail, Supabase's public /auth/v1/recover endpoint is harmless
++ * for them and password recovery is exclusively "ask the owner" — which is how
++ * the system was already designed to work.
++ *
++ * The OWNER is deliberately skipped: his mailbox must stay real and reachable,
++ * because his is the one account nobody else can rescue.
++ *
++ * NOT ATOMIC, and the collision pre-check does not make it so. That check only
++ * proves the computed set contains no duplicates, so the run cannot fail
++ * halfway BECAUSE two accounts wanted the same address. The write loop is still
++ * one auth call per account and it `continue`s past a per-row failure — a
++ * network blip or a provider rejection leaves that account on its old address
++ * while the rest move. The exit code (and the n/total line) is how you find
++ * out; re-running is safe, since already-migrated accounts are skipped as
++ * already non-routable.
++ *
++ *   node scripts/migrate-login-emails.mjs          # dry run (default)
++ *   node scripts/migrate-login-emails.mjs --yes    # apply
++ */
++import { readFileSync } from "node:fs";
++import { createClient } from "@supabase/supabase-js";
++
++// Refuse to touch a non-disposable database (see scripts/_env-guard.mjs).
++import { assertWritableEnv } from "./_env-guard.mjs";
++assertWritableEnv("migrate-login-emails");
++
++// Imported, never re-declared — one source of truth for the rule. Node strips
++// the .ts types the same way scripts/test-lib-unit.mjs already relies on.
++import { LOGIN_EMAIL_DOMAIN, isNonRoutableEmail } from "../lib/login-email.ts";
++
++const APPLY = process.argv.includes("--yes");
++
++const env = Object.fromEntries(
++  readFileSync(new URL("../.env.local", import.meta.url), "utf8")
++    .split(/\r?\n/).filter((l) => l.includes("=") && !l.startsWith("#"))
++    .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)])
++);
++const a = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
++  auth: { persistSession: false },
++});
++
++const { data: profiles, error: pErr } = await a
++  .from("profiles").select("id, role, active").is("deleted_at", null);
++if (pErr) { console.error("profiles read failed:", pErr.message); process.exit(1); }
++
++const PAGE_SIZE = 1000;
++const { data: userPage, error: uErr } = await a.auth.admin.listUsers({ page: 1, perPage: PAGE_SIZE });
++if (uErr) { console.error("auth listUsers failed:", uErr.message); process.exit(1); }
++// One page is read, so a full page means there may be more. Accounts past the
++// ceiling would be silently invisible — this migration would skip them and
++// report success. Fail loudly instead of migrating a partial view.
++if (userPage.users.length >= PAGE_SIZE) {
++  console.error(
++    `REFUSED — auth.listUsers returned a full page (${userPage.users.length} = perPage ${PAGE_SIZE}),` +
++    " so there are probably more accounts this script cannot see."
++  );
++  console.error("Nothing was written. Add pagination before running this again.");
++  process.exit(1);
++}
++const emailById = new Map(userPage.users.map((u) => [u.id, u.email ?? ""]));
++
++// Owner is skipped on purpose — see the header.
++//
++// Accounts that ALREADY cannot receive mail are skipped too. The goal of this
++// migration is safety, not uniformity: the test harness provisions throwaway
++// logins on `@test.local` (scripts/_harness.mjs), and those are already
++// unreachable, so rewriting them mutates fixture data for zero security gain.
++// Task 7's invariant checks `isNonRoutableEmail`, which they already satisfy.
++// Minimising what a production write touches is the whole point.
++const skippedAlreadySafe = [];
++const targets = profiles
++  .filter((p) => p.role !== "owner")
++  .map((p) => ({ ...p, email: emailById.get(p.id) ?? "" }))
++  .filter((p) => {
++    if (!p.email) return false;
++    if (isNonRoutableEmail(p.email)) {
++      skippedAlreadySafe.push(p.email);
++      return false;
++    }
++    return true;
++  });
++
++const localPart = (e) => e.slice(0, e.lastIndexOf("@")).toLowerCase();
++const planned = targets.map((t) => ({
++  ...t, next: `${localPart(t.email)}@${LOGIN_EMAIL_DOMAIN}`,
++}));
++
++// Uniqueness across the WHOLE computed set, checked before anything is written.
++// This rules out ONE failure mode only: two accounts colliding on the same new
++// address, which would abort the loop midway and leave the rest unmigrated. It
++// is not a transaction — see the header on per-row failures.
++const seen = new Map();
++const collisions = [];
++for (const p of planned) {
++  if (seen.has(p.next)) collisions.push(`${p.next}  (${seen.get(p.next)} and ${p.email})`);
++  else seen.set(p.next, p.email);
++}
++const existing = new Set(
++  userPage.users.map((u) => (u.email ?? "").toLowerCase())
++    .filter((e) => e.endsWith(`@${LOGIN_EMAIL_DOMAIN}`))
++);
++for (const p of planned) {
++  if (existing.has(p.next)) collisions.push(`${p.next}  (already in use by another account)`);
++}
++if (collisions.length) {
++  console.error("REFUSED — the rewrite would create duplicate addresses:");
++  for (const c of collisions) console.error("  " + c);
++  console.error("\nNothing was written. Resolve the local parts first.");
++  process.exit(1);
++}
++
++console.log(`${APPLY ? "APPLYING" : "DRY RUN"} — ${planned.length} account(s) to migrate\n`);
++console.log("role      before                              after");
++for (const p of planned) {
++  console.log(String(p.role).padEnd(9), p.email.padEnd(35), p.next);
++}
++const ownerCount = profiles.filter((p) => p.role === "owner").length;
++console.log(`\nowner accounts skipped: ${ownerCount}`);
++if (skippedAlreadySafe.length) {
++  console.log(`already non-routable, skipped: ${skippedAlreadySafe.length}`);
++  for (const e of skippedAlreadySafe) console.log(`  · ${e}`);
++}
++
++if (!APPLY) {
++  console.log("\nNothing written. Re-run with --yes to apply.");
++  process.exit(0);
++}
++
++let done = 0;
++for (const p of planned) {
++  const { error } = await a.auth.admin.updateUserById(p.id, {
++    email: p.next, email_confirm: true,
++  });
++  if (error) { console.error(`  ✗ ${p.email}: ${error.message}`); continue; }
++  done++;
++  console.log(`  ✓ ${p.email} → ${p.next}`);
++}
++console.log(`\n${done}/${planned.length} migrated.`);
++process.exit(done === planned.length ? 0 : 1);
+diff --git a/scripts/seed-load-test.mjs b/scripts/seed-load-test.mjs
+index 06f8083..77a197e 100644
+--- a/scripts/seed-load-test.mjs
++++ b/scripts/seed-load-test.mjs
+@@ -27,6 +27,13 @@ import { samplePng } from "./_sample-image.mjs";
+ import { assertWritableEnv } from "./_env-guard.mjs";
+ assertWritableEnv("seed-load-test");
+ 
++// Shop logins are minted here with the SERVICE ROLE, which bypasses the Zod
++// refine that guards the four in-app credential write paths. Import the domain
++// instead of hardcoding one, so seeding can never quietly re-open the routable-
++// mailbox hole that scripts/migrate-login-emails.mjs closed. Node strips the
++// .ts types the same way scripts/test-lib-unit.mjs already relies on.
++import { LOGIN_EMAIL_DOMAIN } from "../lib/login-email.ts";
++
+ const env = Object.fromEntries(
+   readFileSync(new URL("../.env.local", import.meta.url), "utf8")
+     .split(/\r?\n/)
+@@ -142,7 +149,7 @@ for (const [i, s] of SHOP_DEFS.entries()) {
+     id: shopId, name: `Gerwin-${s.name}`, location: `${s.name}, Cavite`,
+     active: true, color_key: s.color, created_at: at(days[0], 8),
+   }]);
+-  const email = `shop${i + 1}@gerwin-test.ph`;
++  const email = `shop${i + 1}@${LOGIN_EMAIL_DOMAIN}`;
+   const { data: u, error } = await admin.auth.admin.createUser({
+     email, password: "gerwin123", email_confirm: true,
+   });
+@@ -153,7 +160,7 @@ for (const [i, s] of SHOP_DEFS.entries()) {
+   }]);
+   shops.push({ id: shopId, user: u.user.id, name: s.name });
+ }
+-console.log(`  shops + logins ready (shop1..${SHOP_DEFS.length}@gerwin-test.ph / gerwin123) — ${elapsed()}`);
++console.log(`  shops + logins ready (shop1..${SHOP_DEFS.length}@${LOGIN_EMAIL_DOMAIN} / gerwin123) — ${elapsed()}`);
+ 
+ // ── 2. suppliers, customers, catalog ────────────────────────────────────────
+ const suppliers = Array.from({ length: 5 }, (_, i) => ({
+@@ -515,5 +522,5 @@ await ins("stock_levels", levels);
+ 
+ console.log(`\nDONE in ${elapsed()} — ${inserted.toLocaleString()} rows.`);
+ console.log(`  sales: ${salesTotal.toLocaleString()} · engines sold: ${enginesSoldTotal} · stock_levels: ${levels.length}`);
+-console.log(`  Shop logins: shop1..5@gerwin-test.ph / gerwin123`);
++console.log(`  Shop logins: shop1..${SHOP_DEFS.length}@${LOGIN_EMAIL_DOMAIN} / gerwin123`);
+ console.log(`  Certify with: node scripts/test-movements.mjs (ledger = shelf, database-wide)`);
+diff --git a/scripts/test-admin-accounts.mjs b/scripts/test-admin-accounts.mjs
+index 3e26ea1..4173b77 100644
+--- a/scripts/test-admin-accounts.mjs
++++ b/scripts/test-admin-accounts.mjs
+@@ -15,6 +15,7 @@ import {
+   owner, admin, anonClient, signIn, RUN, check, section, summary,
+   provisionShop, seedPart, seedExpenseCategory, cleanup,
+ } from "./_harness.mjs";
++import { LOGIN_EMAIL_DOMAIN, isLoginEmailDomain } from "../lib/login-email.ts";
+ 
+ // ── gate: 0099 must be applied ──────────────────────────────────────────────
+ {
+@@ -173,6 +174,44 @@ try {
+     check("reactivation restores access (flag is reversible)", back === true);
+   }
+ 
++  section("Credential email rule (owner-only password reset, 2026-08-02)");
++  {
++    // WHY THE PREDICATE AND NOT THE SCHEMA: the rule is enforced by a Zod
++    // `.refine(isLoginEmailDomain)` inside four "use server" actions. A Node
++    // script cannot invoke a Next server action — there is no request, no
++    // cookie jar, no bundler — and this harness creates accounts through the
++    // SERVICE ROLE, which goes straight to GoTrue and bypasses Zod entirely.
++    // So neither route can exercise the schema from here. What IS testable is
++    // the decision the schema delegates to: the exported predicate. That the
++    // refine is actually wired into all four schemas is asserted separately,
++    // over the source, by scripts/test-owner-reset.mjs.
++    check(`constant is the reserved domain (${LOGIN_EMAIL_DOMAIN})`,
++      LOGIN_EMAIL_DOMAIN === "gerwintrading.invalid", LOGIN_EMAIL_DOMAIN);
++
++    // Refused — real, routable mailboxes. Each of these is an address a shop
++    // or admin login could plausibly be created on if nobody stopped it.
++    check("rejects a gmail address", !isLoginEmailDomain("shop-ternate@gmail.com"));
++    check("rejects the old @gerwin-test.ph scheme", !isLoginEmailDomain("shop1@gerwin-test.ph"));
++    check("rejects the owner's own real domain", !isLoginEmailDomain("gerry@test.com"));
++    check("rejects a lookalike subdomain",
++      !isLoginEmailDomain(`a@shops.${LOGIN_EMAIL_DOMAIN}`));
++    check("rejects a suffix-only lookalike",
++      !isLoginEmailDomain(`a@not${LOGIN_EMAIL_DOMAIN}`));
++    check("rejects another .invalid domain", !isLoginEmailDomain("a@someone-else.invalid"));
++
++    // Accepted — the designated login domain, however it is cased or padded.
++    check("accepts the login domain",
++      isLoginEmailDomain(`shop-ternate@${LOGIN_EMAIL_DOMAIN}`));
++    check("accepts it case-insensitively",
++      isLoginEmailDomain(`Shop-Ternate@${LOGIN_EMAIL_DOMAIN.toUpperCase()}`));
++
++    // And the accounts this suite itself just created obey the spirit of the
++    // rule: the fixture admin is on `@test.local`, non-routable by another
++    // reserved TLD, so nothing here re-opens the hole while testing it.
++    check("this suite's own fixture login is not a real mailbox",
++      /@(test\.local|[^@]*\.invalid)$/i.test(ADMIN_EMAIL), ADMIN_EMAIL);
++  }
++
+   section("Employees unchanged");
+   {
+     const { data: iso } = await shop.client.rpc("is_owner");
+diff --git a/scripts/test-lib-unit.mjs b/scripts/test-lib-unit.mjs
+index f44645a..1f0e1a7 100644
+--- a/scripts/test-lib-unit.mjs
++++ b/scripts/test-lib-unit.mjs
+@@ -1,6 +1,9 @@
+ /** Fast unit tests for pure lib math — no DB, no harness. Money parsing + PH date. */
+ import { formatCentavos, parsePesosToCentavos } from "../lib/format.ts";
+ import { ph_today } from "../lib/ph-date.ts";
++import {
++  LOGIN_EMAIL_DOMAIN, isLoginEmailDomain, isNonRoutableEmail,
++} from "../lib/login-email.ts";
+ 
+ let pass = 0, fail = 0;
+ const check = (name, ok, detail = "") => {
+@@ -53,5 +56,48 @@ const dayDiff = Math.round(
+ check("PH date is UTC date or +1 (never behind)", dayDiff === 0 || dayDiff === 1, `diff ${dayDiff}`);
+ check("matches Intl Asia/Manila", t === new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date()), t);
+ 
++console.log("\nisLoginEmailDomain — strict: only the designated login domain:");
++check("constant is gerwintrading.invalid", LOGIN_EMAIL_DOMAIN === "gerwintrading.invalid", LOGIN_EMAIL_DOMAIN);
++check("shop-ternate@gerwintrading.invalid", isLoginEmailDomain("shop-ternate@gerwintrading.invalid"));
++check("uppercase domain accepted", isLoginEmailDomain("A@GERWINTRADING.INVALID"));
++check("surrounding space tolerated", isLoginEmailDomain(" a@gerwintrading.invalid "));
++check("gmail rejected", !isLoginEmailDomain("shop@gmail.com"));
++check("lookalike subdomain rejected", !isLoginEmailDomain("a@x.gerwintrading.invalid"));
++check("suffix-only match rejected", !isLoginEmailDomain("a@notgerwintrading.invalid"));
++check("other .invalid domain rejected", !isLoginEmailDomain("a@other.invalid"));
++check("no @ rejected", !isLoginEmailDomain("gerwintrading.invalid"));
++check("empty local part rejected", !isLoginEmailDomain("@gerwintrading.invalid"));
++check("empty string rejected", !isLoginEmailDomain(""));
++check("trailing-dot FQDN is the same domain", isLoginEmailDomain("a@gerwintrading.invalid."));
++// DOCUMENTED NON-GUARANTEE, not an endorsement: this predicate only inspects
++// the part after the last @, so these malformed values pass it. Every caller
++// pairs it with z.email(), which is what rejects them — see lib/login-email.ts.
++// If that pairing is ever broken these two flip from harmless to a hole.
++check("double-@ passes the DOMAIN check (z.email() is what rejects it)",
++  isLoginEmailDomain("a@b@gerwintrading.invalid"));
++check("embedded newline passes the DOMAIN check (z.email() is what rejects it)",
++  isLoginEmailDomain("a\nb@gerwintrading.invalid"));
++
++console.log("\nisNonRoutableEmail — broad: any address that cannot receive mail:");
++check(".invalid", isNonRoutableEmail("a@gerwintrading.invalid"));
++check(".test (harness fixtures)", isNonRoutableEmail("zz-admin@test.local") || isNonRoutableEmail("zz@x.test"));
++check(".local (harness fixtures)", isNonRoutableEmail("zz-admin@test.local"));
++check(".example", isNonRoutableEmail("a@foo.example"));
++check("gmail.com is routable", !isNonRoutableEmail("a@gmail.com"));
++check("gerwin-test.ph is routable", !isNonRoutableEmail("shop@gerwin-test.ph"));
++check("test.com is routable (real domain)", !isNonRoutableEmail("gerry@test.com"));
++check("no @ rejected", !isNonRoutableEmail("nope"));
++check("empty string rejected", !isNonRoutableEmail(""));
++// A trailing dot is the FQDN form of the same name; DNS treats them alike and
++// so must we, or `a@foo.invalid.` reads as routable and slips the invariant.
++check("trailing-dot .invalid still non-routable", isNonRoutableEmail("a@foo.invalid."));
++check("trailing-dot gmail still routable", !isNonRoutableEmail("a@gmail.com."));
++// No dot at all → the whole label IS the TLD. Without this branch the
++// "localhost" entry in RESERVED_TLDS could never match anything.
++check("bare localhost", isNonRoutableEmail("a@localhost"));
++check("bare invalid TLD", isNonRoutableEmail("a@invalid"));
++check("an unreserved bare label is not assumed safe", !isNonRoutableEmail("a@intranet"));
++check("only-dots domain rejected", !isNonRoutableEmail("a@."));
++
+ console.log(`\n${pass} passed, ${fail} failed`);
+ process.exit(fail === 0 ? 0 : 1);
+diff --git a/scripts/test-owner-reset.mjs b/scripts/test-owner-reset.mjs
+new file mode 100644
+index 0000000..d2baa8f
+--- /dev/null
++++ b/scripts/test-owner-reset.mjs
+@@ -0,0 +1,152 @@
++/**
++ * Owner-only password reset — the things that can silently regress.
++ *
++ * 1. STATIC: the domain rule is actually wired into all four credential write
++ *    paths, and the PUBLIC reset action still cannot become an oracle. Zod
++ *    schemas and server actions live inside Next server code, which a Node
++ *    script cannot invoke — so this asserts over the SOURCE, the same way
++ *    test-definer-guards.mjs asserts over migration SQL. It fails the moment
++ *    someone edits a schema and drops the refine, or adds a return branch that
++ *    reports failure. (The RULE's own behaviour — which domains it accepts and
++ *    refuses — is asserted directly in test-lib-unit.mjs and
++ *    test-admin-accounts.mjs, against the exported predicate.)
++ *
++ * 2. LIVE: every non-owner account — active OR deactivated — has an address
++ *    that cannot receive mail. This is the assertion that catches an account
++ *    created through a path this design did not anticipate. The owner is the
++ *    deliberate exception and is asserted to STAY reachable — he is the one
++ *    account nobody can rescue.
++ *
++ * Run: node scripts/test-owner-reset.mjs
++ */
++import { readFileSync } from "node:fs";
++import { owner, admin, check, section, summary } from "./_harness.mjs";
++import { isNonRoutableEmail } from "../lib/login-email.ts";
++
++const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
++
++section("The domain rule is wired into every credential write path");
++{
++  const shops = read("app/(owner)/shops/actions.ts");
++  const settings = read("app/(owner)/settings/actions.ts");
++
++  check("shops/actions.ts imports the rule", shops.includes("isLoginEmailDomain"));
++  check("settings/actions.ts imports the rule", settings.includes("isLoginEmailDomain"));
++
++  // At least one refine per schema: employee + credentials, createAdmin +
++  // updateCreds. Deliberately `>=`, not `===`: a fifth correctly-guarded
++  // credential write path is the hardening this test exists to encourage, and
++  // an exact count would turn the suite red for doing the right thing.
++  const shopRefines = (shops.match(/refine\(isLoginEmailDomain/g) ?? []).length;
++  const settingsRefines = (settings.match(/refine\(isLoginEmailDomain/g) ?? []).length;
++  check(`shops: >=2 schemas guarded (found ${shopRefines})`, shopRefines >= 2, `${shopRefines}`);
++  check(`settings: >=2 schemas guarded (found ${settingsRefines})`, settingsRefines >= 2, `${settingsRefines}`);
++}
++
++section("The PUBLIC reset action cannot become an oracle");
++{
++  const action = read("app/(auth)/login/actions.ts");
++
++  // Scope to the public action's own body. The file also holds an owner-gated
++  // twin that is DELIBERATELY truthful (it runs behind requirePrimaryOwner(),
++  // where there is no address left to conceal), so a whole-file assertion would
++  // now be asserting the opposite of what that action is for.
++  const pubStart = action.indexOf("export async function requestOwnerPasswordReset(");
++  check("public action still exists", pubStart >= 0);
++  const nextExport = action.indexOf("export async function", pubStart + 1);
++  const pub = nextExport > 0 ? action.slice(pubStart, nextExport) : action.slice(pubStart);
++
++  // EVERY return in that body is the shared constant — not "at least N of
++  // them". A new branch returning anything else is the regression this catches,
++  // whatever it returns and however many exits the body ends up with.
++  const doneReturns = (pub.match(/return\s+DONE;/g) ?? []).length;
++  const allReturns = (pub.match(/\breturn\b[^;]*;/g) ?? []).length;
++  check(
++    `every exit in the public action returns DONE (${doneReturns}/${allReturns})`,
++    doneReturns >= 4 && doneReturns === allReturns,
++    `${doneReturns} of ${allReturns}`
++  );
++  check("no literal { ok: ... } returns in the public action", !/return\s*\{\s*ok:/.test(pub));
++  check(
++    "sends to the stored address, not the submitted one",
++    action.includes("resetPasswordForEmail(ownerEmail")
++  );
++  check("owner is resolved by role, not by trusting input", action.includes('.eq("role", "owner")'));
++}
++
++section("The owner-gated twin is gated, and cannot be aimed elsewhere");
++{
++  const action = read("app/(auth)/login/actions.ts");
++  const authStart = action.indexOf("export async function requestOwnerPasswordResetAuthenticated(");
++  check("authenticated action exists", authStart >= 0);
++  const authed = authStart >= 0 ? action.slice(authStart) : "";
++
++  check("it checks the tier itself", /isPrimaryOwner\(\)/.test(authed));
++  check("isPrimaryOwner is imported from lib/auth", /import \{[^}]*isPrimaryOwner[^}]*\} from "@\/lib\/auth"/.test(action));
++  // No parameter: the address is derived server-side, so neither a compromised
++  // client nor the owner himself can point a reset link at another mailbox.
++  check(
++    "takes no email parameter",
++    /requestOwnerPasswordResetAuthenticated\(\s*\)\s*:/.test(authed)
++  );
++  check("it reports real failures", /return \{ ok: false, error/.test(authed));
++}
++
++section("No client-side reset path survives");
++{
++  const dialog = read("app/(auth)/login/login-form.tsx");
++  const card = read("app/(owner)/settings/account-section.tsx");
++  check("login dialog no longer calls resetPasswordForEmail", !dialog.includes("resetPasswordForEmail"));
++  check("login dialog goes through the server action", dialog.includes("requestOwnerPasswordReset"));
++  check("settings card no longer calls resetPasswordForEmail", !card.includes("resetPasswordForEmail"));
++  check(
++    "settings card goes through the owner-gated server action",
++    card.includes("requestOwnerPasswordResetAuthenticated")
++  );
++}
++
++section("Live: every non-owner login is non-routable");
++{
++  const { data: profiles, error } = await owner
++    .from("profiles").select("id, role, active").is("deleted_at", null);
++  check("read profiles", !error, error?.message);
++
++  const PAGE_SIZE = 1000;
++  const { data: page } = await admin.auth.admin.listUsers({ page: 1, perPage: PAGE_SIZE });
++  const users = page?.users ?? [];
++  // A full page means there may be more accounts this check never looked at,
++  // and a permanent invariant that passes while blind is worse than no check.
++  check(
++    `auth listing is complete (${users.length} < perPage ${PAGE_SIZE})`,
++    users.length < PAGE_SIZE,
++    `${users.length} users returned — add pagination, this check is blind past ${PAGE_SIZE}`
++  );
++  const emailById = new Map(users.map((u) => [u.id, u.email ?? ""]));
++
++  // INACTIVE accounts count too. updateEmployee (app/(owner)/shops/actions.ts)
++  // can flip `active` back to true and its schema carries no email field, so
++  // reactivation never re-runs the domain check — a deactivated account parked
++  // on a routable address is a live hole one toggle away.
++  const offenders = (profiles ?? [])
++    .filter((p) => p.role !== "owner")
++    .map((p) => ({ role: p.role, active: p.active, email: emailById.get(p.id) ?? "" }))
++    .filter((p) => p.email && !isNonRoutableEmail(p.email));
++
++  check(
++    `no non-owner account can receive mail, active or not (${offenders.length} offender(s))`,
++    offenders.length === 0,
++    offenders.map((o) => `${o.role}${o.active ? "" : "/inactive"}:${o.email}`).join(", ")
++  );
++
++  // The owner is the deliberate exception and MUST stay reachable — his is the
++  // only account with no human fallback.
++  const ownerProfile = (profiles ?? []).find((p) => p.role === "owner" && p.active);
++  const ownerEmail = ownerProfile ? emailById.get(ownerProfile.id) ?? "" : "";
++  check(
++    "owner still has a routable address",
++    !!ownerEmail && !isNonRoutableEmail(ownerEmail),
++    ownerEmail || "(none)"
++  );
++}
++
++summary();

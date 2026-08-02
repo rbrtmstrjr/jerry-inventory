@@ -78,6 +78,9 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
 ];
 
 const AUTO_PRINT_KEY = "jm-sale-autoprint";
+// The scan box is focused imperatively from several places, including the
+// price rows further down the tree — an id avoids drilling a ref through them.
+const SCAN_INPUT_ID = "scan-box";
 
 /**
  * Print the 58mm receipt without leaving Record Sale: load `/receipt/[id]` into
@@ -85,7 +88,7 @@ const AUTO_PRINT_KEY = "jm-sale-autoprint";
  * receipt's route-scoped `@page { size: 58mm }` governs the job. With the
  * thermal printer set as default + kiosk printing on, it prints with no dialog.
  */
-function printReceiptInPlace(id: string) {
+function printReceiptInPlace(id: string, onDone?: () => void) {
   document.getElementById("jm-receipt-print-frame")?.remove();
   const iframe = document.createElement("iframe");
   iframe.id = "jm-receipt-print-frame";
@@ -96,11 +99,24 @@ function printReceiptInPlace(id: string) {
   iframe.onload = () => {
     const win = iframe.contentWindow;
     if (!win) return;
-    const remove = () => setTimeout(() => iframe.remove(), 500);
+    // printing needs focus INSIDE the frame, which steals it from the scan
+    // input the caller just focused — and when the frame goes, focus lands on
+    // <body>. Hand it back so the next barcode scan still lands somewhere.
+    // run once: the 60s fallback below fires even on a normal print, and a
+    // second onDone() would yank focus to the scan box a minute later — while
+    // the cashier may be typing the NEXT sale's customer name.
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      iframe.remove();
+      onDone?.();
+    };
+    const remove = () => setTimeout(finish, 500);
     win.addEventListener("afterprint", remove);
     win.focus();
     win.print();
-    setTimeout(() => iframe.remove(), 60_000); // fallback if afterprint never fires
+    setTimeout(finish, 60_000); // fallback if afterprint never fires
   };
   document.body.appendChild(iframe);
 }
@@ -141,7 +157,7 @@ export function RecordSaleForm({
   const [sukiBusy, setSukiBusy] = React.useState(false);
 
   React.useEffect(() => {
-    scanRef.current?.focus();
+    scanRef.current?.focus({ preventScroll: true });
     try {
       const stored = localStorage.getItem(AUTO_PRINT_KEY);
       if (stored !== null) setAutoPrint(stored === "1");
@@ -232,9 +248,15 @@ export function RecordSaleForm({
     setSukiBusy(false);
     if (!res.ok) {
       toast.error(res.error);
+      // Clear on failure too: a scanner leaves the rejected code in the box, so
+      // re-scanning the card appended to it ("CARD-ACARD-B") and could only
+      // fail again — the retry has to start clean.
+      setSukiInput("");
       return;
     }
     const card = res.card;
+    // applying a card unmounts the suki input the cashier just scanned into
+    refocusScan();
     setSuki(card);
     setSukiInput("");
     // the card IS the customer (the server forces this too)
@@ -270,6 +292,9 @@ export function RecordSaleForm({
   }
 
   function clearSuki() {
+    // this button unmounts itself, so focus would fall to <body> and the next
+    // scan would vanish with no toast at all — worse than landing in the wrong box
+    refocusScan();
     setSuki(null);
     setCustName("");
     setCustPhone("");
@@ -287,7 +312,28 @@ export function RecordSaleForm({
   const cartQtyOf = (partId: string) =>
     cart.find((l): l is CartPart => l.kind === "part" && l.part_id === partId)?.qty ?? 0;
 
+  /** A barcode scanner types into whatever holds focus, and its trailing Enter
+   *  ACTIVATES a focused <button>. So a cashier who taps a product tile and
+   *  then scans the next item gets the tapped item added a second time while
+   *  the scanned code is swallowed — and the toast says "added", so it reads
+   *  as success. Every picker interaction therefore hands focus back here. */
+  function refocusScan() {
+    scanRef.current?.focus({ preventScroll: true });
+  }
+
+  /** For the typed fields a scan can land in by mistake (price, tendered,
+   *  downpayment, customer). None of them submit anything on Enter, so without
+   *  this the scanner's Enter does nothing, focus stays put, and the NEXT scan
+   *  appends to the same box — turning a downpayment into a five-figure one. */
+  const scanGuard = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      refocusScan();
+    }
+  };
+
   function addPart(p: ShopStockRow) {
+    refocusScan();
     // never let the cart exceed what's on hand — the owner would reject it anyway
     if (cartQtyOf(p.part_id) >= p.qty) {
       toast.error(`Only ${p.qty} ${p.unit} of ${p.name} on hand`);
@@ -326,10 +372,22 @@ export function RecordSaleForm({
     toast.success(`${p.name} added`);
   }
 
+  /** @returns false when the engine was already in the cart, so a caller can
+   *  skip its own success toast. Scanning a serial twice used to show BOTH
+   *  "That engine is already in the sale" and "Engine … added".
+   *
+   *  The duplicate check and its toast run HERE, not inside the setCart
+   *  updater: an updater is queued (so a flag set inside it is still unread
+   *  when this returns) and React invokes it twice in development, which
+   *  double-fired the toast. */
   function addEngine(e: ShopEngineRow) {
+    refocusScan();
+    if (cart.some((l) => l.kind === "engine" && l.engine_id === e.engine_id)) {
+      toast.info("That engine is already in the sale");
+      return false;
+    }
     setCart((c) => {
       if (c.some((l) => l.kind === "engine" && l.engine_id === e.engine_id)) {
-        toast.info("That engine is already in the sale");
         return c;
       }
       return [
@@ -351,6 +409,7 @@ export function RecordSaleForm({
         },
       ];
     });
+    return true;
   }
 
   function setPartPrice(partId: string, raw: string) {
@@ -391,14 +450,16 @@ export function RecordSaleForm({
       (en) => en.serial_number.toLowerCase() === code.toLowerCase()
     );
     if (engine) {
-      addEngine(engine);
-      toast.success(`Engine ${engine.serial_number} added`);
+      // only claim success when it actually went in — addEngine has already
+      // explained itself if the serial was a duplicate
+      if (addEngine(engine)) toast.success(`Engine ${engine.serial_number} added`);
       return;
     }
     toast.error(`No match for "${code}" in your shop stock`);
   }
 
   function setQty(partId: string, qty: number) {
+    refocusScan(); // the −/+ buttons park focus too — see refocusScan
     if (qty <= 0) {
       setCart((c) => c.filter((l) => !(l.kind === "part" && l.part_id === partId)));
       return;
@@ -507,7 +568,7 @@ export function RecordSaleForm({
 
     if (res.ok) {
       if (autoPrint && res.id) {
-        printReceiptInPlace(res.id);
+        printReceiptInPlace(res.id, () => scanRef.current?.focus({ preventScroll: true }));
         toast.success("Sale saved — printing receipt…");
       } else {
         toast.success("Sale saved — reprint the receipt from Submissions anytime");
@@ -522,7 +583,7 @@ export function RecordSaleForm({
       setSuki(null);
       setSukiInput("");
       router.refresh();
-      scanRef.current?.focus();
+      scanRef.current?.focus({ preventScroll: true });
     } else {
       toast.error(res.error);
     }
@@ -538,6 +599,7 @@ export function RecordSaleForm({
               <ScanLine className="size-5 shrink-0 text-muted-foreground" />
               <Input
                 ref={scanRef}
+                id={SCAN_INPUT_ID}
                 value={scan}
                 onChange={(e) => setScan(e.target.value)}
                 placeholder="Scan barcode or serial, then Enter…"
@@ -557,6 +619,17 @@ export function RecordSaleForm({
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
+                  // This box has no submit action, so a scan that lands here by
+                  // mistake would sit and the NEXT scan would append to it —
+                  // two codes run together match nothing and the list claims
+                  // "Nothing in stock matches" for items that are in stock.
+                  // Enter sends focus back where a scan belongs.
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      refocusScan();
+                    }
+                  }}
                   placeholder="No scanner? Search or tap an item below…"
                   className="pl-8"
                   aria-label="Search shop stock"
@@ -734,14 +807,15 @@ export function RecordSaleForm({
                       line={l}
                       sukiMax={sukiMaxOf(l)}
                       onAgreedChange={(raw) => setEngineAgreed(l.engine_id, raw)}
-                      onRemove={() =>
+                      onRemove={() => {
+                        refocusScan(); // the row unmounts with its own button
                         setCart((c) =>
                           c.filter(
                             (x) =>
                               !(x.kind === "engine" && x.engine_id === l.engine_id)
                           )
-                        )
-                      }
+                        );
+                      }}
                     />
                   )
                 )}
@@ -867,6 +941,7 @@ export function RecordSaleForm({
                       <div className="flex gap-2">
                         <Input
                           id="cash-tendered"
+                          onKeyDown={scanGuard}
                           inputMode="decimal"
                           value={tendered}
                           onChange={(e) =>
@@ -913,6 +988,7 @@ export function RecordSaleForm({
                       </Label>
                       <Input
                         id="downpayment"
+                        onKeyDown={scanGuard}
                         inputMode="decimal"
                         value={downpayment}
                         onChange={(e) =>
@@ -944,6 +1020,7 @@ export function RecordSaleForm({
                   </Label>
                   <Input
                     id="cust-name"
+                    onKeyDown={scanGuard}
                     value={custName}
                     onChange={(e) => setCustName(e.target.value)}
                     placeholder="Customer name"
@@ -953,6 +1030,7 @@ export function RecordSaleForm({
                   <Input
                     value={custPhone}
                     onChange={(e) => setCustPhone(e.target.value)}
+                    onKeyDown={scanGuard}
                     placeholder="Phone (optional)"
                     aria-label="Customer phone"
                     className="bg-background"
@@ -1151,6 +1229,14 @@ function PriceRow({
           id={id}
           inputMode="decimal"
           value={priceRaw}
+          // A scanner's trailing Enter would otherwise submit nothing and leave
+          // focus here, so the NEXT scan appends its digits to the price too.
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              document.getElementById(SCAN_INPUT_ID)?.focus({ preventScroll: true });
+            }
+          }}
           onChange={(e) => onPriceChange(e.target.value.replace(/[^\d.]/g, ""))}
           className={cn(
             "text-base tabular-nums",

@@ -68,6 +68,11 @@ interface DataTableProps<TData, TValue> {
   enableSelection?: boolean;
   getRowId?: (row: TData) => string;
   onSelectedChange?: (rows: TData[]) => void;
+  /** Notified with the rows left after the global search, in table order.
+   *  Only needed by callers that render the same data somewhere else — e.g.
+   *  the Expenses print sheet, which promises "the rows currently shown" and
+   *  otherwise cannot see this component's internal search state. */
+  onVisibleRowsChange?: (rows: TData[]) => void;
 }
 
 const PAGE_SIZES = [10, 20, 50, 100];
@@ -84,6 +89,7 @@ export function DataTable<TData, TValue>({
   enableSelection = false,
   getRowId,
   onSelectedChange,
+  onVisibleRowsChange,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
@@ -102,6 +108,11 @@ export function DataTable<TData, TValue>({
           }
           onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
           aria-label="Select all on this page"
+          // The box stays 16px visually, but a 16px TAP target fails even WCAG
+          // 2.5.8's 24px floor on a phone. The pseudo-element widens only the
+          // hit area to ~44px. Safe here because the checkbox is alone in its
+          // cell — do NOT copy this to a checkbox sitting beside a label.
+          className="relative after:absolute after:-inset-3.5 after:content-['']"
         />
       ),
       cell: ({ row }) => (
@@ -110,6 +121,7 @@ export function DataTable<TData, TValue>({
           onCheckedChange={(v) => row.toggleSelected(!!v)}
           aria-label="Select row"
           onClick={(e) => e.stopPropagation()}
+          className="relative after:absolute after:-inset-3.5 after:content-['']"
         />
       ),
     };
@@ -142,6 +154,23 @@ export function DataTable<TData, TValue>({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowSelection]);
+
+  // Bridge the post-search rows to the parent.
+  //
+  // Deliberately NOT keyed on `data`: callers build that array inline
+  // (`expenses.filter(...)`), so its identity changes every render — and since
+  // the callback sets parent state, depending on it is an infinite loop. Run on
+  // every render instead and emit only when the row SET actually changed, which
+  // makes the loop self-limiting no matter how the caller passes `data`.
+  const lastEmitted = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!onVisibleRowsChange) return;
+    const model = table.getFilteredRowModel().rows;
+    const key = model.map((r) => r.id).join(",");
+    if (key === lastEmitted.current) return;
+    lastEmitted.current = key;
+    onVisibleRowsChange(model.map((r) => r.original));
+  });
 
   const filteredCount = table.getFilteredRowModel().rows.length;
   const { pageIndex, pageSize: currentPageSize } = table.getState().pagination;

@@ -153,8 +153,17 @@ function DefaultsCard({ settings }: { settings: SettingsRow }) {
   const [busy, setBusy] = React.useState(false);
 
   async function onSave() {
-    const n = parseInt(months, 10);
-    if (isNaN(n) || n < 0) {
+    // parseInt TRUNCATES rather than rejecting: "12.5" → 12, "12abc" → 12,
+    // "1e3" → 1. So `isNaN` never fired for the exact input this message was
+    // written for, and the owner got "Defaults saved" for a value they did not
+    // type. Match whole digits explicitly instead.
+    const raw = months.trim();
+    if (!/^\d+$/.test(raw)) {
+      toast.error("Warranty months must be a whole number");
+      return;
+    }
+    const n = parseInt(raw, 10);
+    if (n < 0) {
       toast.error("Warranty months must be a whole number");
       return;
     }

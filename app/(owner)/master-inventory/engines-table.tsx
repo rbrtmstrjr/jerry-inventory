@@ -39,15 +39,39 @@ import { EngineFormDialog } from "./engine-form-dialog";
 import { AddEngineDialog } from "./add-engine-dialog";
 import { ModelManagerDialog } from "./reference-data-dialogs";
 
-const STATUS_BADGE: Record<
-  EngineRow["status"],
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
-> = {
+type StatusBadge = {
+  label: string;
+  variant: "default" | "secondary" | "destructive" | "outline";
+};
+
+const STATUS_BADGE: Record<EngineRow["status"], StatusBadge> = {
   in_master: { label: "In master", variant: "secondary" },
+  // 0027. Stock sent toward a shop and not yet confirmed — an ordinary state,
+  // and the one that was missing: `STATUS_BADGE[status].variant` on an
+  // in-transit engine threw and took the whole Engines tab to the error
+  // boundary for every role.
+  in_transit: { label: "In transit", variant: "secondary" },
   delivered: { label: "At shop", variant: "default" },
   sold: { label: "Sold", variant: "outline" },
   returned: { label: "Returned", variant: "secondary" },
+  // 0069. Set by a warranty replacement — the defective unit goes back to
+  // master and is deliberately not sellable.
+  defective: { label: "Defective", variant: "destructive" },
 };
+
+/** Never index STATUS_BADGE directly.
+ *
+ *  The map is keyed on EngineRow["status"], so tsc will now force it to cover
+ *  every enum value — but a migration can add one before this file is updated,
+ *  and a missing key must degrade to a readable badge, not crash the page. */
+function statusBadge(status: string): StatusBadge {
+  return (
+    STATUS_BADGE[status as EngineRow["status"]] ?? {
+      label: status.replace(/_/g, " "),
+      variant: "outline",
+    }
+  );
+}
 
 export function EnginesTable({
   engines,
@@ -170,7 +194,7 @@ export function EnginesTable({
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => {
-        const s = STATUS_BADGE[row.original.status];
+        const s = statusBadge(row.original.status);
         return (
           <div className="flex flex-wrap items-center gap-1">
             <Badge variant={s.variant}>{s.label}</Badge>
@@ -271,7 +295,7 @@ export function EnginesTable({
           ) : (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {cardEngines.map((e) => {
-                const s = STATUS_BADGE[e.status];
+                const s = statusBadge(e.status);
                 return (
                   <div
                     key={e.id}

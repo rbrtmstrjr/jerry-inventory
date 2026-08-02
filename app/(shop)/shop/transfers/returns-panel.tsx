@@ -246,9 +246,16 @@ export function ShopReturnsPanel({
                   <div className="truncate text-sm font-medium">{p.name}</div>
                   <div className="text-xs text-muted-foreground">{p.available} {p.unit} on hand</div>
                 </div>
+                {/* One row per part, so "Good"/"Damaged" alone is ambiguous to a
+                    screen reader — the aria-label names the part (same pattern
+                    as the count sheet's "Counted quantity for <part>"). The
+                    htmlFor/id pair keeps the visible caption clickable; it was
+                    inert before, and the inputs had no accessible name at all. */}
                 <div className="grid gap-1">
-                  <Label className="text-xs">Good</Label>
+                  <Label htmlFor={`ret-good-${p.key}`} className="text-xs">Good</Label>
                   <Input
+                    id={`ret-good-${p.key}`}
+                    aria-label={`Good quantity for ${p.name}`}
                     className="w-20 tabular-nums"
                     inputMode="numeric"
                     max={p.available}
@@ -257,8 +264,10 @@ export function ShopReturnsPanel({
                   />
                 </div>
                 <div className="grid gap-1">
-                  <Label className="text-xs">Damaged</Label>
+                  <Label htmlFor={`ret-damaged-${p.key}`} className="text-xs">Damaged</Label>
                   <Input
+                    id={`ret-damaged-${p.key}`}
+                    aria-label={`Damaged quantity for ${p.name}`}
                     className="w-20 tabular-nums"
                     inputMode="numeric"
                     max={p.available}

@@ -107,6 +107,15 @@ export function ShopLowStockView({
       else n.add(k);
       return n;
     });
+    // `picked` is seeded once, at mount. A product that drops below its reorder
+    // level afterwards (router.refresh() re-renders but does not re-run the
+    // initialiser) had no entry, so its box rendered BLANK while every other
+    // row was prefilled — and submitting then failed on "needs a quantity".
+    setPicked((p) => {
+      if (p[k] != null) return p;
+      const row = rows.find((r) => keyOf(r) === k);
+      return { ...p, [k]: String(Math.max(1, row?.shortfall || 1)) };
+    });
   }
 
   async function submit() {

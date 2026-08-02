@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/pnl";
 import { TableSkeleton } from "@/components/shell/streaming-skeletons";
 import {
   ExpenseCategoriesView,
@@ -22,21 +23,27 @@ export default function ExpenseCategoriesPage() {
 async function ExpenseCategoriesBody() {
   const supabase = await createClient();
 
-  const [categoriesRes, usageRes] = await Promise.all([
+  const [categoriesRes, allExpenses] = await Promise.all([
     supabase
       .from("expense_categories")
       .select("id, name, sort_order, active, status, shops(name, color_key)")
       .is("deleted_at", null)
       .order("sort_order"),
-    supabase
-      .from("expenses")
-      .select("category_id, status")
-      .is("deleted_at", null),
+    // PAGED. An unpaged select stops at PostgREST's 1,000-row cap, and staging
+    // already holds 13k expenses — so every usage count here was computed from
+    // ~8% of the data. Effects: a proposal's "N expenses" caption read 0, the
+    // Merge dialog promised to move "0 expenses" while moving one, and a
+    // category that IS in use got the "It can no longer be picked; history
+    // stays intact." copy meant for an unused one.
+    fetchAll<{ id: string; category_id: string; status: string }>(
+      () => supabase.from("expenses").select("id, category_id, status").is("deleted_at", null),
+      "id"
+    ),
   ]);
 
   const usage: Record<string, number> = {};
   const nonRejected: Record<string, number> = {};
-  for (const e of usageRes.data ?? []) {
+  for (const e of allExpenses) {
     usage[e.category_id] = (usage[e.category_id] ?? 0) + 1;
     if (e.status !== "rejected") {
       nonRejected[e.category_id] = (nonRejected[e.category_id] ?? 0) + 1;

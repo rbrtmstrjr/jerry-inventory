@@ -98,7 +98,10 @@ export interface PendingLoss {
   shop_color_key: string | null;
   employee: string;
   status: "pending" | "questioned";
-  reason: "nasira" | "nawala" | "expired" | "sample" | "correction";
+  // the full `loss_reason` enum — 0069 added 'warranty' for claim replacements.
+  // Typing only the original five made REASON_LABEL look exhaustive to tsc while
+  // the database could hand it a sixth (the same shape as bugs #17 and B13).
+  reason: "nasira" | "nawala" | "expired" | "sample" | "correction" | "warranty";
   qty: number;
   note: string | null;
   owner_note: string | null;
@@ -139,6 +142,9 @@ const REASON_LABEL: Record<PendingLoss["reason"], string> = {
   expired: "Expired",
   sample: "Sample / libre",
   correction: "Correction",
+  // 0069 added `warranty` to the loss_reason enum for claim replacements;
+  // without a label the badge rendered empty
+  warranty: "Warranty replacement",
 };
 
 const METHOD_LABEL: Record<PendingSale["payment_method"], string> = {

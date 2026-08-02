@@ -52,8 +52,15 @@ function sourceLink(r: JournalRow): { href: string; label: string } | null {
   if (r.sale_id) return { href: `/approvals?item=sale:${r.sale_id}`, label: r.receipt_no ?? "Sale" };
   if (r.loss_id) return { href: `/approvals?item=loss:${r.loss_id}`, label: "Loss" };
   if (r.delivery_id) return { href: `/deliveries/${r.delivery_id}/note`, label: "Delivery note" };
-  if (r.receiving_id) return { href: `/master-inventory/receiving`, label: "Receiving" };
-  if (r.return_id) return { href: `/deliveries?tab=return`, label: "Return" };
+  // `?view=` opens that receiving's detail dialog. Without it this landed on the
+  // receiving LIST — the row knows which receiving it came from and was throwing
+  // the id away. (The bare path also relies on the 0048 redirect stub.)
+  if (r.receiving_id)
+    return { href: `/suppliers?tab=receiving&view=${r.receiving_id}`, label: "Receiving" };
+  // There is no `return` tab — 0065 retired it and made returns shop-initiated;
+  // they are approved under "Transfers & Returns". `?tab=return` is not in
+  // TAB_VALUES, so it was silently ignored and the owner landed on New Delivery.
+  if (r.return_id) return { href: `/deliveries?tab=transfers`, label: "Return" };
   return null;
 }
 

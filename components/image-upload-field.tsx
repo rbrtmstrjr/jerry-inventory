@@ -29,10 +29,15 @@ export function ImageUploadField({
   currentPath,
   action,
   onActionChange,
+  subject = "product photo",
 }: {
   currentPath: string | null;
   action: ImageAction;
   onActionChange: (a: ImageAction) => void;
+  /** What is being uploaded, for the screen-reader label — this widget is
+   *  shared by products, shop logos, and staff photos, so a hard-coded
+   *  "product photo" misdescribes two of its three uses. */
+  subject?: string;
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = React.useState(false);
@@ -82,7 +87,7 @@ export function ImageUploadField({
           setDragging(false);
           handleFile(e.dataTransfer.files?.[0]);
         }}
-        aria-label={hasAnything ? "Replace product photo" : "Add product photo"}
+        aria-label={`${hasAnything ? "Replace" : "Add"} ${subject}`}
         className={cn(
           "relative flex size-24 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-md border-2 border-dashed bg-muted/40 text-muted-foreground transition-colors hover:border-ring hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring",
           dragging && "border-primary bg-accent",
@@ -94,13 +99,13 @@ export function ImageUploadField({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={action.image.previewUrl}
-            alt="New product photo preview"
+            alt={`New ${subject} preview`}
             className="size-full object-cover"
           />
         ) : showingCurrent ? (
           <Image
             src={productImageUrl(currentPath)!}
-            alt="Current product photo"
+            alt={`Current ${subject}`}
             width={96}
             height={96}
             className="size-full object-cover"

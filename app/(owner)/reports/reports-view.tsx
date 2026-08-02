@@ -25,6 +25,8 @@ import {
   Truck,
 } from "lucide-react";
 
+import { toast } from "sonner";
+
 import { formatCentavos } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import { exportSalesCsv } from "./actions";
@@ -93,6 +95,7 @@ const REASON_LABEL: Record<string, string> = {
   expired: "Expired",
   sample: "Sample / libre",
   correction: "Correction",
+  warranty: "Warranty replacement",
 };
 
 /** Fixed categorical assignment: shop → chart slot, by shop list order. */
@@ -141,7 +144,15 @@ function QtyTooltip({ active, payload, label }: any) {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export function ReportsView({ data }: { data: ReportData }) {
+export function ReportsView({
+  data,
+  businessName = "Gerwin Trading",
+}: {
+  data: ReportData;
+  /** From Settings via getBusinessIdentity — the printed header must follow a
+   *  rename like every other document does. */
+  businessName?: string;
+}) {
   const router = useRouter();
   const [from, setFrom] = React.useState(data.from);
   const [to, setTo] = React.useState(data.to);
@@ -155,11 +166,21 @@ export function ReportsView({ data }: { data: ReportData }) {
       const res = await exportSalesCsv(data.from, data.to, data.shopFilter);
       if (res.ok) {
         const rows = kind === "sales" ? res.salesCsv : res.lossesCsv;
+        if (!rows?.length) {
+          toast.info("Nothing to export in this range.");
+          return;
+        }
         downloadCsv(
           `${kind}_${data.from}_${data.to}.csv`,
           rows as unknown as Record<string, string | number>[]
         );
+      } else {
+        // Was silent: a refused export (owner-only guard, invalid range) just
+        // stopped the spinner, so the button looked broken.
+        toast.error(res.error ?? "Export failed.");
       }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Export failed.");
     } finally {
       setCsvLoading(null);
     }
@@ -294,7 +315,7 @@ export function ReportsView({ data }: { data: ReportData }) {
 
       {/* Range header (visible in print) */}
       <p className="hidden text-sm text-muted-foreground print:block">
-        Gerwin Trading — Report {format(new Date(data.from), "MMM d, yyyy")} to{" "}
+        {businessName} — Report {format(new Date(data.from), "MMM d, yyyy")} to{" "}
         {format(new Date(data.to), "MMM d, yyyy")}
       </p>
 

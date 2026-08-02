@@ -70,10 +70,14 @@ async function PartsPanel({ sp }: { sp: SP }) {
     )
     .is("deleted_at", null);
   if (params.q) {
+    // `or=` is a GRAMMAR, not a value: commas separate its conditions and
+    // parentheses group them. Interpolating the raw term made a search for a
+    // product named "Impeller (40HP)" return nothing, and one containing a
+    // comma raise PGRST100 — both surfaced as "Nothing matches" for a product
+    // that exists. Double-quote the value so it is parsed as a literal.
     const like = `%${params.q}%`;
-    partsQuery = partsQuery.or(
-      `name.ilike.${like},sku.ilike.${like},barcode.ilike.${like}`
-    );
+    const v = `"${like.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+    partsQuery = partsQuery.or(`name.ilike.${v},sku.ilike.${v},barcode.ilike.${v}`);
   }
 
   const [partsRes, categoriesRes, modelsRes, suppliersRes] = await Promise.all([

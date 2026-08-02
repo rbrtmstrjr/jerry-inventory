@@ -88,20 +88,25 @@ export function ShopPhotoDialog({
       }
       toast.success(`Photo saved for ${target.name}`);
     } else {
-      if (oldPath) {
-        await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
-      }
+      // Clear the POINTER first, then the object. The other way round (which
+      // this used to do) deletes the file and then, if the RPC fails, leaves
+      // image_path aimed at a file that no longer exists — a broken thumbnail
+      // the shop cannot clear. Failing in this order merely orphans bytes.
       const res = await setShopProductImage({
         kind: target.kind,
         id: target.id,
         path: null,
         clear: true,
       });
-      setBusy(false);
       if (!res.ok) {
+        setBusy(false);
         toast.error(res.error);
         return;
       }
+      if (oldPath) {
+        await supabase.storage.from(PRODUCT_IMAGE_BUCKET).remove([oldPath]);
+      }
+      setBusy(false);
       toast.success("Photo removed");
     }
     router.refresh();

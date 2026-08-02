@@ -59,19 +59,32 @@ section("Fails CLOSED on anything unrecognised");
 
 section("Every write script actually calls the guard");
 {
-  const { readFileSync, existsSync } = await import("node:fs");
-  const mustGuard = [
-    "db-fresh-start.mjs", "seed-load-test.mjs", "seed-states.mjs", "seed-append.mjs",
-    "seed-sample-data.mjs", "seed-more-stock.mjs", "seed-notifications.mjs",
-    "seed-shop-engines.mjs", "demo-provision.mjs", "demo-cleanup.mjs",
-    "_harness.mjs", // covers every test-*.mjs suite in one place
-  ];
-  for (const f of mustGuard) {
-    const p = `scripts/${f}`;
-    if (!existsSync(p)) { check(`${f} present`, false, "file missing"); continue; }
-    const src = readFileSync(p, "utf8");
-    check(`${f} calls assertWritableEnv()`, /assertWritableEnv\s*\(/.test(src));
+  // DISCOVERED, never listed. The previous version checked a hardcoded array
+  // and assumed "_harness.mjs covers every test-*.mjs suite" — but 12 scripts
+  // read .env.local and build their own service-role client without importing
+  // the harness, so they were unguarded while this test reported green. A
+  // hardcoded list fails OPEN the day someone adds a script, which is exactly
+  // the failure mode the guard itself exists to avoid.
+  const { readFileSync, readdirSync } = await import("node:fs");
+
+  // Read-only scripts. backup-db MUST be able to read production — it is the
+  // nightly off-site backup, and the free tier has no automated backups.
+  const READ_ONLY = new Set(["backup-db.mjs", "_pnl_capture.mjs", "_env-guard.mjs"]);
+  const WRITES = /\.(insert|update|upsert|delete)\s*\(|\.rpc\s*\(/;
+
+  const files = readdirSync("scripts").filter((f) => f.endsWith(".mjs"));
+  let audited = 0;
+  for (const f of files) {
+    if (READ_ONLY.has(f) || f === "test-env-guard.mjs") continue;
+    const src = readFileSync(`scripts/${f}`, "utf8");
+    if (!/SERVICE_ROLE/.test(src) || !WRITES.test(src)) continue; // not a write script
+    audited++;
+    // guarded directly, or transitively by importing the harness (which guards)
+    const guarded =
+      /assertWritableEnv\s*\(/.test(src) || /from\s+["']\.\/_harness\.mjs["']/.test(src);
+    check(`${f} is guarded`, guarded, "writes with the service role but never calls assertWritableEnv()");
   }
+  check("write scripts were actually discovered", audited >= 20, `only ${audited} found`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

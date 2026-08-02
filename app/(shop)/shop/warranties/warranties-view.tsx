@@ -291,6 +291,16 @@ export function ShopWarrantiesView({
                 ref={scanRef}
                 value={lookup}
                 onChange={(e) => setLookup(e.target.value)}
+                // A scanner ends with Enter and this box never clears itself, so
+                // a second scan used to append to the first ("SN-A" + "SN-B"),
+                // match nothing, and wrongly tell the customer their engine
+                // wasn't sold here. Selecting the text makes the next scan replace it.
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.currentTarget.select();
+                  }
+                }}
                 placeholder="Scan or type the engine serial (or customer / model)…"
                 className="bg-background text-base"
                 autoComplete="off"

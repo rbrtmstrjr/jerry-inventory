@@ -94,6 +94,16 @@ were retired (0103 — warranty cards are printed externally), which is why
 these are down from the historical 54/60. `[id]`/`[entryId]`/`[saleId]` are
 dynamic detail routes. "Print" pages are standalone print-optimized documents.
 
+**Verified against the routes on disk 2026-08-02 — the count is accurate.**
+`find app -name page.tsx` returns **49**. Subtract the root redirect
+(`app/page.tsx`) and the 5 page-level stubs — `/delivery-requests`,
+`/master-inventory/bulk-add`, `/master-inventory/suppliers`,
+`/suppliers/payables`, `/shops/reports` — and **43** billable screens/documents
+remain, matching the figure above. The three 0103-retired certificate routes
+and the 0082 suki-card print page are confirmed absent from disk; no route
+exists that is missing from the tables below. Re-run that `find` before quoting
+the number commercially — this section is the billing artifact.
+
 **The sidebar reads like the business works** (IA reorg, 2026-07): OVERVIEW →
 INVENTORY in stock-flow order (Suppliers → Master Inventory → Deliveries →
 Stock Alerts → Monthly Count → Movements) → SALES & SERVICE → ADMINISTRATION.
@@ -185,7 +195,7 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 ### Owner — Sales & Service (4)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/approvals` | Approval Queue | **(a)** Pending: review shop submission batches (sales + losses), one-click Approve-all + per-item actions, live updates. **(b)** Reviewed History: every decided sale/loss/utang payment, filterable (shop · type · status · date · search) with server-side pagination; click a row for a deep-linked slide-over detail (`?item=<type>:<id>`) |
+| `/approvals` | Approval Queue | **(a)** Pending: review shop submission batches (sales + losses), one-click Approve-all + per-item actions, live updates. `?tab=` picks the QUEUE view and accepts only `all` (default) · `sales` · `losses` · `expenses` — `resolveTab()` falls back to `all` for anything else. **(b)** Reviewed History: every decided sale/loss/utang payment, filterable (shop · type · status · date · search) with server-side pagination; click a row for a deep-linked slide-over detail (`?item=<type>:<id>`). It is **not a tab** — there is no `?tab=reviewed`; `ReviewedHistory` renders BELOW the queue on all four tabs, so the history is always one scroll away from whatever is pending |
 | `/receivables` | Receivables | All unpaid balances across shops — totals per shop/customer, filters, CSV export, per-sale payment history (incl. voided). Since 0101 this is also where a mistaken payment is **voided** — a Gerry-only action (the button renders for the owner alone; `fn_void_utang_payment` re-checks `is_primary_owner()`) |
 | `/warranties` | Warranties & Serials | Engine serial registry + warranty tracking across all shops; shop filter + selling-shop column; claims. Since 0103 each warranty carries the **physical card's number** (`warranty_serial`, unique, searchable) — recorded/corrected inline (the office can edit any). The certificate page was **retired by 0103**: physical cards are printed by an external system, so the card IS the warranty document (the 0082 suki-card pattern) |
 | `/suki-cards` | Suki Cards | Loyalty discount cards (0072; **0082**: the physical cards are printed by a **separate external system** — this page only **records** each card's barcode number against a customer, no minting/printing). Record per customer (existing or inline-new) with the owner-entered barcode number, deactivate/reactivate, **Replace with new card** (deactivate old + record the new printed number), per-card usage (uses + Σ program discount). Rates shown from the Settings dials |
@@ -533,7 +543,7 @@ never a stored flag. Receivable balances are
 mutable running total; `sales.balance_due_centavos` stays the at-sale snapshot
 the printed receipt shows.
 
-### Migrations (`supabase/migrations/`, 0001–0103; 0085–0098 retired)
+### Migrations (`supabase/migrations/`, 0001–0112; 0085–0098 retired)
 `0001` schema · `0002` RLS + safe views · `0003` seed · `0004` receiving fns ·
 `0005` delivery fns · `0006` record (sale/loss) fns · `0007` line descriptions ·
 `0008` approval engine + realtime · `0009` count fns · `0010`/`0011` product &
@@ -1052,7 +1062,78 @@ definer fn), so zero collateral. The office keeps recording/editing/
 categorising and approving shop claims. App: the Void menu item renders only
 for Gerry; `voidExpense` re-checks `isPrimaryOwner()`.
 `test-admin-accounts` extended: admin records + edits an expense, cannot
-void it; owner voids.
+void it; owner voids. · `0106` **a submitted item freezes to the shop**
+(SEC-6.1) — **the one in this range a future reader must not miss.** The
+approval pipeline only means something if what the owner reviews cannot change
+after it is submitted, and since 0016/0017 the draft state is `recorded` while
+`pending` means "submitted, awaiting approval". The employee UPDATE/INSERT/
+DELETE policies still listed `pending` among the editable states — a fossil
+from the pre-0016 model where `pending` WAS the draft (the 0002 comment "edit
+ONLY while still pending" dates from then). The hole: a shop could record an
+honest sale, submit it, then quietly lower a line's price or raise its qty
+before approval — and `fn_approve_sale` reads the LIVE lines, so the owner
+approved one thing and a different thing posted. Now the shop may edit only
+while `recorded` (its own draft) or `questioned` (the owner explicitly sent it
+back); a `pending` row is frozen. **This is silent** — RLS does not error, the
+UPDATE simply matches no row — so a future edit path added against a `pending`
+sale will look like a no-op, not a refusal. **Withdrawing is NOT editing:**
+`sales_delete`/`losses_delete` deliberately KEEP `pending`, so the shop's
+Cancel button still works and nothing posts. Only the state lists changed;
+every other clause is byte-for-byte the 0017 policy, and the `is_owner()` arm
+is untouched. · `0107` **customer reads scoped to a shop's own customers**
+(SEC-5.1): `customers_select` was `using (true)` — one direct PostgREST call
+from any shop login read the entire CRM (name/phone/address) across all
+branches. The UI never queries `customers` directly (the shop gets what it
+needs through the scoped `receivables`/`shop_warranties` views, and
+`fn_record_sale` creates/looks up customers as SECURITY DEFINER), so the
+exposure was purely an API-surface one. Now: office tier sees all; a shop sees
+a customer only when that customer has a sale AT that shop — exactly the set
+those views' joins need, so names keep resolving while cross-shop enumeration
+closes. No recursion: the subquery respects `sales`' own RLS and `customers`
+is not referenced back from the sales policy. `product_categories` /
+`engine_models` / `part_fitments` keep `using (true)` **on purpose** —
+non-sensitive shared reference data every shop legitimately reads; only
+`customers` carries PII. · `0108` **restores the 0076 InitPlan wrapping** that
+0106/0107 dropped: those two recreated their policies with a BARE
+`public.is_owner()` / `auth_shop_id()`, which Postgres evaluates once PER ROW —
+a seq scan on `sales`/`sale_lines`/`losses`/`customers` at scale. Wrapping each
+call in a scalar subquery hoists it to a single InitPlan. Bodies are otherwise
+identical; only evaluation frequency changes. (The lesson: a security fix
+written from the 0017 text re-introduces a performance regression 0076 had
+already fixed — check both when redefining a policy.) · `0109`
+`fn_shop_badge_counts` — the shop layout blocked every shop page on
+`getProfile` plus four separate view queries; this returns the shop name and
+all three badge counts in ONE `SECURITY DEFINER` round-trip scoped to the
+caller's own shop. Read-only, and guarded like `fn_stock_card` /
+`fn_cron_job_health` (raises unless the caller is active shop staff). · `0110`
+**targeted indexes for `fn_dashboard_summary`** — at the 3-year dataset (41k
+sales, 208k movements) it ran ~765ms warm / ~1653ms cold, and sub-query timing
+pinned the cost to two computed views: `shop_low_stock`'s engine arm (~699ms,
+re-scanning `engines` per group with no `(engine_model_id, shop_id)` index) and
+`receivables` (~566ms, seq-scanning all 41k sales to find `payment_type =
+'partial'`). Four partial indexes. **Additive and result-neutral** — the only
+verification is re-timing. They also speed the nav badges, /stock-alerts,
+/receivables and /shop/low-stock, which read the same views. · `0111`
+`fn_sales_report` — the Reports · Sales & Inventory tab `fetchAll`'d every
+approved sale plus its lines (and losses, and transit write-offs) to the
+browser and summed in JS, i.e. O(transactions): a 90-day report took ~2.3s and
+a year ~6.9s. This computes the same aggregates in SQL (the `fn_pnl_facts`
+pattern) so any range is flat. The money math must stay byte-identical to the
+JS row-walk — `scripts/test-sales-report.mjs` proves that BEFORE the app
+switches to it. Row-level detail is deliberately not summed here: CSV export
+becomes an on-demand fetch and `engines_sold` returns a capped list.
+Owner-only, read-only, `is_owner()` InitPlan-wrapped per 0076. · `0112`
+**transit write-offs keyed on the Philippine calendar day in the P&L** — a
+genuine wrong-number bug. `fn_pnl_facts` matched `transit_writeoff` rows by
+`created_at >= p_from::timestamptz`, a DATE cast at the SERVER's UTC midnight,
+while every other term (sales, losses, expenses) keys on the PH
+`business_date`/`expense_date`. PH time is UTC+8, so a write-off made in the
+PH-morning / UTC-previous-day window landed on the previous UTC day and
+**dropped out of a same-day or month-boundary P&L, undercounting shrinkage**.
+Fixed by anchoring the bounds to `+08:00` (PH has no DST). Body is otherwise
+byte-identical to 0083 — only the two date-bound lines change — and the
+row-walk fallback in `lib/pnl.ts` gets the identical anchoring so both paths
+agree.
 
 ### Cost visibility — narrowed, not opened (0053)
 "Cost is owner-only" (the discipline behind 0038 and the safe views) was
@@ -1163,7 +1244,7 @@ components/
                            Receivables · Warranties), print-button, section-tabs
   ui/                      shadcn/ui primitives
   data-table/ image-upload-field · product-image · receipt-image · location-picker · date-picker · view-toggle · confirm-dialog
-supabase/migrations/       0001–0103 (schema, RLS, functions, features;
+supabase/migrations/       0001–0112 (schema, RLS, functions, features;
                            0085–0098 = a reverted experiment, numbers retired)
 scripts/                   test-*.mjs verification scripts (one per deliverable)
 ```

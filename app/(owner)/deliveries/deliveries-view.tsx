@@ -452,8 +452,14 @@ function TransferForm({
                             updateLine(i, { qty: String(n) });
                           }}
                           onBlur={() => {
-                            const n = parseInt(l.qty || "0", 10);
-                            if (isNaN(n) || n < 0) updateLine(i, { qty: "0" });
+                            // `l.qty || "0"` parsed a BLANK field as 0, which is
+                            // neither NaN nor negative — so the normaliser never
+                            // fired and the box was left empty. onChange already
+                            // strips non-digits, so blank is the only case left.
+                            const n = parseInt(l.qty, 10);
+                            if (l.qty === "" || isNaN(n) || n < 0) {
+                              updateLine(i, { qty: "0" });
+                            }
                           }}
                           aria-label={kind === "return" ? "Good qty" : "Quantity"}
                         />

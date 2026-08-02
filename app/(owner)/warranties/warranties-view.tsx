@@ -110,7 +110,16 @@ export interface SerialRow {
   serial_number: string;
   model: string;
   horsepower: number | null;
-  status: "in_master" | "delivered" | "sold" | "returned" | "defective" | "written_off";
+  // mirrors the engine_status enum, which grew `in_transit` (0027) and
+  // `defective` (0069) after this type was first written
+  status:
+    | "in_master"
+    | "in_transit"
+    | "delivered"
+    | "sold"
+    | "returned"
+    | "defective"
+    | "written_off";
   shop: string | null;
   shop_color_key: string | null;
   customer: string | null;
@@ -123,6 +132,9 @@ const SERIAL_STATUS: Record<
   { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
   in_master: { label: "In master", variant: "secondary" },
+  // 0027 added `in_transit` to the engine_status enum; this map never gained
+  // the key, so every engine between master and a shop crashed its own row.
+  in_transit: { label: "In transit", variant: "secondary" },
   delivered: { label: "At shop", variant: "default" },
   sold: { label: "Sold", variant: "outline" },
   returned: { label: "Returned", variant: "secondary" },
@@ -335,7 +347,13 @@ export function WarrantiesView({
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => {
-        const s = SERIAL_STATUS[row.original.status];
+        // never index this map bare: `status` is a database enum that has grown
+        // twice (0027, 0069), and a missing key throws inside the cell, which
+        // takes the whole Serials table down through its error boundary
+        const s = SERIAL_STATUS[row.original.status] ?? {
+          label: row.original.status,
+          variant: "outline" as const,
+        };
         return (
           <div>
             <Badge variant={s.variant}>{s.label}</Badge>

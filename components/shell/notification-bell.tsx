@@ -110,6 +110,7 @@ const ICON: Record<Notification["type"], React.ComponentType<{ className?: strin
 export function NotificationBell({ variant }: { variant: "owner" | "employee" }) {
   const router = useRouter();
   const [items, setItems] = React.useState<Notification[]>([]);
+  const [unread, setUnread] = React.useState(0);
   const [open, setOpen] = React.useState(false);
 
   const load = React.useCallback(async () => {
@@ -120,6 +121,15 @@ export function NotificationBell({ variant }: { variant: "owner" | "employee" })
       .order("created_at", { ascending: false })
       .limit(30);
     setItems((data ?? []) as Notification[]);
+    // Counted separately, NOT derived from `items`: the list is capped at 30, so
+    // counting unread within it reports the page size. With 87 unread the badge
+    // still read "9+" (honest) but the aria-label announced "30 unread" — a
+    // precise number that was really just the limit.
+    const { count } = await supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .is("read_at", null);
+    setUnread(count ?? 0);
   }, []);
 
   React.useEffect(() => {
@@ -138,7 +148,6 @@ export function NotificationBell({ variant }: { variant: "owner" | "employee" })
     };
   }, [load]);
 
-  const unread = items.filter((n) => !n.read_at).length;
 
   async function markRead(id: string) {
     const supabase = createClient();

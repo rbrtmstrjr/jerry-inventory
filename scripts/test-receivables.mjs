@@ -12,6 +12,8 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
+import { assertWritableEnv } from "./_env-guard.mjs";
+assertWritableEnv("test-receivables (it writes fixtures with the service role)");
 
 const env = Object.fromEntries(
   readFileSync(new URL("../.env.local", import.meta.url), "utf8")

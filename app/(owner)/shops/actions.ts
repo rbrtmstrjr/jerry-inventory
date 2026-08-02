@@ -137,7 +137,7 @@ export async function closeShop(id: string): Promise<ActionResult> {
   if (units > 0) {
     return {
       ok: false,
-      error: `${units} part unit(s) still at this shop — return them to master first (Deliveries & Returns → New Return).`,
+      error: `${units} part unit(s) still at this shop — the shop returns them from Transfers → Return to Admin, then approve it under Deliveries & Returns → Transfers & Returns.`,
     };
   }
   if ((enginesRes.count ?? 0) > 0) {
@@ -340,42 +340,6 @@ export async function updateShopCredentials(input: unknown): Promise<ActionResul
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/shops");
-  return { ok: true };
-}
-
-const resetSchema = z.object({
-  id: z.uuid(),
-  password: z.string().min(8, "Password needs at least 8 characters"),
-});
-
-export async function resetEmployeePassword(input: unknown): Promise<ActionResult> {
-  const ownerId = await requireOwnerAction();
-  if (!ownerId) return { ok: false, error: "Only the owner can manage employees" };
-
-  const parsed = resetSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  }
-  if (parsed.data.id === ownerId) {
-    return { ok: false, error: "Change your own password from your Supabase account." };
-  }
-
-  // only employee accounts may be reset through this screen
-  const supabase = await createClient();
-  const { data: target } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", parsed.data.id)
-    .single();
-  if (target?.role !== "employee") {
-    return { ok: false, error: "Not an employee account." };
-  }
-
-  const admin = createAdminClient();
-  const { error } = await admin.auth.admin.updateUserById(parsed.data.id, {
-    password: parsed.data.password,
-  });
-  if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
 

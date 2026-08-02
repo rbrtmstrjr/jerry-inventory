@@ -71,7 +71,18 @@ export interface EngineRow {
   cost_centavos: number;
   price_centavos: number;
   warranty_months: number | null;
-  status: "in_master" | "delivered" | "sold" | "returned";
+  // The full `engine_status` enum. 0027 added 'in_transit' and 0069 added
+  // 'defective', but this type was never widened — so a `Record<EngineRow
+  // ["status"], …>` looked EXHAUSTIVE to tsc while the database could produce
+  // two values it had no key for. That is exactly how the Engines tab came to
+  // crash on an in-transit engine (see engines-table.tsx STATUS_BADGE).
+  status:
+    | "in_master"
+    | "in_transit"
+    | "delivered"
+    | "sold"
+    | "returned"
+    | "defective";
   shop_name: string | null;
   shop_color_key: string | null;
   image_path: string | null;

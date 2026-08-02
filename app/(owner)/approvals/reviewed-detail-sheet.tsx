@@ -34,6 +34,7 @@ const REASON_LABEL: Record<string, string> = {
   expired: "Expired",
   sample: "Sample / libre",
   correction: "Correction",
+  warranty: "Warranty replacement",
 };
 
 /** Small labelled block used throughout the drawer. */

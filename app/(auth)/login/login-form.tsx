@@ -219,7 +219,17 @@ function ForgotPasswordDialog({
     });
     setBusy(false);
     if (err) {
-      setError(err.message);
+      // Say it the way the sign-in error does. Raw provider strings ("email
+      // rate limit exceeded", 'Email address "x" is invalid') reach a shop
+      // employee who already cannot sign in, and tell them nothing to do next.
+      const code = (err as { code?: string }).code ?? "";
+      setError(
+        code === "over_email_send_rate_limit"
+          ? "Too many reset emails just went out. Wait a few minutes and try again, or ask the owner to change your password."
+          : code === "email_address_invalid"
+            ? "That email address isn't one we can send to. Check it, or ask the owner to change your password."
+            : err.message
+      );
       return;
     }
     setSent(true);
