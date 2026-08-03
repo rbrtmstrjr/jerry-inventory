@@ -20,6 +20,7 @@ const NEEDS_HTTP = new Set([
   "test-reports.mjs",
   "test-settings-documents.mjs",
   "test-ia-redirects.mjs",
+  "test-auth-confirm.mjs",
 ]);
 
 const withHttp = process.argv.includes("--with-http");
