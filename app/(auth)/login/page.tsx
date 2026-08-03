@@ -35,7 +35,7 @@ const SLIDES = [
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; notice?: string }>;
 }) {
   // Already signed in? Go straight to the right home.
   const profile = await getProfile().catch(() => null);
@@ -43,7 +43,7 @@ export default async function LoginPage({
 
   // /auth/callback bounces failed reset links back here with a plain-language
   // reason, so a dead link explains itself instead of silently doing nothing.
-  const { error } = await searchParams;
+  const { error, notice } = await searchParams;
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-2">
@@ -125,7 +125,7 @@ export default async function LoginPage({
               </div>
             </div>
 
-            <LoginForm initialError={error} />
+            <LoginForm initialError={error} initialNotice={notice} />
           </div>
         </div>
       </main>
