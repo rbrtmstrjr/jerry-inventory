@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Eye, EyeOff, Loader2, TriangleAlert } from "lucide-react";
+import { Eye, EyeOff, Loader2, MailCheck, TriangleAlert } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -27,11 +27,22 @@ const loginSchema = z.object({
 
 type LoginValues = z.infer<typeof loginSchema>;
 
-export function LoginForm({ initialError }: { initialError?: string }) {
+export function LoginForm({
+  initialError,
+  initialNotice,
+}: {
+  initialError?: string;
+  /** Neutral, non-alarming message — e.g. after an email change succeeds and
+   *  the user has to sign in again with the new address. */
+  initialNotice?: string;
+}) {
   const router = useRouter();
   const [serverError, setServerError] = React.useState<string | null>(
     initialError ?? null
   );
+  // Clears the moment they start typing — it describes what just happened, not
+  // the state of this form.
+  const [notice, setNotice] = React.useState<string | null>(initialNotice ?? null);
   // Stays true after a successful sign-in so the button keeps its loading
   // state while the redirect + server render are still in flight.
   const [redirecting, setRedirecting] = React.useState(false);
@@ -157,6 +168,17 @@ export function LoginForm({ initialError }: { initialError?: string }) {
             <p className="text-sm text-destructive">{errors.password.message}</p>
           )}
         </div>
+
+        {notice && !serverError && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+          >
+            <MailCheck className="mt-0.5 size-4 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        )}
 
         {serverError && (
           <div
