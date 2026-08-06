@@ -191,6 +191,44 @@ export function ApprovalsView({
   activeCategories: ActiveCategoryOption[];
 }) {
   const router = useRouter();
+
+  // ── One ordering rule for the whole queue: NEWEST SUBMISSION FIRST ────────
+  //
+  // The server fetches each type by `created_at` (when the shop rang the sale
+  // up). With ten branches submitting all day those interleave into noise on
+  // the type tabs: a sale recorded at 5pm by a shop that has not submitted yet
+  // outranks a batch that landed on Admin's desk at 7pm. Admin works through
+  // SUBMISSIONS, so submission time is the sort key everywhere — the batch
+  // cards on "All" and the flat lists on Sales / Losses / Expenses alike.
+  //
+  // Ties (everything inside one batch) fall back to record time, newest first,
+  // so a batch still reads top-to-bottom in the order the shop rang it up.
+  const bySubmittedThenRecorded = React.useCallback(
+    (
+      a: { batch_submitted_at: string | null; created_at: string },
+      b: { batch_submitted_at: string | null; created_at: string }
+    ) => {
+      // Compare as instants, not strings: PostgREST can hand back a different
+      // UTC offset per row, and "+08:00" sorts wrong against "+00:00" as text.
+      const t = (v: string | null) => (v ? Date.parse(v) : 0);
+      return t(b.batch_submitted_at) - t(a.batch_submitted_at) ||
+        Date.parse(b.created_at) - Date.parse(a.created_at);
+    },
+    []
+  );
+  const sortedSales = React.useMemo(
+    () => [...sales].sort(bySubmittedThenRecorded),
+    [sales, bySubmittedThenRecorded]
+  );
+  const sortedLosses = React.useMemo(
+    () => [...losses].sort(bySubmittedThenRecorded),
+    [losses, bySubmittedThenRecorded]
+  );
+  const sortedExpenses = React.useMemo(
+    () => [...expenses].sort(bySubmittedThenRecorded),
+    [expenses, bySubmittedThenRecorded]
+  );
+
   const [busy, setBusy] = React.useState<string | null>(null);
   const [dialog, setDialog] = React.useState<DialogState>(null);
   const [note, setNote] = React.useState("");
@@ -312,9 +350,11 @@ export function ApprovalsView({
     // #96 of 96, while the page reveals 5 at a time from the oldest end. FIFO
     // is only readable when the queue is a day's work; the moment Admin falls
     // behind, the thing a shop is waiting on is the thing furthest from view.
-    return [...map.values()].sort((a, b) =>
-      (b.submittedAt ?? "").localeCompare(a.submittedAt ?? "")
-    );
+    // Same instant-based rule as the type tabs above — never localeCompare on
+    // a timestamp: PostgREST can return a different UTC offset per row and
+    // "+08:00" sorts wrong against "+00:00" as text.
+    const t = (v: string | null) => (v ? Date.parse(v) : 0);
+    return [...map.values()].sort((a, b) => t(b.submittedAt) - t(a.submittedAt));
   }, [sales, losses, expenses]);
 
   // Scroll reveal for whichever tab is active. Only one list renders at a time
@@ -798,7 +838,7 @@ export function ApprovalsView({
             </div>
           ) : (
             <>
-              {sales.slice(0, visibleCount).map((s) => renderSaleCard(s, true))}
+              {sortedSales.slice(0, visibleCount).map((s) => renderSaleCard(s, true))}
               {visibleCount < sales.length && (
                 <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
                   Loading more… ({visibleCount} of {sales.length})
@@ -817,7 +857,7 @@ export function ApprovalsView({
             </div>
           ) : (
             <>
-              {losses.slice(0, visibleCount).map((l) => renderLossCard(l, true))}
+              {sortedLosses.slice(0, visibleCount).map((l) => renderLossCard(l, true))}
               {visibleCount < losses.length && (
                 <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
                   Loading more… ({visibleCount} of {losses.length})
@@ -836,7 +876,7 @@ export function ApprovalsView({
             </div>
           ) : (
             <>
-              {expenses.slice(0, visibleCount).map((e) => renderExpenseCard(e, true))}
+              {sortedExpenses.slice(0, visibleCount).map((e) => renderExpenseCard(e, true))}
               {visibleCount < expenses.length && (
                 <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
                   Loading more… ({visibleCount} of {expenses.length})
