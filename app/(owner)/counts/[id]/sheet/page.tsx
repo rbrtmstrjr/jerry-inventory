@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { Anchor } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { formatQty } from "@/lib/format";
 import { getBusinessIdentity } from "@/lib/business-identity";
 import { PrintButton } from "@/components/shell/print-button";
 
@@ -121,7 +122,7 @@ export default async function CountSheetPage({
                 <td className="py-2.5 font-mono text-xs">{l.barcode ?? ""}</td>
                 {!isBlind && (
                   <td className="py-2.5 text-right tabular-nums">
-                    {l.expected} {l.unit}
+                    {formatQty(l.expected)} {l.unit}
                   </td>
                 )}
                 <td className="py-2.5 text-right">

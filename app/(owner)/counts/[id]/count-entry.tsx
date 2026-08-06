@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty, parseQtyInput } from "@/lib/format";
 import Link from "next/link";
 import { format } from "date-fns";
 import { Loader2, Printer, Save, Search, Send } from "lucide-react";
@@ -83,11 +84,11 @@ const CountRow = React.memo(function CountRow({
         )}
       </TableCell>
       <TableCell className="text-right tabular-nums">
-        {line.expected_qty} {line.unit}
+        {formatQty(line.expected_qty)} {line.unit}
       </TableCell>
       <TableCell>
         <Input
-          inputMode="numeric"
+          inputMode="decimal"
           value={value}
           onChange={(e) => onCountChange(line.id, e.target.value)}
           placeholder="—"
@@ -197,7 +198,7 @@ export function CountEntry({
   function varianceOf(l: CountLine): number | null {
     const raw = counts[l.id];
     if (raw === "" || raw === undefined) return null;
-    const n = parseInt(raw, 10);
+    const n = parseQtyInput(raw);
     if (isNaN(n)) return null;
     return n - l.expected_qty;
   }
@@ -217,7 +218,7 @@ export function CountEntry({
         payload.push({ line_id: l.id, counted_qty: null });
         continue;
       }
-      const n = parseInt(raw, 10);
+      const n = parseQtyInput(raw);
       if (isNaN(n) || n < 0) {
         toast.error(`${l.part_name}: invalid count`);
         return;
@@ -240,7 +241,7 @@ export function CountEntry({
       snapshot_id: snapshotId,
       lines: lines.map((l) => ({
         line_id: l.id,
-        counted_qty: counts[l.id] === "" ? null : parseInt(counts[l.id], 10),
+        counted_qty: counts[l.id] === "" ? null : parseQtyInput(counts[l.id]),
       })),
     });
     if (!saveRes.ok) {

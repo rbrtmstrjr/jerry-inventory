@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { qtySchema } from "@/lib/qty-schema";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, isPrimaryOwner } from "@/lib/auth";
@@ -35,7 +36,7 @@ const addProductSchema = z
     unit: z.string().trim().min(1).default("pc"),
     cost_centavos: z.number().int().min(0),
     price_centavos: z.number().int().min(0),
-    qty: z.number().int().min(0).default(0),
+    qty: qtySchema({ allowZero: true }).default(0),
     reorder_level: z.number().int().min(0).default(0),
     preferred_supplier_id: z.uuid().nullable().default(null),
   })

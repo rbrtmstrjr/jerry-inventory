@@ -5,7 +5,7 @@ import { Anchor } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { getBusinessIdentity } from "@/lib/business-identity";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { PrintButton } from "@/components/shell/print-button";
 
 export const metadata: Metadata = { title: "Delivery Note" };
@@ -55,11 +55,11 @@ export default async function ShopDeliveryNotePage({
   // cost + selling come straight off the safe view (0064), read live from master
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const totalCost = lines.reduce(
-    (s: number, l: any) => s + qtyOf(l) * (l.cost_centavos ?? 0),
+    (s: number, l: any) => s + Math.round(qtyOf(l) * (l.cost_centavos ?? 0)),
     0
   );
   const totalSelling = lines.reduce(
-    (s: number, l: any) => s + qtyOf(l) * (l.price_centavos ?? 0),
+    (s: number, l: any) => s + Math.round(qtyOf(l) * (l.price_centavos ?? 0)),
     0
   );
   /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -132,7 +132,7 @@ export default async function ShopDeliveryNotePage({
                 <td className="py-2 text-muted-foreground">{i + 1}</td>
                 <td className="py-2">{l.name}</td>
                 <td className="py-2 text-right tabular-nums">
-                  {qtyOf(l)} {l.unit}
+                  {formatQty(qtyOf(l))} {l.unit}
                 </td>
                 <td className="py-2 text-right tabular-nums">
                   {formatCentavos(l.cost_centavos ?? 0)}
@@ -149,7 +149,7 @@ export default async function ShopDeliveryNotePage({
                   {l.name}
                   <span className="ml-2 font-mono text-xs">SN {l.serial_number}</span>
                 </td>
-                <td className="py-2 text-right tabular-nums">{qtyOf(l)} unit</td>
+                <td className="py-2 text-right tabular-nums">{formatQty(qtyOf(l))} unit</td>
                 <td className="py-2 text-right tabular-nums">
                   {formatCentavos(l.cost_centavos ?? 0)}
                 </td>

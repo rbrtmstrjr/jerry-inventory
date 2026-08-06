@@ -19,7 +19,7 @@ import {
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -307,9 +307,13 @@ export function ApprovalsView({
     for (const e of expenses) {
       groupFor(e.batch_id, e.shop_name, e.shop_color_key, e.batch_submitted_at).expenses.push(e);
     }
-    // oldest submission first — Admin clears the queue in arrival order
+    // Newest submission first. This was arrival order (FIFO) until a shop
+    // reported "I submitted a sale and it never showed up" — it had, as batch
+    // #96 of 96, while the page reveals 5 at a time from the oldest end. FIFO
+    // is only readable when the queue is a day's work; the moment Admin falls
+    // behind, the thing a shop is waiting on is the thing furthest from view.
     return [...map.values()].sort((a, b) =>
-      (a.submittedAt ?? "").localeCompare(b.submittedAt ?? "")
+      (b.submittedAt ?? "").localeCompare(a.submittedAt ?? "")
     );
   }, [sales, losses, expenses]);
 
@@ -492,7 +496,7 @@ export function ApprovalsView({
                       Engine
                     </Badge>
                   )}
-                  {l.description} × {l.qty}
+                  {l.description} × {formatQty(l.qty)}
                 </span>
                 <span className="tabular-nums">
                   {formatCentavos(l.line_total_centavos)}
@@ -569,7 +573,7 @@ export function ApprovalsView({
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-base">
-              {l.description} × {l.qty}
+              {l.description} × {formatQty(l.qty)}
               <Badge variant="outline" className="ml-2">
                 {REASON_LABEL[l.reason]}
               </Badge>

@@ -27,7 +27,7 @@ import {
 
 import { toast } from "sonner";
 
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import { exportSalesCsv } from "./actions";
 import { isShopColorKey, shopColorVars } from "@/lib/shop-colors";
@@ -587,7 +587,7 @@ export function ReportsView({
                         <ShopBadge shop={badgeShop(r.shop)} variant="text" />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        <span className="font-semibold text-destructive">{r.qty}</span> / {r.reorder_level}
+                        <span className="font-semibold text-destructive">{formatQty(r.qty)}</span> / {r.reorder_level}
                       </TableCell>
                     </TableRow>
                   ))}

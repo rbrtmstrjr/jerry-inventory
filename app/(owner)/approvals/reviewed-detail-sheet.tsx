@@ -12,7 +12,7 @@ import {
   User,
 } from "lucide-react";
 
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import type { ShopOption } from "@/lib/db-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -247,7 +247,7 @@ function Movements({
                     m.qty_change < 0 ? "text-destructive" : "text-success"
                   }`}
                 >
-                  {m.qty_change > 0 ? `+${m.qty_change}` : m.qty_change}
+                  {m.qty_change > 0 ? `+${formatQty(m.qty_change)}` : formatQty(m.qty_change)}
                 </span>
               </span>
             </div>
@@ -288,7 +288,7 @@ function SaleBody({ d }: { d: Extract<ReviewedDetail, { type: "sale" }> }) {
                 </span>
               </div>
               <div className="text-xs text-muted-foreground">
-                {l.qty} × {formatCentavos(l.unit_price_centavos)}
+                {formatQty(l.qty)} × {formatCentavos(l.unit_price_centavos)}
                 {l.serial_number && (
                   <span className="ml-2 font-mono">SN {l.serial_number}</span>
                 )}
@@ -318,7 +318,7 @@ function SaleBody({ d }: { d: Extract<ReviewedDetail, { type: "sale" }> }) {
                 <div className="text-xs text-muted-foreground">
                   <span className="font-medium">Owner-only:</span> cost{" "}
                   {formatCentavos(l.cost_centavos)} · margin{" "}
-                  {formatCentavos(l.line_total_centavos - l.cost_centavos * l.qty)}
+                  {formatCentavos(l.line_total_centavos - Math.round(l.cost_centavos * l.qty))}
                 </div>
               )}
             </div>
@@ -425,7 +425,7 @@ function LossBody({ d }: { d: Extract<ReviewedDetail, { type: "loss" }> }) {
         <div className="rounded-md border p-2.5">
           <div className="flex justify-between gap-2">
             <span className="font-medium">
-              {d.description} × {d.qty}
+              {d.description} × {formatQty(d.qty)}
             </span>
             <Badge variant="outline">{REASON_LABEL[d.reason] ?? d.reason}</Badge>
           </div>

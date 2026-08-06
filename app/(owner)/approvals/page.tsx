@@ -135,7 +135,7 @@ async function ApprovalsBody({
           )
           .in("status", ["pending", "questioned"])
           .is("deleted_at", null)
-          .order("created_at", { ascending: true })
+          .order("created_at", { ascending: false })
       : empty,
     wantLosses
       ? supabase
@@ -148,7 +148,7 @@ async function ApprovalsBody({
           )
           .in("status", ["pending", "questioned"])
           .is("deleted_at", null)
-          .order("created_at", { ascending: true })
+          .order("created_at", { ascending: false })
       : empty,
     wantExpenses
       ? supabase
@@ -164,7 +164,7 @@ async function ApprovalsBody({
           .eq("source", "shop")
           .in("status", ["pending", "questioned"])
           .is("deleted_at", null)
-          .order("created_at", { ascending: true })
+          .order("created_at", { ascending: false })
       : empty,
     supabase
       .from("expense_categories")

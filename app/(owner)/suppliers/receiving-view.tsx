@@ -24,7 +24,7 @@ import type { ReceivingRow } from "@/lib/db-types";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { ph_today } from "@/lib/ph-date";
-import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
+import { formatCentavos, parsePesosToCentavos, formatQty, parseQtyInput } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,6 +46,7 @@ import { DatePicker } from "@/components/date-picker";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { UnitSelect } from "@/components/unit-select";
 import {
   Popover,
   PopoverContent,
@@ -348,11 +349,10 @@ function NewProductDialog({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="np-unit">Unit</Label>
-              <Input
+              <UnitSelect
                 id="np-unit"
                 value={d.unit}
-                onChange={(e) => set({ unit: e.target.value })}
-                placeholder="pc"
+                onChange={(unit) => set({ unit })}
               />
             </div>
           </div>
@@ -400,7 +400,7 @@ function NewProductDialog({
               <Label htmlFor="np-reorder">Reorder level</Label>
               <Input
                 id="np-reorder"
-                inputMode="numeric"
+                inputMode="decimal"
                 value={d.reorder_level}
                 onChange={(e) => set({ reorder_level: e.target.value })}
               />
@@ -516,7 +516,7 @@ function NewModelDialog({
               <Label htmlFor="nm-warranty">Warranty (mo)</Label>
               <Input
                 id="nm-warranty"
-                inputMode="numeric"
+                inputMode="decimal"
                 value={d.default_warranty_months}
                 onChange={(e) => set({ default_warranty_months: e.target.value })}
               />
@@ -588,7 +588,7 @@ function BulkNewProductsDialog({
     }
     const lines: PartLine[] = [];
     for (const [i, r] of filled.entries()) {
-      const qty = parseInt(r.qty || "0", 10);
+      const qty = parseQtyInput(r.qty || "0");
       if (isNaN(qty) || qty <= 0) {
         toast.error(`Row ${i + 1} (${r.name}): qty must be positive`);
         return;
@@ -688,10 +688,10 @@ function BulkNewProductsDialog({
                     <Label className="text-xs" htmlFor={`bulk-unit-${i}`}>
                       Unit
                     </Label>
-                    <Input
+                    <UnitSelect
                       id={`bulk-unit-${i}`}
                       value={r.unit}
-                      onChange={(e) => setRow(i, { unit: e.target.value })}
+                      onChange={(unit) => setRow(i, { unit })}
                     />
                   </div>
                 </div>
@@ -730,7 +730,7 @@ function BulkNewProductsDialog({
                     </Label>
                     <Input
                       id={`bulk-qty-${i}`}
-                      inputMode="numeric"
+                      inputMode="decimal"
                       value={r.qty}
                       onChange={(e) => setRow(i, { qty: e.target.value })}
                     />
@@ -763,7 +763,7 @@ function BulkNewProductsDialog({
                     </Label>
                     <Input
                       id={`bulk-reorder-${i}`}
-                      inputMode="numeric"
+                      inputMode="decimal"
                       value={r.reorder}
                       onChange={(e) => setRow(i, { reorder: e.target.value })}
                       onKeyDown={(e) => {
@@ -943,12 +943,12 @@ function ReceivingDetailDialog({
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{l.qty}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatQty(l.qty)}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCentavos(l.unit_cost_centavos)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatCentavos(l.qty * l.unit_cost_centavos)}
+                        {formatCentavos(Math.round(l.qty * l.unit_cost_centavos))}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1108,7 +1108,7 @@ export function ReceivingView({
   const total = React.useMemo(() => {
     let t = 0;
     for (const l of partLines) {
-      const qty = parseInt(l.qty || "0", 10);
+      const qty = parseQtyInput(l.qty || "0");
       const cost = parsePesosToCentavos(l.unit_cost || "0");
       if (!isNaN(qty) && qty > 0 && cost !== null) t += qty * cost;
     }
@@ -1172,7 +1172,7 @@ export function ReceivingView({
         toast.error(`Part line ${i + 1}: pick an item or create it as new`);
         return;
       }
-      const qty = parseInt(l.qty || "0", 10);
+      const qty = parseQtyInput(l.qty || "0");
       const cost = parsePesosToCentavos(l.unit_cost || "0");
       if (isNaN(qty) || qty <= 0) {
         toast.error(`Part line ${i + 1}: qty must be positive`);
@@ -1515,7 +1515,7 @@ export function ReceivingView({
                           />
                         )}
                         <Input
-                          inputMode="numeric"
+                          inputMode="decimal"
                           value={l.qty}
                           onChange={(e) => updatePartLine(i, { qty: e.target.value })}
                           aria-label="Quantity"
@@ -1694,7 +1694,7 @@ export function ReceivingView({
                           aria-label="Price in pesos"
                         />
                         <Input
-                          inputMode="numeric"
+                          inputMode="decimal"
                           value={l.warranty_months}
                           onChange={(e) =>
                             updateEngineLine(i, { warranty_months: e.target.value })

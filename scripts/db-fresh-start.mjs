@@ -114,9 +114,14 @@ const keepIds = new Set([adminUser.id, ...(officeProfs ?? []).map((p) => p.id)])
 
 console.log(`\n${YES ? "DELETING" : "DRY RUN (pass --yes to delete)"}:`);
 for (const t of WIPE_ORDER) if (counts[t]) console.log(`  ${t}: ${counts[t]} row(s)`);
-console.log(`  profiles: ${counts.profiles - 1} of ${counts.profiles} (admin kept)`);
+// Report the REAL keep-set. This said "1 of 17 kept" while keepIds actually
+// held the owner plus every admin (0099) — an understated survivor count in
+// the last prompt before an irreversible wipe is the wrong way to be wrong.
+const keptEmails = users.filter((u) => keepIds.has(u.id)).map((u) => u.email);
+console.log(`  profiles: ${counts.profiles - keepIds.size} of ${counts.profiles}`);
 console.log(`  shops: ${counts.shops} row(s)`);
-console.log(`  auth users: ${users.length - 1} of ${users.length} (${adminUser.email} kept)`);
+console.log(`  auth users: ${users.length - keptEmails.length} of ${users.length}`);
+console.log(`  KEEPING ${keptEmails.length} office login(s): ${keptEmails.join(", ")}`);
 console.log(`  + all objects in product-images and receipts buckets`);
 console.log(`KEPT: ${KEEP.join(", ")}, admin login`);
 if (!YES) process.exit(0);

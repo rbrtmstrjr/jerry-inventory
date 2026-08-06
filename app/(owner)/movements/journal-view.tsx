@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { formatQty } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 
@@ -278,10 +279,10 @@ export function JournalView({
                         </Badge>
                       </td>
                       <td className="py-2.5 text-right tabular-nums">
-                        {r.qty_in > 0 ? r.qty_in : ""}
+                        {r.qty_in > 0 ? formatQty(r.qty_in) : ""}
                       </td>
                       <td className="py-2.5 text-right tabular-nums">
-                        {r.qty_out > 0 ? r.qty_out : ""}
+                        {r.qty_out > 0 ? formatQty(r.qty_out) : ""}
                       </td>
                       <td className="py-2.5">
                         {src ? (

@@ -22,7 +22,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { ph_today } from "@/lib/ph-date";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { computePnl } from "@/lib/pnl";
 import { productImageUrl } from "@/lib/product-image";
 import { getDashboardSummary, getTopProducts } from "@/lib/dashboard";
@@ -278,7 +278,7 @@ async function TopProductsCard({
                   <div className="truncate text-base font-semibold">{topProducts[0].name}</div>
                 </div>
                 <div className="shrink-0 text-right leading-none">
-                  <div className="text-2xl font-bold tabular-nums">{topProducts[0].qty}</div>
+                  <div className="text-2xl font-bold tabular-nums">{formatQty(topProducts[0].qty)}</div>
                   <div className="mt-1 text-[11px] text-muted-foreground">sold</div>
                 </div>
               </div>
@@ -293,7 +293,7 @@ async function TopProductsCard({
                     </span>
                     <span className="min-w-0 flex-1 truncate">{t.name}</span>
                     <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-                      {t.qty} sold
+                      {formatQty(t.qty)} sold
                     </span>
                   </div>
                 ))}

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { UnitSelect } from "@/components/unit-select";
 import {
   Select,
   SelectContent,
@@ -235,7 +236,11 @@ export function PartFormDialog({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="part-unit">Unit</Label>
-              <Input id="part-unit" {...register("unit")} placeholder="pc / liter / meter" />
+              <UnitSelect
+                id="part-unit"
+                value={watch("unit")}
+                onChange={(u) => setValue("unit", u, { shouldValidate: true })}
+              />
               {errors.unit && <p className="text-sm text-destructive">{errors.unit.message}</p>}
             </div>
           </div>
