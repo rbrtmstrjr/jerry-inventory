@@ -19,8 +19,16 @@ import {
 import { toast } from "sonner";
 
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
+
 import { cn } from "@/lib/utils";
-import { formatCentavos, parsePesosToCentavos } from "@/lib/format";
+import {
+  formatCentavos,
+  formatQty,
+  parsePesosToCentavos,
+  parseQty,
+  sanitizeQtyInput,
+} from "@/lib/format";
+import { useUnits } from "@/components/unit-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProductThumb, ProductCardImage } from "@/components/product-image";
@@ -36,6 +44,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { lookupDiscountCard, recordSale, type SukiCardInfo } from "../actions";
+
+/**
+ * A sellable line on the picker.
+ *
+ * `qty` is the SHELF — what a physical count would find. `available` is what is
+ * genuinely still sellable: the shelf minus everything already committed to a
+ * sale this shop recorded but the owner has not approved yet.
+ *
+ * The two differ because stock only moves on approval. Without the split, four
+ * sales recorded against one 3 kg bag each looked affordable on its own and the
+ * owner's whole batch then failed atomically at approval, naming only the last
+ * line. The picker clamps on `available`; `committed` is shown so the cashier
+ * knows WHY the number is lower than the bag in front of them.
+ */
+export type StockOption = ShopStockRow & {
+  available: number;
+  committed: number;
+};
 
 interface CartPart {
   kind: "part";
@@ -126,7 +152,7 @@ export function RecordSaleForm({
   engines,
   fitmentHints = {},
 }: {
-  stock: ShopStockRow[];
+  stock: StockOption[];
   engines: ShopEngineRow[];
   /** part_id → "Yamaha Enduro E40GMHL 40HP, …" */
   fitmentHints?: Record<string, string>;
@@ -204,8 +230,13 @@ export function RecordSaleForm({
   }, [cart, custName, custPhone]);
 
   const hasEngine = cart.some((l) => l.kind === "engine");
+  // Round PER LINE, then sum — exactly what fn_record_sale does. A fractional
+  // qty makes price × qty fractional centavos (0.3 kg × ₱75.92 = 2277.6), and
+  // summing unrounded then rounding once gives a different answer. That
+  // difference is a receipt that disagrees with the sale it came from.
   const total = cart.reduce(
-    (s, l) => s + (l.kind === "part" ? partPrice(l) * l.qty : engineAgreed(l)),
+    (s, l) =>
+      s + (l.kind === "part" ? Math.round(partPrice(l) * l.qty) : engineAgreed(l)),
     0
   );
 
@@ -312,6 +343,16 @@ export function RecordSaleForm({
   const cartQtyOf = (partId: string) =>
     cart.find((l): l is CartPart => l.kind === "part" && l.part_id === partId)?.qty ?? 0;
 
+  // Which units may be sold in tenths. Read from `units` rather than joining it
+  // into shop_stock: the safe views were dropped and rebuilt once already
+  // (0116) and every rebuild is a chance to lose a grant or security_barrier.
+  // A 7-row lookup on a table the shop can already read is the cheaper risk.
+  const units = useUnits();
+  const isFractional = React.useCallback(
+    (unit: string) => units.some((u) => u.code === unit && u.allows_fractional),
+    [units]
+  );
+
   /** A barcode scanner types into whatever holds focus, and its trailing Enter
    *  ACTIVATES a focused <button>. So a cashier who taps a product tile and
    *  then scans the next item gets the tapped item added a second time while
@@ -332,11 +373,15 @@ export function RecordSaleForm({
     }
   };
 
-  function addPart(p: ShopStockRow) {
+  function addPart(p: StockOption) {
     refocusScan();
     // never let the cart exceed what's on hand — the owner would reject it anyway
-    if (cartQtyOf(p.part_id) >= p.qty) {
-      toast.error(`Only ${p.qty} ${p.unit} of ${p.name} on hand`);
+    if (cartQtyOf(p.part_id) >= p.available) {
+      toast.error(
+        p.committed > 0
+          ? `Only ${formatQty(p.available)} ${p.unit} of ${p.name} left — ${formatQty(p.committed)} is already on a sale waiting for Admin`
+          : `Only ${formatQty(p.available)} ${p.unit} of ${p.name} on hand`
+      );
       return;
     }
     setCart((c) => {
@@ -364,7 +409,7 @@ export function RecordSaleForm({
               ? sukiPrice(p.price_centavos, p.cost_centavos, suki.part_pct)
               : p.price_centavos) / 100
           ).toFixed(2),
-          available: p.qty,
+          available: p.available,
           qty: 1,
         },
       ];
@@ -458,8 +503,12 @@ export function RecordSaleForm({
     toast.error(`No match for "${code}" in your shop stock`);
   }
 
-  function setQty(partId: string, qty: number) {
-    refocusScan(); // the −/+ buttons park focus too — see refocusScan
+  /** `keepFocus` when the change came from typing in the quantity box: that
+   *  commits on blur, and stealing focus back to the scanner would fight the
+   *  cashier who was tabbing to the price field. The −/+ buttons still hand
+   *  focus back, because those DO park it on a button. */
+  function setQty(partId: string, qty: number, keepFocus = false) {
+    if (!keepFocus) refocusScan(); // see refocusScan
     if (qty <= 0) {
       setCart((c) => c.filter((l) => !(l.kind === "part" && l.part_id === partId)));
       return;
@@ -475,6 +524,10 @@ export function RecordSaleForm({
 
   const q = search.trim().toLowerCase();
   // only sellable stock is browsable — a 0-on-hand item can't be sold
+  // Filter on the SHELF, not on `available`: an item whose whole stock is
+  // already committed to an unapproved sale must stay visible and say so
+  // ("0 left · 4.8 awaiting Admin"). Vanishing from the picker while a full bag
+  // sits on the counter is the more confusing failure.
   const inStock = stock.filter((p) => p.qty > 0);
   const matches = q
     ? inStock.filter(
@@ -511,7 +564,7 @@ export function RecordSaleForm({
       const price = l.kind === "part" ? partPrice(l) : engineAgreed(l);
       const max = sukiMaxOf(l);
       if (l.kind === "part" && l.qty > l.available) {
-        toast.error(`${l.name}: only ${l.available} ${l.unit} on hand`);
+        toast.error(`${l.name}: only ${formatQty(l.available)} ${l.unit} on hand`);
         return;
       }
       if (l.kind === "engine" && price <= 0) {
@@ -649,7 +702,12 @@ export function RecordSaleForm({
                 <div className="flex flex-col gap-1.5">
                   {matches.map((p) => {
                     // everything on hand is already in the cart — nothing left to add
-                    const maxed = cartQtyOf(p.part_id) >= p.qty;
+                    // "all in cart" only when the cart is what used it up —
+                    // with 0 available and an empty cart the item is blocked by
+                    // an EARLIER unapproved sale, which the caption already says.
+                    const inCart = cartQtyOf(p.part_id);
+                    const maxed = inCart >= p.available;
+                    const usedByCart = maxed && inCart > 0;
                     return (
                       <button
                         key={p.part_id}
@@ -663,8 +721,10 @@ export function RecordSaleForm({
                           <span className="min-w-0">
                             <span className="block truncate font-medium">{p.name}</span>
                             <span className="block truncate text-xs text-muted-foreground">
-                              {p.qty} {p.unit} on hand
-                              {maxed && " · all in cart"}
+                              {formatQty(p.available)} {p.unit} left
+                              {p.committed > 0 &&
+                                ` · ${formatQty(p.committed)} awaiting Admin`}
+                              {usedByCart && " · all in cart"}
                               {fitmentHints[p.part_id] &&
                                 ` · Fits: ${fitmentHints[p.part_id]}`}
                             </span>
@@ -713,7 +773,12 @@ export function RecordSaleForm({
                 /* Card grid — image-first so an unfamiliar name is still recognisable */
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                   {matches.map((p) => {
-                    const maxed = cartQtyOf(p.part_id) >= p.qty;
+                    // "all in cart" only when the cart is what used it up —
+                    // with 0 available and an empty cart the item is blocked by
+                    // an EARLIER unapproved sale, which the caption already says.
+                    const inCart = cartQtyOf(p.part_id);
+                    const maxed = inCart >= p.available;
+                    const usedByCart = maxed && inCart > 0;
                     return (
                       <button
                         key={p.part_id}
@@ -726,8 +791,8 @@ export function RecordSaleForm({
                         <div className="flex min-w-0 flex-col gap-0.5 p-2">
                           <span className="truncate text-xs font-medium">{p.name}</span>
                           <span className="truncate text-[11px] text-muted-foreground">
-                            {p.qty} {p.unit}
-                            {maxed && " · in cart"}
+                            {formatQty(p.available)} {p.unit}
+                            {usedByCart && " · in cart"}
                           </span>
                           <span className="text-xs font-semibold tabular-nums">
                             {formatCentavos(p.price_centavos)}
@@ -798,8 +863,9 @@ export function RecordSaleForm({
                       key={l.part_id}
                       line={l}
                       sukiMax={sukiMaxOf(l)}
+                      fractional={isFractional(l.unit)}
                       onPriceChange={(raw) => setPartPrice(l.part_id, raw)}
-                      onQty={(qty) => setQty(l.part_id, qty)}
+                      onQty={(qty, keepFocus) => setQty(l.part_id, qty, keepFocus)}
                     />
                   ) : (
                     <EngineCartLine
@@ -1081,16 +1147,55 @@ export function RecordSaleForm({
 function PartCartLine({
   line,
   sukiMax,
+  fractional,
   onPriceChange,
   onQty,
 }: {
   line: CartPart;
   sukiMax: number | null;
+  /** The product's unit allows tenths (kilos, not pieces) — see units.allows_fractional. */
+  fractional: boolean;
   onPriceChange: (raw: string) => void;
-  onQty: (qty: number) => void;
+  onQty: (qty: number, keepFocus?: boolean) => void;
 }) {
   const price = partPrice(line);
   const below = price <= line.cost_centavos;
+  const step = fractional ? 0.1 : 1;
+
+  // Typed quantity is held as text while editing so "0." and "1." are not
+  // fought mid-keystroke; it commits on blur.
+  const [qtyRaw, setQtyRaw] = React.useState(String(line.qty));
+  React.useEffect(() => setQtyRaw(formatQty(line.qty)), [line.qty]);
+
+  function commitQty() {
+    const parsed = parseQty(qtyRaw, { allowFractional: fractional });
+    if (parsed === null) {
+      setQtyRaw(formatQty(line.qty)); // refuse silently, restore what was there
+      return;
+    }
+    const capped = Math.min(parsed, line.available);
+
+    // Write the box back from the CAPPED number, always. The effect above only
+    // resyncs when `line.qty` changes, so typing 3.5 against 1.1 available —
+    // where the line is ALREADY 1.1 — clamped the state correctly and left the
+    // box reading 3.5. The cashier then sees a quantity the sale will not store.
+    setQtyRaw(formatQty(capped));
+    if (capped < parsed) {
+      toast.error(
+        `Only ${formatQty(line.available)} ${line.unit} left to sell — set to ${formatQty(capped)}`
+      );
+    }
+    onQty(capped, true);
+  }
+
+  // One step at a time. Reaching 0 removes the line — that is how the cashier
+  // already deletes an item, and it must keep working for weighed goods too.
+  // The ×10/÷10 is not decoration: 0.1 + 0.2 is 0.30000000000000004 in binary
+  // floating point, and that lands in a numeric(12,1) column.
+  // Capped as well as disabled at the button: belt and braces, since the same
+  // handler is reachable from the keyboard.
+  const bump = (by: number) =>
+    onQty(Math.min(Math.round((line.qty + by) * 10) / 10, line.available));
 
   return (
     <div className="flex flex-col gap-2 rounded-md border bg-card px-3 py-2.5 shadow-sm">
@@ -1098,9 +1203,11 @@ function PartCartLine({
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{line.name}</div>
           <div className="text-xs text-muted-foreground tabular-nums">
-            {formatCentavos(price)} × {line.qty} ={" "}
+            {formatCentavos(price)} × {formatQty(line.qty)} {line.unit} ={" "}
             <span className="font-medium text-foreground">
-              {formatCentavos(price * line.qty)}
+              {/* Math.round mirrors the server's round(v_unit * qty) — the
+                  cashier must never see a total the sale will not store. */}
+              {formatCentavos(Math.round(price * line.qty))}
             </span>
           </div>
         </div>
@@ -1109,17 +1216,47 @@ function PartCartLine({
             variant="outline"
             size="icon-sm"
             aria-label="Decrease"
-            onClick={() => onQty(line.qty - 1)}
+            onClick={() => bump(-step)}
           >
             <Minus className="size-3" />
           </Button>
-          <span className="w-8 text-center tabular-nums text-sm">{line.qty}</span>
+
+          {fractional ? (
+            // Sold by weight: the customer asks for a *tingi*, so the quantity
+            // has to be typed. −/+ still work, a tenth at a time, because the
+            // counter is often used one-handed.
+            <Input
+              inputMode="decimal"
+              aria-label={`Quantity in ${line.unit}`}
+              value={qtyRaw}
+              // sanitizeQtyInput, not a bare character strip: this masks a
+              // second decimal and a second dot as they are typed, so the box
+              // can never show a value the database would refuse.
+              onChange={(e) => setQtyRaw(sanitizeQtyInput(e.target.value))}
+              onBlur={commitQty}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitQty();
+                  // Same rule as the price boxes: Enter hands focus back to the
+                  // scanner, so the next scan is not typed into this field.
+                  document
+                    .getElementById(SCAN_INPUT_ID)
+                    ?.focus({ preventScroll: true });
+                }
+              }}
+              className="h-8 w-16 px-2 text-center text-sm tabular-nums"
+            />
+          ) : (
+            <span className="w-8 text-center tabular-nums text-sm">{formatQty(line.qty)}</span>
+          )}
+
           <Button
             variant="outline"
             size="icon-sm"
             aria-label="Increase"
             disabled={line.qty >= line.available}
-            onClick={() => onQty(line.qty + 1)}
+            onClick={() => bump(step)}
           >
             <Plus className="size-3" />
           </Button>

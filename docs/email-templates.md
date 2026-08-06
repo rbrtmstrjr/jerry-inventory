@@ -155,23 +155,111 @@ Two details that matter and are easy to miss:
 
 **Subject:** `Reset your Gerwin Trading password`
 
-Same shell as above. Change the heading to `Reset your password`, the body copy
-to the wording below, and **both** URLs (button and plain-text) to:
+### This one keeps `{{ .ConfirmationURL }}` — do NOT convert it to a token hash
 
+Password reset and email change use **different mechanisms**, and only one of
+them was broken:
+
+| Flow | Called by | Supabase returns | Handled by |
+|---|---|---|---|
+| **Reset password** | `resetPasswordForEmail` (PKCE) | `?code=…` in the **query** | `/auth/callback` ✅ always worked |
+| **Change email** | `updateUser({ email })` | result in the **fragment** | nothing could read it ❌ |
+
+Reset is a PKCE flow: the browser that asked for it holds a code verifier in a
+cookie, Supabase hands back a one-time `code` in the query string, and
+`/auth/callback` exchanges it. `{{ .ConfirmationURL }}` produces exactly that.
+
+Rewriting it to `{{ .RedirectTo }}?token_hash=…` breaks it twice over:
+`{{ .RedirectTo }}` here is already `…/auth/callback?next=/auth/reset` — it has a
+query string, so appending `?` makes a malformed URL — and `/auth/callback`
+reads `code`, not `token_hash`.
+
+**So: restyle the reset email, don't re-plumb it.**
+
+```html
+<body style="margin:0;padding:0;background-color:#f1f5f9;">
+  <span style="display:none;font-size:1px;color:#f1f5f9;max-height:0;overflow:hidden;">
+    Choose a new password for your Gerwin Trading account.
+  </span>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;">
+    <tr>
+      <td align="center" style="padding:32px 12px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border-radius:12px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+
+          <tr>
+            <td style="background-color:#1e293b;padding:24px 32px;">
+              <div style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:-0.01em;">Gerwin Trading</div>
+              <div style="color:#94a3b8;font-size:13px;margin-top:2px;">Inventory &amp; Approvals</div>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:32px;">
+              <h1 style="margin:0 0 16px;font-size:20px;line-height:1.4;color:#0f172a;font-weight:700;">
+                Reset your password
+              </h1>
+
+              <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#334155;">
+                A password reset was requested for your Gerwin Trading account.
+                Choose a new password using the link below.
+              </p>
+
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+                <tr>
+                  <td style="border-radius:8px;background-color:#2563eb;">
+                    <a href="{{ .ConfirmationURL }}"
+                       style="display:inline-block;padding:13px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">
+                      Choose a new password
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#64748b;">
+                This link works once and expires in one hour. Open it in the same
+                browser you requested it from.
+              </p>
+
+              <p style="margin:0;font-size:14px;line-height:1.6;color:#64748b;">
+                If you didn't request this, ignore this email — your password
+                stays exactly as it is.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:0 32px 28px;">
+              <div style="border-top:1px solid #e2e8f0;padding-top:16px;">
+                <p style="margin:0 0 6px;font-size:12px;color:#94a3b8;">
+                  If the button doesn't work, paste this into your browser:
+                </p>
+                <p style="margin:0;font-size:12px;line-height:1.5;color:#2563eb;word-break:break-all;">
+                  {{ .ConfirmationURL }}
+                </p>
+              </div>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background-color:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;">
+              <p style="margin:0;font-size:12px;line-height:1.5;color:#94a3b8;">
+                Gerwin Trading · Inventory &amp; Approvals<br />
+                This is an automated message — please don't reply.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
 ```
-{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery
-```
 
-Body copy:
-
-> A password reset was requested for your Gerwin Trading account. Choose a new
-> password using the link below.
->
-> This link works once and expires in one hour. If you didn't request it, ignore
-> this email — your password stays as it is.
-
-Note `type=recovery`, and that `{{ .RedirectTo }}` here is the value the login
-form's "Forgot password?" dialog passes, which already targets `/auth/callback`.
+**"Open it in the same browser you requested it from"** is not filler. PKCE keeps
+the code verifier in a cookie belonging to the requesting browser, so a link
+requested on a laptop and opened on a phone genuinely cannot work — and without
+that line it looks like a broken link.
 
 ---
 

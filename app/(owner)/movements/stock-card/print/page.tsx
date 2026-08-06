@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { formatQty } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { Anchor, BookOpen } from "lucide-react";
 
@@ -127,8 +128,8 @@ export default async function StockCardPrintPage({
                 <td className="whitespace-nowrap py-2">{phDate(r.created_at)}</td>
                 <td className="py-2 font-mono text-xs">{r.reference ?? ""}</td>
                 <td className="py-2">{r.particulars}</td>
-                <td className="py-2 text-right tabular-nums">{r.qty_in ? r.qty_in : ""}</td>
-                <td className="py-2 text-right tabular-nums">{r.qty_out ? r.qty_out : ""}</td>
+                <td className="py-2 text-right tabular-nums">{r.qty_in ? formatQty(r.qty_in) : ""}</td>
+                <td className="py-2 text-right tabular-nums">{r.qty_out ? formatQty(r.qty_out) : ""}</td>
                 <td className="py-2 text-right tabular-nums">{r.balance}</td>
               </tr>
             ))}

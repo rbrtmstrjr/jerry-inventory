@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty } from "@/lib/format";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ColumnDef } from "@tanstack/react-table";
@@ -132,7 +133,7 @@ export function StockAlertsView({
       header: ({ column }) => <SortableHeader column={column}>On hand</SortableHeader>,
       cell: ({ row }) => (
         <span className="tabular-nums font-semibold text-destructive">
-          {row.original.on_hand} {row.original.unit}
+          {formatQty(row.original.on_hand)} {row.original.unit}
         </span>
       ),
     },
@@ -188,7 +189,7 @@ export function StockAlertsView({
       header: ({ column }) => <SortableHeader column={column}>On hand</SortableHeader>,
       cell: ({ row }) => (
         <span className="tabular-nums font-semibold text-destructive">
-          {row.original.on_hand} {row.original.unit}
+          {formatQty(row.original.on_hand)} {row.original.unit}
         </span>
       ),
     },

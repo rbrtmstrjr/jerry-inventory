@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty, parseQtyInput, sanitizeQtyInput } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
@@ -205,13 +206,13 @@ export function ShopTransfersView({
       toast.error("Pick an item");
       return;
     }
-    const q = parseInt(partQty || "0", 10);
+    const q = parseQtyInput(partQty);
     if (isNaN(q) || q <= 0) {
       toast.error("Quantity must be positive");
       return;
     }
     if (q > part.qty) {
-      toast.error(`Only ${part.qty} ${part.unit} on hand`);
+      toast.error(`Only ${formatQty(part.qty)} ${part.unit} on hand`);
       return;
     }
     setPicked((prev) => {
@@ -221,7 +222,7 @@ export function ShopTransfersView({
       if (existing) {
         const total = existing.qty + q;
         if (total > part.qty) {
-          toast.error(`Only ${part.qty} ${part.unit} on hand`);
+          toast.error(`Only ${formatQty(part.qty)} ${part.unit} on hand`);
           return prev;
         }
         return prev.map((l) =>
@@ -401,7 +402,7 @@ export function ShopTransfersView({
                                         />
                                         <span className="flex-1">{p.name}</span>
                                         <span className="text-xs text-muted-foreground">
-                                          {p.qty} {p.unit}
+                                          {formatQty(p.qty)} {p.unit}
                                         </span>
                                       </CommandItem>
                                     ))}
@@ -415,15 +416,18 @@ export function ShopTransfersView({
                         <Label htmlFor="tx-qty">Qty</Label>
                         <Input
                           id="tx-qty"
-                          inputMode="numeric"
+                          inputMode="decimal"
                           max={part?.qty}
                           className="w-24 tabular-nums"
                           value={partQty}
                           onChange={(e) => {
-                            const digits = e.target.value.replace(/\D/g, "");
+                            const digits = sanitizeQtyInput(e.target.value);
                             // clamp to what's on hand once an item is picked
                             if (digits === "" || !part) return setPartQty(digits);
-                            setPartQty(String(Math.min(parseInt(digits, 10), part.qty)));
+                            // Keep the typed string; String(theNumber) would erase
+                            // a mid-keystroke "10." and make 10.5 untypable.
+                            const n = parseQtyInput(digits);
+                            setPartQty(n > part.qty ? String(part.qty) : digits);
                           }}
                         />
                       </div>
@@ -431,14 +435,14 @@ export function ShopTransfersView({
                         type="button"
                         variant="secondary"
                         onClick={addPart}
-                        disabled={!part || (parseInt(partQty || "0", 10) || 0) <= 0}
+                        disabled={!part || (parseQtyInput(partQty) || 0) <= 0}
                       >
                         <Plus className="size-4" /> Add
                       </Button>
                     </div>
                     {part && (
                       <p className="text-xs text-muted-foreground">
-                        {part.qty} {part.unit} on hand
+                        {formatQty(part.qty)} {part.unit} on hand
                       </p>
                     )}
                   </TabsContent>
@@ -499,7 +503,7 @@ export function ShopTransfersView({
                         </span>
                         {l.kind === "part" && (
                           <span className="text-xs tabular-nums text-muted-foreground">
-                            × {l.qty} {l.unit}
+                            × {formatQty(l.qty)} {l.unit}
                           </span>
                         )}
                         <Button
@@ -633,7 +637,7 @@ function TransferCard({
                 )}
               </span>
               <span className="tabular-nums text-xs text-muted-foreground">
-                × {l.qty_sent} {l.unit}
+                × {formatQty(l.qty_sent)} {l.unit}
               </span>
             </div>
           </div>

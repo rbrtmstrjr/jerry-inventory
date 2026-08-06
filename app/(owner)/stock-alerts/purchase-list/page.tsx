@@ -3,7 +3,7 @@ import { Anchor, ShoppingBag } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { getBusinessIdentity } from "@/lib/business-identity";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import type { MasterLowStockRow } from "@/lib/db-types";
 import { ph_today } from "@/lib/ph-date";
 import { PrintButton } from "@/components/shell/print-button";
@@ -187,13 +187,13 @@ export default async function PurchaseListPage({
                         )}
                       </td>
                       <td className="py-1.5 text-right tabular-nums">
-                        {i.on_hand} {i.unit}
+                        {formatQty(i.on_hand)} {i.unit}
                       </td>
                       <td className="py-1.5 text-right tabular-nums text-muted-foreground">
                         {i.threshold}
                       </td>
                       <td className="py-1.5 text-right text-base font-bold tabular-nums">
-                        {i.shortfall + BUFFER}
+                        {formatQty(i.shortfall + BUFFER)}
                       </td>
                     </tr>
                     );

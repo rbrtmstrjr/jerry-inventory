@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { qtySchema } from "@/lib/qty-schema";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
@@ -30,7 +31,7 @@ const saveSchema = z.object({
   lines: z.array(
     z.object({
       line_id: z.uuid(),
-      counted_qty: z.number().int().min(0).nullable(),
+      counted_qty: qtySchema({ allowZero: true }).nullable(),
     })
   ),
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty, parseQtyInput, sanitizeQtyInput } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
@@ -198,8 +199,8 @@ function ConfirmCard({
   const [photos, setPhotos] = React.useState<Record<string, ProcessedImage>>({});
 
   const parsed = lines.map((l) => {
-    const g = Math.max(0, parseInt(good[l.id] || "0", 10) || 0);
-    const d = Math.max(0, parseInt(damaged[l.id] || "0", 10) || 0);
+    const g = Math.max(0, parseQtyInput(good[l.id] || "0") || 0);
+    const d = Math.max(0, parseQtyInput(damaged[l.id] || "0") || 0);
     return { line: l, good: g, damaged: d, missing: l.qty_sent - g - d, over: g + d > l.qty_sent };
   });
   const totalDamaged = parsed.reduce((s, p) => s + p.damaged, 0);
@@ -261,7 +262,7 @@ function ConfirmCard({
     if (res.ok) {
       if (res.short > 0) {
         toast.success(
-          `${res.landed} good · ${res.damaged} damaged · ${res.missing} missing — Admin will review the damaged & missing.`
+          `${formatQty(res.landed)} good · ${formatQty(res.damaged)} damaged · ${formatQty(res.missing)} missing — Admin will review the damaged & missing.`
         );
       } else {
         toast.success("Received in full — stock is now in your shop");
@@ -315,17 +316,17 @@ function ConfirmCard({
                 <span className="text-xs text-muted-foreground">
                   sent{" "}
                   <span className="font-semibold text-foreground tabular-nums">
-                    {l.qty_sent} {l.unit}
+                    {formatQty(l.qty_sent)} {l.unit}
                   </span>
                 </span>
                 <div className="flex items-center gap-1">
                   <Label htmlFor={`good-${l.id}`} className="text-xs">Good</Label>
                   <Input
                     id={`good-${l.id}`}
-                    inputMode="numeric"
+                    inputMode="decimal"
                     value={good[l.id] ?? ""}
                     onChange={(e) =>
-                      setGood((c) => ({ ...c, [l.id]: e.target.value.replace(/\D/g, "") }))
+                      setGood((c) => ({ ...c, [l.id]: sanitizeQtyInput(e.target.value) }))
                     }
                     className={`w-16 tabular-nums ${lineOver ? "border-destructive" : ""}`}
                   />
@@ -334,10 +335,10 @@ function ConfirmCard({
                   <Label htmlFor={`dmg-${l.id}`} className="text-xs">Damaged</Label>
                   <Input
                     id={`dmg-${l.id}`}
-                    inputMode="numeric"
+                    inputMode="decimal"
                     value={damaged[l.id] ?? ""}
                     onChange={(e) =>
-                      setDamaged((c) => ({ ...c, [l.id]: e.target.value.replace(/\D/g, "") }))
+                      setDamaged((c) => ({ ...c, [l.id]: sanitizeQtyInput(e.target.value) }))
                     }
                     placeholder="0"
                     className={`w-16 tabular-nums ${d > 0 ? "border-warning" : ""} ${lineOver ? "border-destructive" : ""}`}
@@ -346,14 +347,14 @@ function ConfirmCard({
                 <span className="text-xs tabular-nums text-muted-foreground">
                   Missing{" "}
                   <span className={missing > 0 ? "font-semibold text-warning-foreground" : ""}>
-                    {Math.max(0, missing)}
+                    {formatQty(Math.max(0, missing))}
                   </span>
                 </span>
               </div>
 
               {lineOver && (
                 <p className="text-xs font-medium text-destructive">
-                  Good + damaged is more than the {l.qty_sent} sent.
+                  Good + damaged is more than the {formatQty(l.qty_sent)} sent.
                 </p>
               )}
 
@@ -390,7 +391,9 @@ function ConfirmCard({
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
             <p className="text-xs text-warning-foreground">
               <span className="font-medium">
-                {totalDamaged} damaged · {totalMissing} missing.
+                {/* formatQty, not the bare number: these are JS sums of tenths,
+                    so 10.5 − 10.1 prints as 0.40000000000000036 raw. */}
+                {formatQty(totalDamaged)} damaged · {formatQty(totalMissing)} missing.
               </span>{" "}
               Good stock joins your shop now; Admin reviews the damaged & missing.
               You don&apos;t need to do anything else.
@@ -502,10 +505,10 @@ function HistoryCard({
             <div className="flex justify-between gap-2">
               <span className="truncate">{l.name}</span>
               <span className="tabular-nums text-xs">
-                {l.qty_received ?? 0} of {l.qty_sent} {l.unit}
+                {l.qty_received ?? 0} of {formatQty(l.qty_sent)} {l.unit}
                 {l.qty_outstanding > 0 && (
                   <span className="ml-1 font-medium text-warning-foreground">
-                    · {l.qty_outstanding} missing
+                    · {formatQty(l.qty_outstanding)} missing
                   </span>
                 )}
               </span>
@@ -517,7 +520,7 @@ function HistoryCard({
         ))}
         {short > 0 && (
           <p className="mt-1 rounded-md bg-accent p-2 text-xs text-accent-foreground">
-            Waiting for Admin to review the {short} missing item
+            Waiting for Admin to review the {formatQty(short)} missing item
             {short === 1 ? "" : "s"}. Nothing more for you to do here.
           </p>
         )}

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { formatQty } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
 import { Anchor } from "lucide-react";
@@ -143,18 +144,18 @@ export default async function ReturnSlipPage({
                     <span className="ml-2 text-xs text-muted-foreground">SKU {l.sku}</span>
                   )}
                 </td>
-                <td className="py-2 text-right tabular-nums">{l.qty_good}</td>
+                <td className="py-2 text-right tabular-nums">{formatQty(l.qty_good)}</td>
                 {anyDamaged && (
                   <td className="py-2 text-right tabular-nums">
                     {(l.qty_damaged ?? 0) > 0 ? (
-                      <span className="font-medium text-destructive">{l.qty_damaged}</span>
+                      <span className="font-medium text-destructive">{formatQty(l.qty_damaged)}</span>
                     ) : (
                       0
                     )}
                   </td>
                 )}
                 <td className="py-2 text-right tabular-nums">
-                  {l.qty} {l.serial_number ? "unit" : l.unit}
+                  {formatQty(l.qty)} {l.serial_number ? "unit" : l.unit}
                 </td>
               </tr>
             ))}

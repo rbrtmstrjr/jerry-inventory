@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty, parseQtyInput, sanitizeQtyInput } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { Loader2, Plus, Printer, Send, Trash2, Undo2, X } from "lucide-react";
@@ -117,14 +118,17 @@ export function ShopReturnsPanel({
   }
   // clamp so good + damaged can never exceed what's on hand (empty stays empty)
   function setQtyField(key: string, field: "good" | "damaged", value: string) {
-    const digits = value.replace(/\D/g, "");
+    const digits = sanitizeQtyInput(value);
     setParts((ps) =>
       ps.map((x) => {
         if (x.key !== key) return x;
         if (digits === "") return { ...x, [field]: "" };
-        const other = parseInt((field === "good" ? x.damaged : x.good) || "0", 10) || 0;
-        const capped = Math.min(parseInt(digits, 10), Math.max(0, x.available - other));
-        return { ...x, [field]: String(capped) };
+        const other = parseQtyInput((field === "good" ? x.damaged : x.good) || "0") || 0;
+        const ceiling = Math.max(0, x.available - other);
+        // Keep the typed string; String(theNumber) would erase a mid-keystroke
+        // "10." and make 10.5 untypable.
+        const n = parseQtyInput(digits);
+        return { ...x, [field]: n > ceiling ? String(ceiling) : digits };
       })
     );
   }
@@ -150,15 +154,15 @@ export function ShopReturnsPanel({
     const partsPayload = parts
       .map((p) => ({
         part_id: p.part_id,
-        qty_good: parseInt(p.good || "0", 10) || 0,
-        qty_damaged: parseInt(p.damaged || "0", 10) || 0,
+        qty_good: parseQtyInput(p.good || "0") || 0,
+        qty_damaged: parseQtyInput(p.damaged || "0") || 0,
       }))
       .filter((p) => p.qty_good + p.qty_damaged > 0);
     for (const p of parts) {
-      const g = parseInt(p.good || "0", 10) || 0;
-      const d = parseInt(p.damaged || "0", 10) || 0;
+      const g = parseQtyInput(p.good || "0") || 0;
+      const d = parseQtyInput(p.damaged || "0") || 0;
       if (g + d > p.available) {
-        toast.error(`${p.name}: only ${p.available} ${p.unit} on hand`);
+        toast.error(`${p.name}: only ${formatQty(p.available)} ${p.unit} on hand`);
         return;
       }
     }
@@ -194,7 +198,7 @@ export function ShopReturnsPanel({
   const availEngine = engines.filter((e) => !enginesPicked.some((x) => x.engine_id === e.engine_id));
   const hasItems =
     enginesPicked.length > 0 ||
-    parts.some((p) => (parseInt(p.good || "0", 10) || 0) + (parseInt(p.damaged || "0", 10) || 0) > 0);
+    parts.some((p) => (parseQtyInput(p.good || "0") || 0) + (parseQtyInput(p.damaged || "0") || 0) > 0);
 
   return (
     <div className="flex flex-col gap-5">
@@ -231,7 +235,7 @@ export function ShopReturnsPanel({
                 <SelectContent>
                   {availPart.map((s) => (
                     <SelectItem key={s.part_id} value={s.part_id}>
-                      {s.name} · {s.qty} {s.unit}
+                      {s.name} · {formatQty(s.qty)} {s.unit}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -257,7 +261,7 @@ export function ShopReturnsPanel({
                     id={`ret-good-${p.key}`}
                     aria-label={`Good quantity for ${p.name}`}
                     className="w-20 tabular-nums"
-                    inputMode="numeric"
+                    inputMode="decimal"
                     max={p.available}
                     value={p.good}
                     onChange={(e) => setQtyField(p.key, "good", e.target.value)}
@@ -269,7 +273,7 @@ export function ShopReturnsPanel({
                     id={`ret-damaged-${p.key}`}
                     aria-label={`Damaged quantity for ${p.name}`}
                     className="w-20 tabular-nums"
-                    inputMode="numeric"
+                    inputMode="decimal"
                     max={p.available}
                     value={p.damaged}
                     onChange={(e) => setQtyField(p.key, "damaged", e.target.value)}
@@ -357,7 +361,7 @@ export function ShopReturnsPanel({
               <CardHeader className="pb-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <CardTitle className="text-base">
-                    {r.line_count} item{r.line_count === 1 ? "" : "s"} · {r.qty_total} unit
+                    {r.line_count} item{r.line_count === 1 ? "" : "s"} · {formatQty(r.qty_total)} unit
                     {r.qty_total === 1 ? "" : "s"}
                   </CardTitle>
                   <div className="flex items-center gap-2">
@@ -393,9 +397,9 @@ export function ShopReturnsPanel({
                       )}
                     </span>
                     <span className="tabular-nums text-muted-foreground">
-                      × {l.qty} {l.engine_id ? "" : l.unit}
+                      × {formatQty(l.qty)} {l.engine_id ? "" : l.unit}
                       {l.qty_damaged > 0 && (
-                        <span className="ml-1 text-warning-foreground">({l.qty_damaged} damaged)</span>
+                        <span className="ml-1 text-warning-foreground">({formatQty(l.qty_damaged)} damaged)</span>
                       )}
                     </span>
                   </div>

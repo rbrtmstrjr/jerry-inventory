@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { qtySchema } from "@/lib/qty-schema";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
@@ -113,7 +114,7 @@ const receivingSchema = z
           .object({
             part_id: z.uuid().optional(),
             new_part: newPartSchema.optional(),
-            qty: z.number().int().positive(),
+            qty: qtySchema(),
             unit_cost_centavos: z.number().int().min(0),
           })
           .refine((l) => !!l.part_id !== !!l.new_part, {

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty } from "@/lib/format";
 import { AlertTriangle, GitMerge, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -144,7 +145,7 @@ export function MergeDuplicatesDialog({
                 {parts.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.name}
-                    {p.sku ? ` · ${p.sku}` : ""} · {p.stock_qty} {p.unit}
+                    {p.sku ? ` · ${p.sku}` : ""} · {formatQty(p.stock_qty)} {p.unit}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -187,7 +188,7 @@ export function MergeDuplicatesDialog({
                                 inStock && "border-warning text-warning-foreground"
                               )}
                             >
-                              {p.stock_qty} {p.unit}
+                              {formatQty(p.stock_qty)} {p.unit}
                             </Badge>
                           </span>
                           {/* precise async reason (names the shop) wins; else a

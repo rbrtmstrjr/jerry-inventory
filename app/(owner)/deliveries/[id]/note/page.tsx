@@ -5,7 +5,7 @@ import { Anchor } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { getBusinessIdentity } from "@/lib/business-identity";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { PrintButton } from "./print-button";
 
 export const metadata: Metadata = { title: "Delivery Note" };
@@ -58,8 +58,8 @@ export default async function DeliveryNotePage({
   const lineCost = (l: any) => l.parts?.cost_centavos ?? l.engines?.cost_centavos ?? 0;
   const linePrice = (l: any) => l.parts?.price_centavos ?? l.engines?.price_centavos ?? 0;
   const allLines = [...partLines, ...engineLines];
-  const totalCost = allLines.reduce((s, l) => s + landedQty(l) * lineCost(l), 0);
-  const totalSelling = allLines.reduce((s, l) => s + landedQty(l) * linePrice(l), 0);
+  const totalCost = allLines.reduce((s, l) => s + Math.round(landedQty(l) * lineCost(l)), 0);
+  const totalSelling = allLines.reduce((s, l) => s + Math.round(landedQty(l) * linePrice(l)), 0);
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return (
@@ -140,7 +140,7 @@ export default async function DeliveryNotePage({
                   )}
                 </td>
                 <td className="py-2 text-right tabular-nums">
-                  {landedQty(l)} {l.parts.unit}
+                  {formatQty(landedQty(l))} {l.parts.unit}
                 </td>
                 <td className="py-2 text-right tabular-nums">
                   {formatCentavos(l.parts.cost_centavos ?? 0)}

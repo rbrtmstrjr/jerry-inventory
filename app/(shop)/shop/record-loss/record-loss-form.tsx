@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty, parseQtyInput } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronsUpDown, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
@@ -83,13 +84,13 @@ export function RecordLossForm({
       toast.error("Pick an engine");
       return;
     }
-    const q = isPart ? parseInt(qty || "0", 10) : 1;
+    const q = isPart ? parseQtyInput(qty || "0") : 1;
     if (isNaN(q) || q <= 0) {
       toast.error("Quantity must be positive");
       return;
     }
     if (isPart && part && q > part.qty) {
-      toast.error(`Only ${part.qty} ${part.unit} on hand`);
+      toast.error(`Only ${formatQty(part.qty)} ${part.unit} on hand`);
       return;
     }
     if ((reason === "nasira" || reason === "nawala") && note.trim() === "") {
@@ -175,7 +176,7 @@ export function RecordLossForm({
                               />
                               <span className="flex-1">{p.name}</span>
                               <span className="text-xs text-muted-foreground">
-                                {p.qty} {p.unit}
+                                {formatQty(p.qty)} {p.unit}
                               </span>
                             </CommandItem>
                           ))}
@@ -189,14 +190,14 @@ export function RecordLossForm({
                 <Label htmlFor="loss-qty">Quantity</Label>
                 <Input
                   id="loss-qty"
-                  inputMode="numeric"
+                  inputMode="decimal"
                   className="w-32"
                   value={qty}
                   onChange={(e) => setQty(e.target.value)}
                 />
                 {part && (
                   <p className="text-xs text-muted-foreground">
-                    {part.qty} {part.unit} on hand
+                    {formatQty(part.qty)} {part.unit} on hand
                   </p>
                 )}
               </div>

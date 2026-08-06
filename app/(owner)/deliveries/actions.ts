@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { qtySchema } from "@/lib/qty-schema";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,7 +15,7 @@ const transferSchema = z
       .array(
         z.object({
           part_id: z.uuid(),
-          qty: z.number().int().positive(),
+          qty: qtySchema(),
         })
       )
       .default([]),
@@ -51,7 +52,7 @@ export async function resolveDeliveryDiscrepancy(input: unknown): Promise<Action
   const parsed = z
     .object({
       delivery_line_id: z.uuid(),
-      qty: z.number().int().positive(),
+      qty: qtySchema(),
       resolution: z.enum(["returned_to_master", "returned_to_source", "written_off"]),
       reason: z.string().trim().max(2000).optional().nullable(),
     })
@@ -151,8 +152,8 @@ const returnSchema = z
       .array(
         z.object({
           part_id: z.uuid(),
-          qty_good: z.number().int().min(0).default(0),
-          qty_damaged: z.number().int().min(0).default(0),
+          qty_good: qtySchema({ allowZero: true }).default(0),
+          qty_damaged: qtySchema({ allowZero: true }).default(0),
           damage_note: z.string().trim().max(500).optional().nullable(),
         })
       )
