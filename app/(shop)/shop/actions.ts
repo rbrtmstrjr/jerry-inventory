@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { qtySchema } from "@/lib/qty-schema";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
@@ -22,7 +23,7 @@ const saleSchema = z
       .array(
         z.object({
           part_id: z.uuid(),
-          qty: z.number().int().positive(),
+          qty: qtySchema(),
           unit_price_centavos: z.number().int().positive().nullable().optional(),
         })
       )
@@ -104,7 +105,7 @@ const lossSchema = z
   .object({
     part_id: z.uuid().nullable(),
     engine_id: z.uuid().nullable(),
-    qty: z.number().int().positive(),
+    qty: qtySchema(),
     reason: z.enum(["nasira", "nawala", "expired", "sample", "correction"]),
     note: z.string().trim().max(2000).optional().nullable(),
   })
@@ -258,8 +259,8 @@ export async function confirmDelivery(input: unknown): Promise<
         .array(
           z.object({
             line_id: z.uuid(),
-            qty_received: z.number().int().min(0),
-            qty_damaged: z.number().int().min(0).default(0),
+            qty_received: qtySchema({ allowZero: true }),
+            qty_damaged: qtySchema({ allowZero: true }).default(0),
             shop_note: z.string().trim().max(500).optional().nullable(),
             damage_photo_path: z.string().trim().max(400).optional().nullable(),
           })
@@ -300,7 +301,7 @@ export async function createDeliveryRequest(input: unknown): Promise<ActionResul
               engine_model_id: z.uuid().nullable().default(null),
               // a free-text product the shop doesn't carry yet (0077)
               custom_name: z.string().trim().min(1).max(200).nullable().default(null),
-              qty_requested: z.number().int().positive(),
+              qty_requested: qtySchema(),
               note: z.string().trim().max(500).optional().nullable(),
             })
             .refine(
@@ -338,7 +339,7 @@ const transferSchema = z.object({
         .object({
           part_id: z.uuid().nullable().default(null),
           engine_id: z.uuid().nullable().default(null),
-          qty: z.number().int().positive().nullable().default(null),
+          qty: qtySchema().nullable().default(null),
         })
         .refine((l) => (l.part_id === null) !== (l.engine_id === null), {
           message: "Each line is a part or an engine",
@@ -396,8 +397,8 @@ const returnSchema = z.object({
     .array(
       z.object({
         part_id: z.uuid(),
-        qty_good: z.number().int().min(0).default(0),
-        qty_damaged: z.number().int().min(0).default(0),
+        qty_good: qtySchema({ allowZero: true }).default(0),
+        qty_damaged: qtySchema({ allowZero: true }).default(0),
       })
     )
     .default([]),

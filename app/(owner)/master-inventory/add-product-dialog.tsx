@@ -8,7 +8,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { Category } from "@/lib/db-types";
-import { parsePesosToCentavos } from "@/lib/format";
+import { parsePesosToCentavos, parseQtyInput } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { UnitSelect } from "@/components/unit-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -43,7 +44,9 @@ const schema = z
     unit: z.string().trim().min(1, "Unit is required"),
     cost: peso,
     price: peso,
-    qty: z.string().regex(/^\d*$/, "Whole number"),
+    // Opening qty may be a tenth (0116) — the unit decides, and fn_assert_qty
+    // is the one that knows it. Reorder level stays whole: it's a threshold.
+    qty: z.string().regex(/^\d*(\.\d)?$/, "Up to one decimal, e.g. 2.5"),
     reorder_level: z.string().regex(/^\d*$/, "Whole number"),
     supplier_id: z.string(),
   })
@@ -109,7 +112,7 @@ export function AddProductDialog({
       unit: v.unit,
       cost_centavos: parsePesosToCentavos(v.cost)!,
       price_centavos: parsePesosToCentavos(v.price)!,
-      qty: parseInt(v.qty || "0", 10),
+      qty: parseQtyInput(v.qty),
       reorder_level: parseInt(v.reorder_level || "0", 10),
       preferred_supplier_id: v.supplier_id === "none" ? null : v.supplier_id,
     });
@@ -163,7 +166,11 @@ export function AddProductDialog({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="ap-unit">Unit</Label>
-              <Input id="ap-unit" {...register("unit")} placeholder="pc / liter" />
+              <UnitSelect
+                id="ap-unit"
+                value={watch("unit")}
+                onChange={(u) => setValue("unit", u, { shouldValidate: true })}
+              />
               {errors.unit && <p className="text-sm text-destructive">{errors.unit.message}</p>}
             </div>
           </div>
@@ -205,7 +212,7 @@ export function AddProductDialog({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="ap-qty">Opening qty</Label>
-              <Input id="ap-qty" type="number" min={0} {...register("qty")} />
+              <Input id="ap-qty" type="number" min={0} step="0.1" {...register("qty")} />
             </div>
           </div>
 

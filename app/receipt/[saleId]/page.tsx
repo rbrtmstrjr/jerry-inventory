@@ -6,7 +6,7 @@ import { Anchor } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { getBusinessIdentity } from "@/lib/business-identity";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { productImageUrl } from "@/lib/product-image";
 import { PrintButton } from "@/components/shell/print-button";
 
@@ -144,7 +144,7 @@ export default async function ReceiptPage({
               <div className="row">
                 <span className="min-w-0">
                   {l.description ?? "Item"}
-                  {l.qty > 1 && ` × ${l.qty}`}
+                  {l.qty > 1 && ` × ${formatQty(l.qty)}`}
                 </span>
                 <span>{formatCentavos(l.line_total_centavos)}</span>
               </div>

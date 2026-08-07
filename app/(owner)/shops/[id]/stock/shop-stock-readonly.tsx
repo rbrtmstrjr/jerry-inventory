@@ -5,7 +5,7 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { Anchor, Boxes, PhilippinePeso, Search } from "lucide-react";
 
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -56,7 +56,7 @@ export function ShopStockReadonly({
   const stats = [
     {
       label: "Part units on hand",
-      value: `${totalUnits}`,
+      value: formatQty(totalUnits),
       hint: `${stock.length} item line(s)${lowCount > 0 ? ` · ${lowCount} low` : ""}`,
       icon: Boxes,
     },
@@ -97,7 +97,7 @@ export function ShopStockReadonly({
           row.original.reorder_level > 0;
         return (
           <span className={`tabular-nums ${low ? "font-semibold text-destructive" : ""}`}>
-            {row.original.qty} {row.original.unit}
+            {formatQty(row.original.qty)} {row.original.unit}
             {low && (
               <Badge variant="destructive" className="ml-2">
                 Low
@@ -154,7 +154,7 @@ export function ShopStockReadonly({
       header: "Line value",
       cell: ({ row }) => (
         <span className="tabular-nums text-muted-foreground">
-          {formatCentavos(row.original.qty * row.original.price_centavos)}
+          {formatCentavos(Math.round(row.original.qty * row.original.price_centavos))}
         </span>
       ),
     },
@@ -338,7 +338,7 @@ export function ShopStockReadonly({
                                 out ? "font-medium text-destructive" : "text-muted-foreground"
                               }`}
                             >
-                              {s.qty} {s.unit}
+                              {formatQty(s.qty)} {s.unit}
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-xs tabular-nums">

@@ -17,7 +17,7 @@ import {
 import { toast } from "sonner";
 
 import type { Category, EngineModel, PartRow } from "@/lib/db-types";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -218,7 +218,7 @@ export function PartsTable({
       header: "Master Qty",
       cell: ({ row }) => (
         <span className="tabular-nums">
-          {row.original.master_qty} {row.original.unit}
+          {formatQty(row.original.master_qty)} {row.original.unit}
         </span>
       ),
     },
@@ -417,7 +417,7 @@ export function PartsTable({
                       <div className="flex items-center justify-between border-t pt-1.5 text-xs">
                         <span className="text-muted-foreground">Stock</span>
                         <span className={`tabular-nums font-medium ${out ? "text-destructive" : ""}`}>
-                          {p.master_qty} {p.unit}
+                          {formatQty(p.master_qty)} {p.unit}
                         </span>
                       </div>
                     </div>

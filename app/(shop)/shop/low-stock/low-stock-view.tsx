@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty, parseQtyInput, sanitizeQtyInput } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
@@ -122,7 +123,7 @@ export function ShopLowStockView({
     const lowLines = rows
       .filter((r) => checked.has(keyOf(r)))
       .map((r) => {
-        const qty = parseInt(picked[keyOf(r)] || "0", 10);
+        const qty = parseQtyInput(picked[keyOf(r)] || "0");
         return {
           part_id: r.kind === "part" ? r.product_id : null,
           engine_model_id: r.kind === "engine_model" ? r.product_id : null,
@@ -135,7 +136,7 @@ export function ShopLowStockView({
       part_id: null,
       engine_model_id: null,
       custom_name: c.name.trim(),
-      qty_requested: parseInt(c.qty || "0", 10),
+      qty_requested: parseQtyInput(c.qty || "0"),
     }));
     const lines = [...lowLines, ...customLines];
 
@@ -227,7 +228,7 @@ export function ShopLowStockView({
                         </div>
                         <span className="text-xs text-muted-foreground">
                           <span className="font-semibold text-destructive tabular-nums">
-                            {r.on_hand} {r.unit}
+                            {formatQty(r.on_hand)} {r.unit}
                           </span>{" "}
                           on hand · reorder at {r.threshold}
                         </span>
@@ -237,12 +238,12 @@ export function ShopLowStockView({
                           </Label>
                           <Input
                             id={`qty-${k}`}
-                            inputMode="numeric"
+                            inputMode="decimal"
                             value={picked[k] ?? ""}
                             onChange={(e) =>
                               setPicked((p) => ({
                                 ...p,
-                                [k]: e.target.value.replace(/\D/g, ""),
+                                [k]: sanitizeQtyInput(e.target.value),
                               }))
                             }
                             className="w-20 tabular-nums"
@@ -285,9 +286,9 @@ export function ShopLowStockView({
                     />
                     <Input
                       value={c.qty}
-                      inputMode="numeric"
+                      inputMode="decimal"
                       onChange={(e) =>
-                        patchCustom(c.id, { qty: e.target.value.replace(/\D/g, "") })
+                        patchCustom(c.id, { qty: sanitizeQtyInput(e.target.value) })
                       }
                       className="w-20 tabular-nums"
                       aria-label="Quantity"
@@ -379,7 +380,7 @@ export function ShopLowStockView({
                         {i.name}
                       </span>
                       <span className="shrink-0 tabular-nums text-muted-foreground">
-                        × {i.qty}
+                        × {formatQty(i.qty)}
                       </span>
                     </div>
                   ))}

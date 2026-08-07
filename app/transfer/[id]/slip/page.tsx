@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { formatQty } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
 import { Anchor } from "lucide-react";
@@ -137,14 +138,14 @@ export default async function TransferSlipPage({
                     )}
                   </td>
                   <td className="py-2 text-right tabular-nums">
-                    {l.qty_sent} {l.serial_number ? "unit" : l.unit}
+                    {formatQty(l.qty_sent)} {l.serial_number ? "unit" : l.unit}
                   </td>
                   {confirmed && (
                     <td className="py-2 text-right tabular-nums">
-                      {l.qty_received ?? 0}
+                      {formatQty(l.qty_received ?? 0)}
                       {short && (
                         <span className="ml-1 text-xs font-medium text-destructive">
-                          ({l.qty_outstanding} short)
+                          ({formatQty(l.qty_outstanding)} short)
                         </span>
                       )}
                     </td>

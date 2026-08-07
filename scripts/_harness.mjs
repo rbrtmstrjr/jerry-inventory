@@ -144,13 +144,13 @@ export async function firstCategoryId() {
  *  (creation is fn_receive_stock's job) — fixtures aren't receivings. */
 export async function seedPart({
   label = "Widget", cost = 1000, price = 2500, reorder_level = 0,
-  sku = null, barcode = null, name = null,
+  sku = null, barcode = null, name = null, unit = "pc",
 } = {}) {
   const { data, error } = await admin.from("parts").insert({
     name: name ?? `ZZ-TEST ${label} ${RUN}`,
     category_id: await firstCategoryId(),
     cost_centavos: cost, price_centavos: price, reorder_level,
-    sku, barcode,
+    sku, barcode, unit,
   }).select().single();
   if (error) throw new Error(`seedPart: ${error.message}`);
   parts.push(data.id);

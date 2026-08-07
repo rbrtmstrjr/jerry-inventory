@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -246,7 +246,7 @@ export function SubmissionsView({
           {s.sale_lines.map((l, i) => (
             <div key={i} className="flex justify-between">
               <span className="truncate">
-                {l.description ?? "Item"} × {l.qty}
+                {l.description ?? "Item"} × {formatQty(l.qty)}
               </span>
               <span className="tabular-nums">
                 {formatCentavos(l.line_total_centavos)}
@@ -282,7 +282,7 @@ export function SubmissionsView({
       <div key={l.id} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-medium">
-            {l.description ?? "Item"} × {l.qty}
+            {l.description ?? "Item"} × {formatQty(l.qty)}
           </span>
           <div className="flex items-center gap-2">
             <Badge variant="outline">{REASON_LABEL[l.reason]}</Badge>

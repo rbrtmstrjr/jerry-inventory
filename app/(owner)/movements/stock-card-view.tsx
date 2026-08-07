@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatQty } from "@/lib/format";
 import { AlertTriangle, Check, ChevronsUpDown, Printer } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -222,10 +223,10 @@ export function StockCardView({
                       <td className="py-2.5 font-mono text-xs">{r.reference ?? "—"}</td>
                       <td className="py-2.5">{r.particulars}</td>
                       <td className="py-2.5 text-right tabular-nums">
-                        {r.qty_in ? r.qty_in : ""}
+                        {r.qty_in ? formatQty(r.qty_in) : ""}
                       </td>
                       <td className="py-2.5 text-right tabular-nums">
-                        {r.qty_out ? r.qty_out : ""}
+                        {r.qty_out ? formatQty(r.qty_out) : ""}
                       </td>
                       <td className="py-2.5 text-right font-medium tabular-nums">{r.balance}</td>
                     </tr>

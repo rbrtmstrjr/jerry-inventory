@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { formatQty } from "@/lib/format";
 import { getProfile } from "@/lib/auth";
 import { SHOP_COLOR_KEYS } from "@/lib/shop-colors";
 
@@ -137,7 +138,7 @@ export async function closeShop(id: string): Promise<ActionResult> {
   if (units > 0) {
     return {
       ok: false,
-      error: `${units} part unit(s) still at this shop — the shop returns them from Transfers → Return to Admin, then approve it under Deliveries & Returns → Transfers & Returns.`,
+      error: `${formatQty(units)} part unit(s) still at this shop — the shop returns them from Transfers → Return to Admin, then approve it under Deliveries & Returns → Transfers & Returns.`,
     };
   }
   if ((enginesRes.count ?? 0) > 0) {

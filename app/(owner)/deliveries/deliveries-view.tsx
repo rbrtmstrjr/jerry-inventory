@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty, parseQtyInput, sanitizeQtyInput } from "@/lib/format";
 import Link from "next/link";
 import { format } from "date-fns";
 import { type ColumnDef } from "@tanstack/react-table";
@@ -146,7 +147,7 @@ function ItemCombobox({
                   <div className="flex-1">
                     <div className="text-sm">{o.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {o.available} {o.unit} available
+                      {formatQty(o.available)} {o.unit} available
                     </div>
                   </div>
                 </CommandItem>
@@ -259,11 +260,11 @@ function TransferForm({
       const parts = [];
       for (const [i, l] of partLines.entries()) {
         if (!l.part_id) { toast.error(`Line ${i + 1}: pick an item`); setSubmitting(false); return; }
-        const qty = parseInt(l.qty || "0", 10);
+        const qty = parseQtyInput(l.qty || "0");
         const opt = partOptions.find((o) => o.part_id === l.part_id);
         if (isNaN(qty) || qty <= 0) { toast.error(`Line ${i + 1}: qty must be positive`); setSubmitting(false); return; }
         if (opt && qty > opt.available) {
-          toast.error(`Line ${i + 1}: only ${opt.available} ${opt.unit} available`); setSubmitting(false); return;
+          toast.error(`Line ${i + 1}: only ${formatQty(opt.available)} ${opt.unit} available`); setSubmitting(false); return;
         }
         parts.push({ part_id: l.part_id, qty });
       }
@@ -274,12 +275,12 @@ function TransferForm({
       const parts = [];
       for (const [i, l] of partLines.entries()) {
         if (!l.part_id) { toast.error(`Line ${i + 1}: pick an item`); setSubmitting(false); return; }
-        const good = parseInt(l.qty || "0", 10) || 0;
-        const damaged = parseInt(l.damaged || "0", 10) || 0;
+        const good = parseQtyInput(l.qty || "0") || 0;
+        const damaged = parseQtyInput(l.damaged || "0") || 0;
         const opt = partOptions.find((o) => o.part_id === l.part_id);
         if (good + damaged <= 0) { toast.error(`Line ${i + 1}: enter a good or damaged qty`); setSubmitting(false); return; }
         if (opt && good + damaged > opt.available) {
-          toast.error(`Line ${i + 1}: only ${opt.available} ${opt.unit} on hand`); setSubmitting(false); return;
+          toast.error(`Line ${i + 1}: only ${formatQty(opt.available)} ${opt.unit} on hand`); setSubmitting(false); return;
         }
         parts.push({ part_id: l.part_id, qty_good: good, qty_damaged: damaged });
       }
@@ -293,8 +294,8 @@ function TransferForm({
       if (kind === "delivery") {
         toast.success("Sent — in transit until the shop confirms what arrived");
       } else {
-        const g = partLines.reduce((s, l) => s + (parseInt(l.qty || "0", 10) || 0), 0);
-        const d = partLines.reduce((s, l) => s + (parseInt(l.damaged || "0", 10) || 0), 0);
+        const g = partLines.reduce((s, l) => s + (parseQtyInput(l.qty || "0") || 0), 0);
+        const d = partLines.reduce((s, l) => s + (parseQtyInput(l.damaged || "0") || 0), 0);
         toast.success(
           d > 0
             ? `${g} good back in master · ${d} damaged written off`
@@ -420,7 +421,7 @@ function TransferForm({
                           onChange={(id) => {
                             // re-clamp qty against the newly picked item's stock
                             const next = partOptions.find((o) => o.part_id === id);
-                            const q = parseInt(l.qty || "1", 10);
+                            const q = parseQtyInput(l.qty || "1");
                             updateLine(i, {
                               part_id: id,
                               qty: String(
@@ -436,27 +437,32 @@ function TransferForm({
                           }}
                         />
                         <Input
-                          inputMode="numeric"
+                          inputMode="decimal"
                           min={1}
                           max={opt?.available}
                           value={l.qty}
                           onChange={(e) => {
-                            // digits only, hard-capped at what's actually available
-                            const raw = e.target.value.replace(/\D/g, "");
+                            // Tenths only, hard-capped at what's actually available.
+                            // Keep the SANITISED STRING, never String(theNumber):
+                            // mid-keystroke "10." parses to 10 and re-stringifies
+                            // to "10", so the decimal point was erased as it was
+                            // typed and 10.5 could never be entered.
+                            const raw = sanitizeQtyInput(e.target.value);
                             if (raw === "") {
                               updateLine(i, { qty: "" });
                               return;
                             }
-                            let n = parseInt(raw, 10);
-                            if (opt && n > opt.available) n = opt.available;
-                            updateLine(i, { qty: String(n) });
+                            const n = parseQtyInput(raw);
+                            updateLine(i, {
+                              qty: opt && n > opt.available ? String(opt.available) : raw,
+                            });
                           }}
                           onBlur={() => {
                             // `l.qty || "0"` parsed a BLANK field as 0, which is
                             // neither NaN nor negative — so the normaliser never
                             // fired and the box was left empty. onChange already
                             // strips non-digits, so blank is the only case left.
-                            const n = parseInt(l.qty, 10);
+                            const n = parseQtyInput(l.qty);
                             if (l.qty === "" || isNaN(n) || n < 0) {
                               updateLine(i, { qty: "0" });
                             }
@@ -465,24 +471,30 @@ function TransferForm({
                         />
                         {kind === "return" && (
                           <Input
-                            inputMode="numeric"
+                            inputMode="decimal"
                             value={l.damaged ?? ""}
                             placeholder="0"
                             onChange={(e) => {
-                              const raw = e.target.value.replace(/\D/g, "");
-                              let n = parseInt(raw || "0", 10) || 0;
-                              if (opt && n > opt.available) n = opt.available;
-                              updateLine(i, { damaged: raw === "" ? "" : String(n) });
+                              const raw = sanitizeQtyInput(e.target.value);
+                              const n = parseQtyInput(raw || "0") || 0;
+                              updateLine(i, {
+                                damaged:
+                                  raw === ""
+                                    ? ""
+                                    : opt && n > opt.available
+                                      ? String(opt.available)
+                                      : raw,
+                              });
                             }}
                             aria-label="Damaged qty"
                             className={cn(
                               "tabular-nums",
-                              (parseInt(l.damaged || "0", 10) || 0) > 0 && "border-warning"
+                              (parseQtyInput(l.damaged || "0") || 0) > 0 && "border-warning"
                             )}
                           />
                         )}
                         <span className="text-sm text-muted-foreground tabular-nums">
-                          {opt ? `${opt.available} ${opt.unit}` : "—"}
+                          {opt ? `${formatQty(opt.available)} ${opt.unit}` : "—"}
                         </span>
                         <Button
                           type="button"
@@ -509,7 +521,7 @@ function TransferForm({
                 {cappedParts
                   .map((p) => {
                     const opt = partOptions.find((o) => o.part_id === p.part_id);
-                    return `${opt?.name ?? "item"} (requested ${p.requested}, only ${p.available} available)`;
+                    return `${opt?.name ?? "item"} (requested ${formatQty(p.requested)}, only ${formatQty(p.available)} available)`;
                   })
                   .join(", ")}
                 .
@@ -535,7 +547,7 @@ function TransferForm({
                         )}
                       </span>
                       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                        requested {p.qty_requested}
+                        requested {formatQty(p.qty_requested)}
                       </span>
                     </div>
                   ))}
@@ -632,7 +644,7 @@ function TransferForm({
                     >
                       <span className="truncate">{e.name} — none in master</span>
                       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                        requested {e.qty_requested}
+                        requested {formatQty(e.qty_requested)}
                       </span>
                     </div>
                   ))}
@@ -663,7 +675,7 @@ function TransferForm({
                   >
                     <span className="truncate">{c.name}</span>
                     <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                      requested {c.qty_requested}
+                      requested {formatQty(c.qty_requested)}
                     </span>
                   </div>
                 ))}
@@ -800,7 +812,7 @@ export function DeliveriesView({
             <Badge variant={meta.variant}>{meta.label}</Badge>
             {row.original.qty_outstanding > 0 && (
               <span className="text-xs font-medium text-warning-foreground tabular-nums">
-                {row.original.qty_outstanding} out
+                {formatQty(row.original.qty_outstanding)} out
               </span>
             )}
           </span>

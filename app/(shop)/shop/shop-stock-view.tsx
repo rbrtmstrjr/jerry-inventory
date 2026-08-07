@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -121,7 +121,7 @@ export function ShopStockView({
           row.original.reorder_level > 0;
         return (
           <span className={`tabular-nums ${low ? "font-semibold text-destructive" : ""}`}>
-            {row.original.qty} {row.original.unit}
+            {formatQty(row.original.qty)} {row.original.unit}
             {low && (
               <Badge variant="destructive" className="ml-2">
                 Low
@@ -394,7 +394,7 @@ export function ShopStockView({
                                   : "text-muted-foreground"
                               }`}
                             >
-                              {s.qty} {s.unit}
+                              {formatQty(s.qty)} {s.unit}
                             </span>
                           </div>
                         </div>

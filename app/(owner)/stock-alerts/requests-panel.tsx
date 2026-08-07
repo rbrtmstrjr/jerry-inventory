@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty } from "@/lib/format";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -237,7 +238,7 @@ export function RequestsPanel({
                         )}
                       </span>
                       <span className="shrink-0 tabular-nums text-muted-foreground">
-                        × {i.qty} {i.unit}
+                        × {formatQty(i.qty)} {i.unit}
                       </span>
                     </div>
                   ))}

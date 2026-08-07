@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { formatQty } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
 import { Anchor } from "lucide-react";
@@ -130,7 +131,7 @@ export default async function StockRequestReceiptPage({
                   )}
                 </td>
                 <td className="py-2 text-right tabular-nums">
-                  {l.qty_requested} {l.parts.unit}
+                  {formatQty(l.qty_requested)} {l.parts.unit}
                 </td>
               </tr>
             ))}
@@ -145,7 +146,7 @@ export default async function StockRequestReceiptPage({
                     <span className="ml-2 text-xs text-muted-foreground">({l.note})</span>
                   )}
                 </td>
-                <td className="py-2 text-right tabular-nums">{l.qty_requested} unit</td>
+                <td className="py-2 text-right tabular-nums">{formatQty(l.qty_requested)} unit</td>
               </tr>
             ))}
             {customLines.map((l: any, i: number) => (
@@ -162,7 +163,7 @@ export default async function StockRequestReceiptPage({
                     <span className="ml-2 text-xs text-muted-foreground">({l.note})</span>
                   )}
                 </td>
-                <td className="py-2 text-right tabular-nums">{l.qty_requested}</td>
+                <td className="py-2 text-right tabular-nums">{formatQty(l.qty_requested)}</td>
               </tr>
             ))}
             {/* eslint-enable @typescript-eslint/no-explicit-any */}

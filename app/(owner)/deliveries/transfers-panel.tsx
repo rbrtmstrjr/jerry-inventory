@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty, parseQtyInput, sanitizeQtyInput } from "@/lib/format";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -85,7 +86,7 @@ function LineItem({ l }: { l: TransferLineRow }) {
         )}
       </span>
       <span className="tabular-nums text-muted-foreground">
-        × {l.qty} {l.is_engine ? "" : l.unit}
+        × {formatQty(l.qty)} {l.is_engine ? "" : l.unit}
       </span>
     </div>
   );
@@ -333,10 +334,10 @@ export function TransfersPanel({
                       )}
                     </span>
                     <span className="tabular-nums text-muted-foreground">
-                      × {l.qty} {l.is_engine ? "" : l.unit}
+                      × {formatQty(l.qty)} {l.is_engine ? "" : l.unit}
                       {l.qty_damaged > 0 && (
                         <span className="ml-1 text-warning-foreground">
-                          ({l.qty_damaged} damaged)
+                          ({formatQty(l.qty_damaged)} damaged)
                         </span>
                       )}
                     </span>
@@ -388,11 +389,11 @@ export function TransfersPanel({
                           {l.name}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          sent {l.qty}, received {l.qty_received ?? 0}
+                          sent {formatQty(l.qty)}, received {l.qty_received ?? 0}
                         </div>
                       </div>
                       <span className="text-sm font-semibold tabular-nums text-warning-foreground">
-                        {l.qty_outstanding} missing
+                        {formatQty(l.qty_outstanding)} missing
                       </span>
                       <Button
                         size="sm"
@@ -559,7 +560,7 @@ function ResolveTransferDialog({
     }
   }, [line]);
 
-  const n = parseInt(qty || "0", 10) || 0;
+  const n = parseQtyInput(qty || "0") || 0;
   const tooMany = line ? n > outstanding : false;
 
   async function onSave() {
@@ -605,9 +606,9 @@ function ResolveTransferDialog({
             <Label htmlFor="tx-res-qty">Quantity</Label>
             <Input
               id="tx-res-qty"
-              inputMode="numeric"
+              inputMode="decimal"
               value={qty}
-              onChange={(e) => setQty(e.target.value.replace(/\D/g, ""))}
+              onChange={(e) => setQty(sanitizeQtyInput(e.target.value))}
               className={cn("w-28 tabular-nums", tooMany && "border-destructive")}
             />
             {tooMany && (

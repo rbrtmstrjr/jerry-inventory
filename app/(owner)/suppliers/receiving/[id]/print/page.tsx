@@ -5,7 +5,7 @@ import { Anchor } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { getBusinessIdentity } from "@/lib/business-identity";
-import { formatCentavos } from "@/lib/format";
+import { formatCentavos, formatQty } from "@/lib/format";
 import { PrintButton } from "@/components/shell/print-button";
 
 export const metadata: Metadata = { title: "Receiving Voucher" };
@@ -151,11 +151,11 @@ export default async function ReceivingVoucherPage({
                     {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
                   </td>
                   <td className="py-2 text-right tabular-nums">
-                    {qty} {isEngine ? "unit" : (l.parts?.unit ?? "")}
+                    {formatQty(qty)} {isEngine ? "unit" : (l.parts?.unit ?? "")}
                   </td>
                   <td className="py-2 text-right tabular-nums">{formatCentavos(unit)}</td>
                   <td className="py-2 text-right tabular-nums">
-                    {formatCentavos(unit * qty)}
+                    {formatCentavos(Math.round(unit * qty))}
                   </td>
                 </tr>
               );

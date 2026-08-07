@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatQty, parseQtyInput, sanitizeQtyInput } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { AlertTriangle, ChevronDown, Loader2, Package, Truck, Warehouse } from "lucide-react";
@@ -39,7 +40,7 @@ export function TransitBanner({ transit }: { transit: DiscrepancyRow[] }) {
           <Truck className="size-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold tabular-nums">{qty}</div>
+          <div className="text-2xl font-bold tabular-nums">{formatQty(qty)}</div>
           <p className="text-xs text-muted-foreground">
             unit(s) between master and shops, across{" "}
             {new Set(transit.map((t) => t.delivery_id)).size} delivery(s)
@@ -63,7 +64,7 @@ export function TransitBanner({ transit }: { transit: DiscrepancyRow[] }) {
               shortQty > 0 && "text-warning-foreground"
             )}
           >
-            {shortQty}
+            {formatQty(shortQty)}
           </div>
           <p className="text-xs text-muted-foreground">
             {shortQty > 0
@@ -157,7 +158,7 @@ export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
                       shop={{ name: t.shop_name, color_key: t.shop_color_key }}
                     />
                     <span>
-                      · sent {t.qty_sent}, received {t.qty_received ?? 0} ·{" "}
+                      · sent {formatQty(t.qty_sent)}, received {t.qty_received ?? 0} ·{" "}
                       {format(new Date(t.delivered_at), "MMM d")}
                       {t.shop_note && ` · “${t.shop_note}”`}
                     </span>
@@ -165,10 +166,10 @@ export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
                 </div>
                 <span className="flex flex-col items-end text-sm font-semibold tabular-nums">
                   {t.qty_damaged > 0 && (
-                    <span className="text-warning-foreground">{t.qty_damaged} damaged</span>
+                    <span className="text-warning-foreground">{formatQty(t.qty_damaged)} damaged</span>
                   )}
                   {missing > 0 && (
-                    <span className="text-muted-foreground">{missing} missing</span>
+                    <span className="text-muted-foreground">{formatQty(missing)} missing</span>
                   )}
                 </span>
                 <Button size="sm" onClick={() => setTarget(t)}>
@@ -237,7 +238,7 @@ export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <span className="text-sm font-semibold tabular-nums">
-                    {t.qty_outstanding} {t.unit}
+                    {formatQty(t.qty_outstanding)} {t.unit}
                   </span>
                   <Badge variant="secondary">In transit</Badge>
                 </div>
@@ -305,13 +306,13 @@ function ResolveDialog({
     }
   }, [row]);
 
-  const n = parseInt(qty || "0", 10) || 0;
+  const n = parseQtyInput(qty || "0") || 0;
   const tooMany = row ? n > row.qty_outstanding : false;
 
   async function onSave() {
     if (!row) return;
     if (n <= 0 || tooMany) {
-      toast.error(`Enter 1–${row.qty_outstanding}`);
+      toast.error(`Enter 1–${formatQty(row.qty_outstanding)}`);
       return;
     }
     setBusy(true);
@@ -344,9 +345,9 @@ function ResolveDialog({
         <DialogHeader>
           <DialogTitle>Resolve damaged / missing</DialogTitle>
           <DialogDescription>
-            {row?.name} — {row?.qty_outstanding} outstanding on the way to{" "}
+            {row?.name} — {formatQty(row?.qty_outstanding)} outstanding on the way to{" "}
             {row?.shop_name}
-            {row && row.qty_damaged > 0 && ` (${row.qty_damaged} flagged damaged)`}.
+            {row && row.qty_damaged > 0 && ` (${formatQty(row.qty_damaged)} flagged damaged)`}.
             It sits in transit until you decide.
           </DialogDescription>
         </DialogHeader>
@@ -372,14 +373,14 @@ function ResolveDialog({
             <Label htmlFor="res-qty">Quantity</Label>
             <Input
               id="res-qty"
-              inputMode="numeric"
+              inputMode="decimal"
               value={qty}
-              onChange={(e) => setQty(e.target.value.replace(/\D/g, ""))}
+              onChange={(e) => setQty(sanitizeQtyInput(e.target.value))}
               className={cn("w-28 tabular-nums", tooMany && "border-destructive")}
             />
             {tooMany && (
               <p className="text-xs text-destructive">
-                Only {row?.qty_outstanding} outstanding.
+                Only {formatQty(row?.qty_outstanding)} outstanding.
               </p>
             )}
           </div>
