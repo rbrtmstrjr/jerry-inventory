@@ -18,6 +18,10 @@
 -- describe five engines, and quietly applying it to the first would be the kind
 -- of silent wrong answer this codebase keeps refusing to ship.
 --
+-- A line is capped at 500 units — the same bound as Task 4's Zod schema, so a
+-- typo (555 for 5) can't mint hundreds of engine rows the office then cannot
+-- undo (0102 blocks an admin from retiring an in_master engine).
+--
 -- `new_model` gains optional `is_serialized` and `sku`, so the office can
 -- create a non-serialized model inline on the receiving that first stocks it —
 -- the 0048 single-entry-point rule, unchanged.
@@ -198,6 +202,9 @@ begin
     if v_eng_qty < 1 then
       raise exception 'An engine line needs at least one unit';
     end if;
+    if v_eng_qty > 500 then
+      raise exception 'An engine line cannot receive more than 500 units at once (got %) — check for a typo', v_eng_qty;
+    end if;
     if v_has_serial and v_eng_qty > 1 then
       raise exception
         'One serial cannot describe % units — leave it blank and the system '
@@ -249,7 +256,11 @@ begin
 
     select is_serialized, brand || ' ' || model
       into v_serialized, v_model_label
-    from engine_models where id = v_model_id;
+    from engine_models where id = v_model_id and deleted_at is null;
+
+    if v_serialized is null then
+      raise exception 'Engine model not found';
+    end if;
 
     -- The model decides. Plates matter on a serialized model, so each is typed.
     if v_serialized and v_eng_qty > 1 then

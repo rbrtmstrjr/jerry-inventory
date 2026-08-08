@@ -14,7 +14,7 @@
  */
 import {
   owner, admin, check, section, summary, cleanup,
-  seedSupplier, seedEngineModel, trackEngine, RUN,
+  seedSupplier, seedEngineModel, trackEngine, trackEngineModel, RUN,
 } from "./_harness.mjs";
 
 // gate: 0128 must be applied
@@ -73,7 +73,8 @@ section("A non-serialized model takes a quantity");
 
   // the engine qty=1 CHECK is untouched: one line per unit
   const { data: lines } = await owner
-    .from("receiving_lines").select("engine_id, qty").eq("receiving_id", rcvId);
+    .from("receiving_lines")
+    .select("engine_id, qty, unit_cost_centavos").eq("receiving_id", rcvId);
   check("five receiving lines, each qty 1",
     lines?.length === 5 && lines.every((l) => Number(l.qty) === 1),
     JSON.stringify(lines?.map((l) => l.qty)));
@@ -84,6 +85,17 @@ section("A non-serialized model takes a quantity");
   check("five 'received' movements of +1",
     movs?.length === 5 && movs.every((m) => Number(m.qty_change) === 1),
     JSON.stringify(movs?.map((m) => m.qty_change)));
+
+  // v_total must accumulate PER UNIT, not per line — 5 x 500000 = 2500000
+  const { data: rcv } = await owner
+    .from("receivings").select("total_amount").eq("id", rcvId).maybeSingle();
+  check("receiving total is 5 x cost, not 1x",
+    Number(rcv?.total_amount) === 2500000, String(rcv?.total_amount));
+
+  const lineSum = (lines ?? [])
+    .reduce((s, l) => s + Number(l.qty) * Number(l.unit_cost_centavos), 0);
+  check("sum of receiving_lines qty*unit_cost also equals 2500000",
+    lineSum === 2500000, String(lineSum));
 }
 
 section("A serialized model still refuses a quantity");
@@ -172,6 +184,55 @@ section("A quantity below 1 is refused");
     error?.message ?? "it was ACCEPTED");
 }
 
+section("A quantity over the 500-unit cap is refused");
+{
+  const { count: before } = await owner
+    .from("engines").select("id", { count: "exact", head: true })
+    .eq("engine_model_id", loose.id);
+
+  const { error } = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id,
+    p_note: `ZZ-TEST typo ${RUN}`,
+    p_parts: [],
+    p_engines: [{ engine_model_id: loose.id, qty: 501, cost_centavos: 1000, price_centavos: 2000 }],
+    p_payment_status: "unpaid",
+    p_amount_paid: 0,
+  });
+  check("qty 501 (a typo for 5) is refused",
+    /500|cannot receive more/i.test(error?.message ?? ""),
+    error?.message ?? "it was ACCEPTED");
+
+  const { count: after } = await owner
+    .from("engines").select("id", { count: "exact", head: true })
+    .eq("engine_model_id", loose.id);
+  check("nothing was created by the refused line",
+    after === before, `before=${before} after=${after}`);
+}
+
+section("A fractional engine quantity does not silently round");
+{
+  const { count: before } = await owner
+    .from("engines").select("id", { count: "exact", head: true })
+    .eq("engine_model_id", loose.id);
+
+  const { error } = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id,
+    p_note: `ZZ-TEST fractional ${RUN}`,
+    p_parts: [],
+    p_engines: [{ engine_model_id: loose.id, qty: 2.6, cost_centavos: 1000, price_centavos: 2000 }],
+    p_payment_status: "unpaid",
+    p_amount_paid: 0,
+  });
+  check("qty 2.6 is refused, not silently rounded to 2 or 3",
+    !!error, error ? error.message : "it was ACCEPTED — engine qty must be int, never numeric");
+
+  const { count: after } = await owner
+    .from("engines").select("id", { count: "exact", head: true })
+    .eq("engine_model_id", loose.id);
+  check("no units were created from a fractional qty",
+    after === before, `before=${before} after=${after}`);
+}
+
 section("An inline new model can be created non-serialized");
 {
   const code = `ZZ-INLINE-${RUN}`;
@@ -194,13 +255,22 @@ section("An inline new model can be created non-serialized");
   const { data: m } = await owner
     .from("engine_models").select("id, is_serialized, sku")
     .eq("model", `NS-${RUN}`).maybeSingle();
-  check("the model was created non-serialized", m?.is_serialized === false);
-  check("and carries the shared code", m?.sku === code, m?.sku);
+  // fn_receive_stock, not a seed helper, created this model — nothing else
+  // tracks it, so track it here or cleanup() strands it in staging.
+  if (m?.id) trackEngineModel(m.id);
 
-  const { data: units } = await owner
-    .from("engines").select("id").eq("engine_model_id", m.id);
-  (units ?? []).forEach((u) => trackEngine(u.id));
-  check("two units were created", units?.length === 2, String(units?.length));
+  if (!m) {
+    check("the inline model exists to inspect (receiving above must have failed)",
+      false, "no engine_models row found for NS-" + RUN + " — skipping the rest of this section");
+  } else {
+    check("the model was created non-serialized", m.is_serialized === false);
+    check("and carries the shared code", m.sku === code, m.sku);
+
+    const { data: units } = await owner
+      .from("engines").select("id").eq("engine_model_id", m.id);
+    (units ?? []).forEach((u) => trackEngine(u.id));
+    check("two units were created", units?.length === 2, String(units?.length));
+  }
 }
 
 section("A non-serialized unit sells and warrants like any other");
@@ -211,6 +281,13 @@ section("A non-serialized unit sells and warrants like any other");
   const { data: avail } = await owner
     .from("engines").select("id").eq("engine_model_id", loose.id)
     .eq("status", "in_master").limit(1);
+
+  if (!avail?.length) {
+    check("an in_master unit of the loose model exists to sell (section 1 above must have failed)",
+      false, "no in_master engine found for the loose model — skipping the rest of this section");
+    await cleanup();
+    summary();
+  }
   const unit = avail[0].id;
 
   await deliverAndConfirm(shop, { engine_ids: [unit] });
