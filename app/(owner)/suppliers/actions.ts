@@ -101,6 +101,8 @@ const newModelSchema = z.object({
   horsepower: z.number().min(0).nullable().default(null),
   stroke: z.enum(["2-stroke", "4-stroke"]).nullable().default(null),
   default_warranty_months: z.number().int().min(0).default(12),
+  is_serialized: z.boolean().default(true),
+  sku: z.string().trim().max(80).optional().nullable(),
 });
 
 const receivingSchema = z
@@ -126,10 +128,13 @@ const receivingSchema = z
       .array(
         z
           .object({
-            serial_number: z.string().trim().min(1, "Serial is required"),
+            serial_number: z.string().trim().max(120).optional().nullable(),
             engine_model_id: z.uuid().optional(),
             new_model: newModelSchema.optional(),
             condition: z.enum(["brand_new", "second_hand"]).default("brand_new"),
+            // int, not qtySchema() — an engine is a countable unit. max(500) is
+            // a fat-finger guard, not a business rule (mirrors 0129's own cap).
+            qty: z.number().int().min(1).max(500).default(1),
             cost_centavos: z.number().int().min(0),
             price_centavos: z.number().int().min(0),
             warranty_months: z.number().int().min(0).nullable(),

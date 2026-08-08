@@ -40,10 +40,9 @@ export interface EngineModel {
   horsepower: number | null;
   stroke: string | null;
   default_warranty_months: number;
-  /** 0128: OFF lets Receiving take a qty instead of one serial per unit.
-   *  Optional — not every query selecting EngineModel fetches these two yet. */
-  is_serialized?: boolean;
-  sku?: string | null;
+  /** 0128: OFF lets Receiving take a qty instead of one serial per unit. */
+  is_serialized: boolean;
+  sku: string | null;
 }
 
 export interface PartRow {
