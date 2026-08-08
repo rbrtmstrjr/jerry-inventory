@@ -187,7 +187,7 @@ async function EnginesPanel({ sp }: { sp: SP }) {
       .range(from, from + params.pageSize - 1),
     supabase
       .from("engine_models")
-      .select("id, brand, model, horsepower, stroke, default_warranty_months")
+      .select("id, brand, model, horsepower, stroke, default_warranty_months, is_serialized, sku")
       .is("deleted_at", null)
       .order("brand"),
     supabase.from("suppliers").select("id, name").is("deleted_at", null).order("name"),

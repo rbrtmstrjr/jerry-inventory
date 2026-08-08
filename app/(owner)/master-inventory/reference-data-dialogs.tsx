@@ -14,6 +14,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -48,6 +50,8 @@ export function ModelManagerDialog({
     horsepower: string;
     stroke: "" | "2-stroke" | "4-stroke";
     warranty: string;
+    is_serialized: boolean;
+    sku: string;
   }
   const [rows, setRows] = React.useState<Row[]>([]);
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -63,6 +67,8 @@ export function ModelManagerDialog({
           horsepower: m.horsepower != null ? String(m.horsepower) : "",
           stroke: (m.stroke as Row["stroke"]) ?? "",
           warranty: String(m.default_warranty_months ?? 12),
+          is_serialized: m.is_serialized ?? true,
+          sku: m.sku ?? "",
         }))
       );
     }
@@ -90,6 +96,8 @@ export function ModelManagerDialog({
       horsepower: hp,
       stroke: r.stroke || null,
       default_warranty_months: warranty,
+      is_serialized: r.is_serialized,
+      sku: r.sku,
     });
     setBusy(null);
     if (res.ok) toast.success(`${r.brand} ${r.model} updated`);
@@ -183,6 +191,33 @@ export function ModelManagerDialog({
                           <Archive className="size-4" />
                         </Button>
                       )}
+                    </div>
+                    <div className="col-span-full mb-2 flex flex-wrap items-start gap-3 border-b pb-3 last:mb-0 last:border-0 last:pb-0">
+                      <div className="grid w-56 gap-1.5">
+                        <Label htmlFor={`sku-${r.id}`}>Product code</Label>
+                        <Input
+                          id={`sku-${r.id}`}
+                          value={r.sku}
+                          placeholder="e.g. HONDA-GX35-2026"
+                          onChange={(e) => setRow(r.id, { sku: e.target.value })}
+                          aria-label={`Product code for ${r.brand} ${r.model}`}
+                        />
+                      </div>
+                      <label className="flex min-w-64 flex-1 items-start gap-2 rounded-md border p-2.5">
+                        <Checkbox
+                          checked={r.is_serialized}
+                          onCheckedChange={(v) => setRow(r.id, { is_serialized: v === true })}
+                          aria-label={`Units of ${r.brand} ${r.model} have serial numbers`}
+                        />
+                        <span className="text-sm">
+                          <span className="font-medium">Units have serial numbers</span>
+                          <span className="block text-xs text-muted-foreground">
+                            Leave this on for outboards with a plate on the block. Turn it OFF for
+                            engines that share one product code — then you can receive several at once
+                            and the system numbers them for you.
+                          </span>
+                        </span>
+                      </label>
                     </div>
                   </React.Fragment>
                 ))}

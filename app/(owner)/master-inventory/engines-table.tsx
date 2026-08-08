@@ -103,6 +103,10 @@ export function EnginesTable({
   const [deleting, setDeleting] = React.useState<EngineRow | null>(null);
   const [view, setView] = usePersistedView("jm-view-owner-engines");
   const [modelMgrOpen, setModelMgrOpen] = React.useState(false);
+  const modelsById = React.useMemo(
+    () => new Map(models.map((m) => [m.id, m])),
+    [models]
+  );
 
   function RowActions({ engine, onImage }: { engine: EngineRow; onImage?: boolean }) {
     return (
@@ -173,8 +177,11 @@ export function EnginesTable({
       header: () => <ServerSortableHeader column="model">Model</ServerSortableHeader>,
       cell: ({ row }) => (
         <div>
-          <div className="font-medium">
+          <div className="flex items-center gap-1.5 font-medium">
             {row.original.brand} {row.original.model}
+            {modelsById.get(row.original.engine_model_id)?.is_serialized === false && (
+              <Badge variant="outline" className="text-muted-foreground">no serials</Badge>
+            )}
           </div>
           {row.original.horsepower != null && (
             <div className="text-xs text-muted-foreground">
@@ -312,6 +319,9 @@ export function EnginesTable({
                       </div>
                       <div className="absolute bottom-1.5 left-1.5 flex flex-wrap items-center gap-1">
                         <Badge variant={s.variant}>{s.label}</Badge>
+                        {modelsById.get(e.engine_model_id)?.is_serialized === false && (
+                          <Badge variant="outline" className="text-muted-foreground">no serials</Badge>
+                        )}
                         {e.shop_name && (
                           <ShopBadge
                             shop={{ name: e.shop_name, color_key: e.shop_color_key }}
