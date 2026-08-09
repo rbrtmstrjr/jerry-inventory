@@ -304,6 +304,12 @@ section("A non-serialized unit sells and warrants like any other");
   check("a non-serialized unit records as a sale", !sale.error && !!sale.data,
     sale.error?.message);
 
+  // A sale is born `recorded` (0016) and fn_approve_sale takes only
+  // pending/questioned — the batch has to be submitted first. That IS the
+  // pipeline: nothing is approvable until the shop hands it over.
+  const sub = await shop.client.rpc("fn_submit_shop_batch");
+  check("the shop submits the batch", !sub.error, sub.error?.message);
+
   const appr = await owner.rpc("fn_approve_sale", { p_sale_id: sale.data, p_note: null });
   check("it approves", !appr.error, appr.error?.message);
 
