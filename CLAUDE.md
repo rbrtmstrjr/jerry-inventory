@@ -448,7 +448,9 @@ channel and drain pending dispatches — no schema redesign. **SMS is not built.
 ## Database Schema (Postgres)
 
 **Core inventory:** `shops`, `profiles` (app logins/roles), `suppliers`,
-`product_categories`, `engine_models`, `parts` (+`merged_into` tombstone since
+`product_categories`, `engine_models` (+`is_serialized` and `sku` since 0128 —
+a model whose units carry no plate shares one product code, and only such a
+model may be received by the quantity), `parts` (+`merged_into` tombstone since
 0052), `part_fitments`, `part_merges` (merge audit, owner-only), `customers`,
 `engines` (serial-tracked), `stock_levels` (per-shop on-hand),
 `units` (0114 — controlled vocabulary for `parts.unit`; `allows_fractional`
@@ -1140,6 +1142,30 @@ byte-identical to 0083 — only the two date-bound lines change — and the
 row-walk fallback in `lib/pnl.ts` gets the identical anchoring so both paths
 agree. · `0113` realtime on `expenses` · **`0114`–`0124` fractional quantities**
 — see the section below; they are one feature and must be applied in order.
+· `0128`/`0129` **non-serialized engine models** — Gerry buys five identical
+small engines that share ONE product code and have no per-unit plate. Every
+engine needed its own unique serial, so he added one and the system refused the
+rest; he was typing the shared code into the serial box because that was the
+only way in. **Serialization becomes a property of the MODEL**
+(`engine_models.is_serialized`, default true so all 30 existing models are
+untouched) — the `units.allows_fractional` decision from 0114, for the same
+reason: a Yamaha 40HP has plates and a cheap brush cutter does not, and that is
+a fact about the model, not something to remember per unit. `sku` holds the
+shared code and mirrors `parts.sku` (same concept, same word, also not unique);
+searchable, not scanned. A receiving engine line may carry `qty` **only** for a
+non-serialized model — on a serialized one it is REFUSED, which is the feature:
+it stops a real plate being replaced by a system number by accident. Units of a
+non-serialized model are numbered `UNIT-########`
+(`fn_generate_engine_unit_no`, mirroring `fn_generate_internal_barcode`); a
+minted value rather than a nullable serial because 146 app sites read
+`serial_number` as a string. **Engines remain ONE ROW PER PHYSICAL UNIT** — five
+units are five `engines` rows, five `receiving_lines` at qty 1 and five `+1`
+ledger rows, so the five `check (engine_id is null or qty = 1)` constraints,
+every `p_qty <> 1` guard and one-warranty-per-unit are all untouched. Serial AND
+`qty > 1` together is refused, not reconciled. `new_model` gains
+`is_serialized`/`sku` so such a model can be created inline on the receiving
+that first stocks it (0048). `test-engine-nonserial.mjs` exits 2 until 0128 is
+applied.
 
 ### Fractional quantities — the *tingi* (0114–0124)
 Gerry sells nails, lead, fasteners, welding materials and powders **by the
@@ -1514,7 +1540,12 @@ reviewed-history, supplier-payables, shop-profitability (0083: net contribution 
 gross − shop opex, no labor term), expenses, images, shop-images, admin,
 close-shop, reports, settings, settings-documents (HTTP), pnl (0083: no labor
 term; net = gross profit − shrinkage − opex − overhead), movements,
-supplier-comparison, ia-redirects (HTTP). (The `payroll`, `payroll-contributions`
+supplier-comparison,
+engine-nonserial (0128/0129: five units from one line on a non-serialized model,
+distinct UNIT- numbers, qty refused on a serialized model, serial still required
+there, serial+qty refused, inline non-serialized model creation, and a
+non-serialized unit selling and warranting like any other),
+ia-redirects (HTTP). (The `payroll`, `payroll-contributions`
 and `payroll-vale` suites were deleted with Payroll, 0083; `warranty-preview`
 was deleted with the certificates, 0103.)
 
