@@ -1166,7 +1166,7 @@ export function ReceivingView({
       // total (0129) multiplies per unit the same way inside its unit loop.
       // No `|| 1` fallback: an explicit "0" must show as zero, not silently
       // become one unit — onSubmit refuses "0" outright (see below).
-      const qty = serializedFor(l) ? 1 : parseInt(l.qty || "1", 10);
+      const qty = serializedFor(l) ? 1 : parseInt(l.qty || "1", 10); // whole-unit-qty: engines are counted, not measured
       if (cost !== null) t += cost * qty;
     }
     return t;
@@ -1278,7 +1278,7 @@ export function ReceivingView({
       // No `|| 1` fallback: a stray "0" (backspace typo) must be refused, not
       // silently receive one unit — 0121/0119/0124 exist because of exactly
       // this class of silently-wrong quantity.
-      const engQty = serialized ? 1 : parseInt(l.qty || "1", 10);
+      const engQty = serialized ? 1 : parseInt(l.qty || "1", 10); // whole-unit-qty: engines are counted, not measured
       if (!serialized && (isNaN(engQty) || engQty < 1 || engQty > 500)) {
         toast.error(`Engine line ${i + 1}: qty must be between 1 and 500`);
         return;

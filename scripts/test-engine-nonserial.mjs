@@ -61,13 +61,13 @@ section("A non-serialized model takes a quantity");
   check("five engine ROWS exist, not one row of five",
     units?.length === 5, String(units?.length));
   check("every unit is in_master",
-    (units ?? []).every((u) => u.status === "in_master"));
+    units?.length === 5 && units.every((u) => u.status === "in_master"));
   check("every unit carries the line's cost",
-    (units ?? []).every((u) => u.cost_centavos === 500000));
+    units?.length === 5 && units.every((u) => u.cost_centavos === 500000));
 
   const nos = (units ?? []).map((u) => u.serial_number);
   check("each is numbered UNIT-########",
-    nos.every((s) => /^UNIT-\d{8}$/.test(s)), JSON.stringify(nos));
+    nos.length === 5 && nos.every((s) => /^UNIT-\d{8}$/.test(s)), JSON.stringify(nos));
   check("the five numbers are DISTINCT",
     new Set(nos).size === 5, JSON.stringify(nos));
 

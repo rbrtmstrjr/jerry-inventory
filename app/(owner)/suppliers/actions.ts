@@ -134,7 +134,7 @@ const receivingSchema = z
             condition: z.enum(["brand_new", "second_hand"]).default("brand_new"),
             // int, not qtySchema() — an engine is a countable unit. max(500) is
             // a fat-finger guard, not a business rule (mirrors 0129's own cap).
-            qty: z.number().int().min(1).max(500).default(1),
+            qty: z.number().int().min(1).max(500).default(1), // whole-unit-qty: engines are counted, not measured
             cost_centavos: z.number().int().min(0),
             price_centavos: z.number().int().min(0),
             warranty_months: z.number().int().min(0).nullable(),

@@ -550,7 +550,7 @@ never a stored flag. Receivable balances are
 mutable running total; `sales.balance_due_centavos` stays the at-sale snapshot
 the printed receipt shows.
 
-### Migrations (`supabase/migrations/`, 0001–0124; 0085–0098 retired)
+### Migrations (`supabase/migrations/`, 0001–0129; 0085–0098 retired)
 `0001` schema · `0002` RLS + safe views · `0003` seed · `0004` receiving fns ·
 `0005` delivery fns · `0006` record (sale/loss) fns · `0007` line descriptions ·
 `0008` approval engine + realtime · `0009` count fns · `0010`/`0011` product &
@@ -1152,10 +1152,12 @@ untouched) — the `units.allows_fractional` decision from 0114, for the same
 reason: a Yamaha 40HP has plates and a cheap brush cutter does not, and that is
 a fact about the model, not something to remember per unit. `sku` holds the
 shared code and mirrors `parts.sku` (same concept, same word, also not unique);
-searchable, not scanned. A receiving engine line may carry `qty` **only** for a
-non-serialized model — on a serialized one it is REFUSED, which is the feature:
-it stops a real plate being replaced by a system number by accident. Units of a
-non-serialized model are numbered `UNIT-########`
+editable in the model editor, and 0128 adds a supporting index, but no other UI
+surface searches or displays it today. A receiving engine line may carry `qty`
+**only** for a non-serialized model — on a serialized one it is REFUSED, which
+is the feature: it stops a real plate being replaced by a system number by
+accident. `qty` is capped at 500 — a fat-finger guard (a typo'd 501 for 5), not
+a business rule. Units of a non-serialized model are numbered `UNIT-########`
 (`fn_generate_engine_unit_no`, mirroring `fn_generate_internal_barcode`); a
 minted value rather than a nullable serial because 146 app sites read
 `serial_number` as a string. **Engines remain ONE ROW PER PHYSICAL UNIT** — five
@@ -1246,7 +1248,10 @@ counter still refuses `0.5`, which is exactly what happened:
 `test-fractional-qty.mjs` opens with a STATIC section asserting no quantity is
 validated with `.int()` and none is parsed with `parseInt` — the RPC-level
 assertions below it cannot see either layer. Reorder levels are exempt on
-purpose (a threshold, not a measurement), as is money in centavos.
+purpose (a threshold, not a measurement), as is money in centavos. Engine
+counts are the other exemption (0128/0129) — an engine is counted, not
+measured — claimed explicitly per site with a trailing `whole-unit-qty`
+marker comment rather than a name rule, so the scan stays honest.
 
 **Money rounds PER LINE and is stored** — `round(unit_price × qty)` at the line,
 never re-derived from a fractional quantity downstream, or the receipt and the
@@ -1280,7 +1285,7 @@ a survivor so pricing/comparison roll up. Resolution is always
 `fn_approve_batch`, `fn_review_submission` (`sale`|`loss`|`payment`|`expense`),
 `fn_record_shop_expense`, `fn_approve_expense`, `fn_merge_parts`,
 `fn_set_product_image`, `fn_can_edit_product_image`,
-`fn_generate_internal_barcode`, `fn_compute_tier_price`
+`fn_generate_internal_barcode`, `fn_generate_engine_unit_no`, `fn_compute_tier_price`
 (+ `engines_sync_tier_prices` trigger), `fn_sale_balance`,
 `fn_record_utang_payment`, `fn_void_utang_payment`, `fn_notify`,
 `fn_check_stock_alerts` (+ `stock_movements_alert_hook` trigger),
@@ -1362,7 +1367,7 @@ components/
                            Receivables · Warranties), print-button, section-tabs
   ui/                      shadcn/ui primitives
   data-table/ image-upload-field · product-image · receipt-image · location-picker · date-picker · view-toggle · confirm-dialog
-supabase/migrations/       0001–0124 (schema, RLS, functions, features;
+supabase/migrations/       0001–0129 (schema, RLS, functions, features;
                            0085–0098 = a reverted experiment, numbers retired)
 scripts/                   test-*.mjs verification scripts (one per deliverable)
 ```
