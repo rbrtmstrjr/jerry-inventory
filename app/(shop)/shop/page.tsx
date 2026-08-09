@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ph_today } from "@/lib/ph-date";
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
@@ -12,10 +13,13 @@ async function ShopStockBody() {
   const supabase = await createClient();
   const today = ph_today();
 
-  const [stockRes, enginesRes, todaySalesRes, receivablesRes] =
+  // Paged: a shop past 1,000 products loses the tail of the alphabet to
+  // PostgREST's max-rows, silently. fetchAll owns the ordering (keyset), so
+  // the display sort happens below.
+  const [stock, engines, todaySalesRes, receivablesRes] =
     await Promise.all([
-      supabase.from("shop_stock").select("*").order("name"),
-      supabase.from("shop_engines").select("*").order("serial_number"),
+      fetchAll<ShopStockRow>(() => supabase.from("shop_stock").select("*"), "part_id"),
+      fetchAll<ShopEngineRow>(() => supabase.from("shop_engines").select("*"), "engine_id"),
       supabase
         .from("sales")
         .select("total_centavos, status")
@@ -33,8 +37,10 @@ async function ShopStockBody() {
 
   return (
     <ShopStockView
-      stock={(stockRes.data ?? []) as ShopStockRow[]}
-      engines={(enginesRes.data ?? []) as ShopEngineRow[]}
+      stock={stock.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))}
+      engines={engines.sort((a, b) =>
+        (a.serial_number ?? "").localeCompare(b.serial_number ?? "")
+      )}
       todayCount={todaySales.length}
       todayTotalCentavos={todaySales.reduce((s, r) => s + (r.total_centavos ?? 0), 0)}
       receivablesCentavos={receivables.reduce(

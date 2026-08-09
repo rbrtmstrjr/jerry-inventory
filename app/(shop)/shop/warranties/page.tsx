@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ShopEngineRow } from "@/lib/db-types";
 import {
@@ -45,7 +46,7 @@ export default function ShopWarrantiesPage() {
 async function ShopWarrantiesBody() {
   const supabase = await createClient();
 
-  const [warrantiesRes, claimsRes, enginesRes] = await Promise.all([
+  const [warrantiesRes, claimsRes, engines] = await Promise.all([
     // shop_warranties is scoped to the caller's shop (via the originating sale)
     // and carries no cost columns.
     supabase
@@ -57,15 +58,17 @@ async function ShopWarrantiesBody() {
       .from("shop_warranty_claims")
       .select("*")
       .order("created_at", { ascending: false }),
-    // on-hand engines the shop can offer as a replacement
-    supabase.from("shop_engines").select("*").order("serial_number"),
+    // on-hand engines the shop can offer as a replacement — paged
+    fetchAll<ShopEngineRow>(() => supabase.from("shop_engines").select("*"), "engine_id"),
   ]);
 
   return (
     <ShopWarrantiesView
       rows={(warrantiesRes.data ?? []) as ShopWarrantyRow[]}
       claims={(claimsRes.data ?? []) as ShopWarrantyClaimRow[]}
-      engines={(enginesRes.data ?? []) as ShopEngineRow[]}
+      engines={engines.sort((a, b) =>
+        (a.serial_number ?? "").localeCompare(b.serial_number ?? "")
+      )}
     />
   );
 }

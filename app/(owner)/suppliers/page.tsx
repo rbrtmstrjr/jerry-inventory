@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { ph_today } from "@/lib/ph-date";
 import type { ReceivingBalanceRow, ReceivingRow, SupplierPayableRow } from "@/lib/db-types";
 import { SupplierTabs } from "./supplier-tabs";
@@ -90,7 +91,7 @@ function Heading() {
 // ── Receiving — the single stock entry point ────────────────────────────────
 async function ReceivingTab({ view }: { view: string | null }) {
   const supabase = await createClient();
-  const [receivingsRes, suppliersRes, partsRes, modelsRes, categoriesRes, historyRes] =
+  const [receivingsRes, suppliersRes, partsRows, modelsRes, categoriesRes, historyRes] =
     await Promise.all([
       supabase
         .from("receivings")
@@ -103,11 +104,22 @@ async function ReceivingTab({ view }: { view: string | null }) {
         .select("id, name, credit_limit, payment_terms_days, terms_note")
         .is("deleted_at", null)
         .order("name"),
-      supabase
-        .from("parts")
-        .select("id, name, sku, barcode, unit, cost_centavos")
-        .is("deleted_at", null)
-        .order("name"),
+      // paged — a truncated picker means a product cannot be RECEIVED
+      fetchAll<{
+        id: string;
+        name: string;
+        sku: string | null;
+        barcode: string | null;
+        unit: string;
+        cost_centavos: number;
+      }>(
+        () =>
+          supabase
+            .from("parts")
+            .select("id, name, sku, barcode, unit, cost_centavos")
+            .is("deleted_at", null),
+        "id"
+      ),
       supabase
         .from("engine_models")
         .select("id, brand, model, horsepower, stroke, default_warranty_months, is_serialized, sku")
@@ -141,7 +153,7 @@ async function ReceivingTab({ view }: { view: string | null }) {
     <ReceivingView
       receivings={receivings}
       suppliers={(suppliersRes.data ?? []) as SupplierOption[]}
-      parts={partsRes.data ?? []}
+      parts={partsRows.sort((a, b) => a.name.localeCompare(b.name))}
       models={modelsRes.data ?? []}
       categories={categoriesRes.data ?? []}
       history={historyRes as PriceHistoryRow[]}

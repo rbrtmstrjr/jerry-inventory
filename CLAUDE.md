@@ -145,7 +145,7 @@ meta-refresh — `?view=<id>` passes through).
 ### Owner — Master Inventory (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/master-inventory` | Products | **View + edit only** — the catalog you look at; products land here because a supplier delivered them. Browse (cards/table, photos, filters), edit existing (selling price, engine margins, reorder, category, photo, notes), per-product **Suppliers & Prices** (provenance-labelled, cheapest marked, preferred changeable inline), reference-data maintenance (rename/retire engine models from the Engines view — type definitions, not stock; **product categories moved to their own Category tab**, 0059-era), and **Merge duplicates** (0052: fold same-SKU/name parts into one survivor — catalog-identity only, refused while the duplicate holds stock/transit/open lines). **Tier note (0102): every DESTRUCTIVE control on this page is Gerry-only** — Remove product, Remove engine (in-master), Retire model, Retire category, and Merge duplicates are hidden for an admin and refused by a DB trigger / `fn_merge_parts`' own guard. An admin sees and uses the rest of the page normally, so it stays in their sidebar. **Add product / Add engine** (0059): custom catalog + opening stock (qty 0 allowed) with owner cost + selling price (> cost), category, and a **supplier dropdown incl. "No supplier"** (attribution → preferred supplier only, never debt). Both go through `fn_receive_stock` with `p_supplier_id = NULL` (0049 lockdown intact — no direct INSERT); real purchases-with-debt still use Suppliers → Receiving |
+| `/master-inventory` | Products | **View + edit only** — the catalog you look at; products land here because a supplier delivered them. Browse (cards/table, photos, filters), edit existing (selling price, reorder, category, photo, notes — the engine-margin tiers died with 0053), per-product **Suppliers & Prices** (provenance-labelled, cheapest marked, preferred changeable inline), reference-data maintenance (rename/retire engine models from the Engines view — type definitions, not stock; **product categories moved to their own Category tab**, 0059-era), and **Merge duplicates** (0052: fold same-SKU/name parts into one survivor — catalog-identity only, refused while the duplicate holds stock/transit/open lines). **Tier note (0102): every DESTRUCTIVE control on this page is Gerry-only** — Remove product, Remove engine (in-master), Retire model, Retire category, and Merge duplicates are hidden for an admin and refused by a DB trigger / `fn_merge_parts`' own guard. An admin sees and uses the rest of the page normally, so it stays in their sidebar. **Add product / Add engine** (0059): custom catalog + opening stock (qty 0 allowed) with owner cost + selling price (> cost), category, and a **supplier dropdown incl. "No supplier"** (attribution → preferred supplier only, never debt). Both go through `fn_receive_stock` with `p_supplier_id = NULL` (0049 lockdown intact — no direct INSERT); real purchases-with-debt still use Suppliers → Receiving. **Edit Engine unlocked (2026-08, no migration):** the dialog's dead Model/Cost displays became real fields — **cost** edits like the parts dialog (`disabled={priceLocked}`; `updateEngine` strips money fields for an admin, the 0100 trigger is the real gate, and the action re-checks price > cost); the **model** is a dropdown while the unit is still `in_master` (reassignment fixes a wrong-model receiving — `updateEngine` re-reads the row and refuses once the unit left master; app-level UX guard, office-tier like a part rename), disabled display afterward; and a **Rename model** panel edits brand/model/HP inline through the existing office-tier `updateEngineModel` (model-wide — renames every engine of that model; stroke + default warranty stay in the Models dialog) |
 | `/master-inventory/categories` | Category | Manage **product** categories (0059-era) — create (the piece the old rename/retire modal lacked), rename, retire, with a live-usage count per category. Owner-only writes (`createCategory`/`updateCategory`/`softDeleteCategory`, re-checked via `getProfile`; case-insensitive dedupe — an active match is refused, a retired one is restored). A new category flows to every product picker/filter via revalidation. Tab order: Products · Category · Labels. Engine-model reference data stays on the Engines view |
 | `/master-inventory/labels` | Print Labels | Generate/print Code128 barcode labels (`?ids=` preselects, e.g. straight from a receiving's new products) |
 
@@ -198,7 +198,7 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 ### Owner — Sales & Service (4)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/approvals` | Approval Queue | **(a)** Pending: review shop submission batches (sales + losses), one-click Approve-all + per-item actions, live updates. **NEWEST submission first** — this was arrival order (FIFO) until a shop reported a submitted sale "never showing up": it had, as batch #96 of 96, while the queue reveals 5 batches at a time from the oldest end. FIFO only reads correctly while the queue is a day's work; the moment the office falls behind, the item a shop is waiting on is the one furthest from view. Ordering lives in TWO places that must agree — the three `.order("created_at")` calls in `page.tsx` (the per-tab lists) and the batch comparator in `approvals-view.tsx`. `?tab=` picks the QUEUE view and accepts only `all` (default) · `sales` · `losses` · `expenses` — `resolveTab()` falls back to `all` for anything else. **(b)** Reviewed History: every decided sale/loss/utang payment, filterable (shop · type · status · date · search) with server-side pagination; click a row for a deep-linked slide-over detail (`?item=<type>:<id>`). It is **not a tab** — there is no `?tab=reviewed`; `ReviewedHistory` renders BELOW the queue on all four tabs, so the history is always one scroll away from whatever is pending |
+| `/approvals` | Approval Queue | **(a)** Pending: review shop submission batches (sales + losses), one-click Approve-all + per-item actions, live updates. **NEWEST submission first** — this was arrival order (FIFO) until a shop reported a submitted sale "never showing up": it had, as batch #96 of 96, while the queue reveals 5 batches at a time from the oldest end. FIFO only reads correctly while the queue is a day's work; the moment the office falls behind, the item a shop is waiting on is the one furthest from view. **ONE comparator now governs all four lists** — `bySubmittedThenRecorded` in `approvals-view.tsx`: submission time first, record time as the tie-break so a batch still reads in the order the shop rang it up. It used to live in two places that had to agree, and they did not: `page.tsx` fetches each type `.order("created_at")` — when the shop RECORDED it — and the three type tabs rendered that fetch order raw, so with ten branches submitting all day a 5pm sale from a shop that had not submitted yet outranked a batch that reached Admin at 7pm. Compare timestamps as INSTANTS, never with `localeCompare`: PostgREST can hand back a different UTC offset per row and `+08:00` sorts wrong against `+00:00` as text. `?tab=` picks the QUEUE view and accepts only `all` (default) · `sales` · `losses` · `expenses` — `resolveTab()` falls back to `all` for anything else. **(b)** Reviewed History: every decided sale/loss/utang payment, filterable (shop · type · status · date · search) with server-side pagination; click a row for a deep-linked slide-over detail (`?item=<type>:<id>`). It is **not a tab** — there is no `?tab=reviewed`; `ReviewedHistory` renders BELOW the queue on all four tabs, so the history is always one scroll away from whatever is pending |
 | `/receivables` | Receivables | All unpaid balances across shops — totals per shop/customer, filters, CSV export, per-sale payment history (incl. voided). Since 0101 this is also where a mistaken payment is **voided** — a Gerry-only action (the button renders for the owner alone; `fn_void_utang_payment` re-checks `is_primary_owner()`) |
 | `/warranties` | Warranties & Serials | Engine serial registry + warranty tracking across all shops; shop filter + selling-shop column; claims. Since 0103 each warranty carries the **physical card's number** (`warranty_serial`, unique, searchable) — recorded/corrected inline (the office can edit any). The certificate page was **retired by 0103**: physical cards are printed by an external system, so the card IS the warranty document (the 0082 suki-card pattern) |
 | `/suki-cards` | Suki Cards | Loyalty discount cards (0072; **0082**: the physical cards are printed by a **separate external system** — this page only **records** each card's barcode number against a customer, no minting/printing). Record per customer (existing or inline-new) with the owner-entered barcode number, deactivate/reactivate, **Replace with new card** (deactivate old + record the new printed number), per-card usage (uses + Σ program discount). Rates shown from the Settings dials |
@@ -228,7 +228,7 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 | `/shop/warranties` | Warranties | Warranties for engines THIS shop sold; serial lookup (scan-friendly, also finds card numbers), status + near-expiry highlighting. **Record the physical card's number** (0103): each row shows/edits `warranty_serial` via `fn_set_warranty_serial` (selling shop or office only; unique across cards) — the card itself is printed externally, so there is nothing to print here (the certificate + point-of-sale preview pages were retired by 0103). **File a warranty claim** (0070): repair / replace (pick an on-hand engine) / refund → `fn_request_warranty_claim`, waits for Admin approval; a **My claims** list shows status + Cancel while requested. No edit/void/extend |
 | `/shop/deliveries` | Incoming Deliveries | Count + confirm what actually arrived (no reject/return — a shortfall goes to Admin); history |
 | `/shop/low-stock` | Low Stock | This shop's items at/below their effective threshold → Request delivery from Admin; own request history. Can also add **new/custom products the shop doesn't carry** (a customer asked for something not in the catalog) to the SAME request (0077) — free-text lines that Admin sees badged "New product" and creates via Receiving before delivering. The request form now shows even when nothing is low, so a new-product request can go out anytime |
-| `/shop/record-sale` | Record Sale | Scan/browse cart, cash/change helper; since 0053 EVERY line (part + engine) shows its own-shop **cost** (read-only, the tawad floor) and an editable selling price defaulting to catalog — server rejects any price at/below cost; partial payment (customer required); a **payment-method** picker (cash/gcash/bank/other, 0061 — the change helper shows only for cash) saved on the sale; saves as `recorded`. A **"Print receipt on save"** checkbox (default ON, sticky per-browser via `localStorage jm-sale-autoprint`) prints the 58mm receipt **in-place** on save — an off-screen iframe loads `/receipt/[id]` and fires its own print dialog, so the cashier never leaves the page (with a kiosk-printing default printer it prints with no dialog). Unchecked = no auto-print; reprint any sale from its Submissions row |
+| `/shop/record-sale` | Record Sale | Scan/browse cart, cash/change helper; since 0053 EVERY line (part + engine) shows its own-shop **cost** (read-only, the tawad floor) and an editable selling price defaulting to catalog — server rejects any price at/below cost; partial payment (customer required); a **payment-method** picker (cash/gcash/bank/other, 0061 — the change helper shows only for cash) saved on the sale; saves as `recorded`. A **"Print receipt on save"** checkbox (default ON, sticky per-browser via `localStorage jm-sale-autoprint`) prints the 58mm receipt **in-place** on save — an off-screen iframe loads `/receipt/[id]` and fires its own print dialog, so the cashier never leaves the page (with a kiosk-printing default printer it prints with no dialog). Unchecked = no auto-print; reprint any sale from its Submissions row. The picker shows what is **left to sell**, not what is on the shelf: `available` = `shop_stock.qty` MINUS everything already committed to a sale this shop recorded but the owner has not approved. Stock only moves on approval, so without that subtraction every new sale saw the full shelf again — Bacoor recorded 0.5 + 0.7 + 1.4 + 2.2 kg against one 3 kg bag, each valid on its own, and the owner's whole batch then failed atomically at approval naming only the last line. Captions read `1.1 kg left · 2.2 awaiting Admin` so the cashier knows why the number is lower than the bag in front of them, and a fully-committed product stays VISIBLE at `0 left` rather than vanishing (a missing item with a full bag on the counter is the more confusing failure). `fn_record_sale` is deliberately unchanged — a hard server block would stop a shop recording a real sale whenever Admin has not confirmed a delivery yet and the on-hand reads low |
 | `/shop/record-loss` | Record Loss | Reason-tagged write-off request; saves as `recorded` |
 | `/shop/receivables` | Receivables (Utang) | This shop's outstanding balances + Record Payment (posts immediately) + payment history. The Void button left with 0101 — a mistaken payment means calling the owner (voided entries still show struck-through) |
 | `/shop/expenses` | Expenses | Record this shop's expenses (category or propose-new, optional receipt photo) — saves as `recorded`, rides the submission batch, **counts only when approved**; list shows own submissions with statuses + Admin-recorded entries for this shop; company expenses invisible |
@@ -1142,6 +1142,43 @@ byte-identical to 0083 — only the two date-bound lines change — and the
 row-walk fallback in `lib/pnl.ts` gets the identical anchoring so both paths
 agree. · `0113` realtime on `expenses` · **`0114`–`0124` fractional quantities**
 — see the section below; they are one feature and must be applied in order.
+· `0125` **the two quantity columns 0116 missed** — `delivery_discrepancies.qty`
+and `delivery_request_lines.qty_requested` were still `int`. Neither is named in
+0116 or in its plan, and the reason is worth keeping: that column list was built
+by listing the tables in the STOCK PIPELINE, and these two hang off it — one is
+an audit trail, one is a request that has moved nothing yet. Grepping the schema
+for quantity columns finds both instantly; reasoning about which tables "carry
+stock" does not. The damage was asymmetric: `fn_resolve_delivery_discrepancy`
+books the movement with the numeric `p_qty` and THEN writes the audit row, so a
+shortfall **under 0.5 rounded to 0, tripped `check (qty > 0)` and rolled the
+whole resolve back — a 0.4 kg shortfall could never be resolved and the stock
+was stranded in transit with no UI path out**; at 0.5 and above it SUCCEEDED and
+recorded a rounded quantity, so the ledger moved 1.4 while the audit trail said
+1. Requests were the same shape: `fn_create_delivery_request` already parsed
+`numeric` (0120) and inserted into an `int`, so a shop asking for 2.5 kg
+silently filed for 3. Found by driving the Resolve dialog, not by the suites —
+`test-fractional-qty` was 41/41 green throughout. Snapshot-restores
+`shop_delivery_request_lines` (0081) around the ALTER, grants + reloptions +
+the anon revoke, per 0122's lesson · `0126` **`reviewed_items` says the
+quantity** — the Approval Queue's reviewed history read
+`Water Pump 140-Z9C × 2.0`. Two defects in one expression: `' × ' || sl.qty`
+renders a numeric with its scale, so nearly every line grew a `.0` (this is what
+0123's `fmt_qty()` exists for; 0123 fixed `fn_record_count_shortages` and never
+swept the views), and `case when sl.qty > 1` — with integers `> 1` and `<> 1`
+were the same test, but with tenths they are not, so **a 0.5 kg sale line
+printed no quantity at all** on the one screen the owner uses to review what a
+shop already did. 0051's body byte-for-byte with only those two expressions
+changed · `0127` **`ft` (foot) joins the unit vocabulary** — production sells
+bronze and Ehe pipe BY THE FOOT (five products, ~217 ft on hand) and `feet` was
+free text before 0115 wired `parts.unit` to the FK. Relabelling to `m` would
+have left the quantity alone and changed what it MEANS — 48 ft reading as 48 m
+on every document, a 3.28× overstatement. NOT fractional: kilograms remain the
+only splittable unit, and selling pipe by the half-foot later is an UPDATE on
+this row, not a migration. **Applied BY HAND before the production push**,
+because 0115's foreign key runs immediately after 0114 in the same push and a
+migration numbered 0127 would be far too late to help those five products;
+0114 and this file are both idempotent, so re-running them under `db push`
+is a no-op
 · `0128`/`0129` **non-serialized engine models** — Gerry buys five identical
 small engines that share ONE product code and have no per-unit plate. Every
 engine needed its own unique serial, so he added one and the system refused the
@@ -1257,6 +1294,44 @@ marker comment rather than a name rule, so the scan stays honest.
 never re-derived from a fractional quantity downstream, or the receipt and the
 report disagree by centavos. Every client-side `formatCentavos(qty * price)` is
 wrapped in `Math.round` for the same reason.
+
+### The PostgREST row cap — the outage of 2026-08-09
+**Every select over a set that GROWS must page through `fetchAll`.** PostgREST
+caps a response at the API's `db-max-rows` (Supabase default **1,000**) and
+**truncates with no error** — an explicit `.limit(100000)` does not help, the cap
+is a hard ceiling applied after it.
+
+Gloria Trading crossed **1,032** products and the 32 sorting last vanished:
+invisible in shop stock, **unsellable** in Record Sale, absent from the delivery
+picker, never flagged in Stock Alerts. Ordered by name, rows 1001+ were simply
+never sent. Same-delivery proof of the mechanism: *Tanabe Sae30* (rank 993)
+displayed, *Zekoki Sae40* (1,027) and *Zekoki TCT Saw Blade* (1,030) did not.
+It reads as missing data, never as a broken query — Gerry reported it as
+"the transfer didn't arrive", and the delivery was in fact perfect
+(`status=confirmed`, `qty_outstanding=0`, stock correctly in `stock_levels`).
+
+`lib/pnl.ts` already knew — its `fetchAll` comment records the same cap computing
+the P&L from the first 1,000 of ~29,000 sales. **The lesson had been learned for
+money and never swept across stock or catalog.** `scripts/test-row-cap.mjs` is
+that sweep made permanent: a STATIC scan (113 assertions over 112 select sites),
+because no RPC-level test can see this — the database is perfectly correct and
+only the client's un-ranged request is wrong.
+
+- `fetchAll(build, key)` — keyset. **`key` must be UNIQUE across the whole
+  result**; a duplicate at a page boundary silently drops every row sharing it.
+  `part_id` is unique per shop, **not** across shops.
+- `fetchAllOffset(build, orderCols)` — for a composite PK or a view with no id
+  (`part_fitments`, `shop_stock` read across every shop).
+- `.eq("sale_id"/"loss_id"/"receiving_id"/"delivery_id"/"engine_id")` bounds a
+  read (a document owns a few lines). **`.eq("shop_id")` does NOT** — that is
+  the exact query that broke. Genuine exemptions carry a `row-cap-ok` marker.
+- `fetchAll` lives in **`lib/pnl.ts`** and `lib/fetch-all.ts` merely re-exports
+  it. That looks backwards; do not invert it. `scripts/test-pnl.mjs` loads
+  `lib/pnl.ts` with **bare Node** (type-stripping, no bundler, no path aliases),
+  so the moment pnl.ts gains a relative import that suite dies with
+  ERR_MODULE_NOT_FOUND.
+- `fetchAll` owns `.order()`, so a caller that needs display order must **re-sort
+  in JS** after.
 
 ### Cost visibility — narrowed, not opened (0053)
 "Cost is owner-only" (the discipline behind 0038 and the safe views) was
@@ -1541,6 +1616,8 @@ shop-expenses (0051: RPC forces own-shop, only-approval-counts, category
 propose/remap, receipts path isolation, reviewed history),
 part-merge (0052: owner-only, refuses stock/transit/open-lines, audit, no
 ledger write, invariant intact, one-hop, comparison rollup),
+row-cap (STATIC: no unbounded select on a growing table — the 2026-08-09
+Gloria Trading outage; 112 select sites scanned),
 reviewed-history, supplier-payables, shop-profitability (0083: net contribution =
 gross − shop opex, no labor term), expenses, images, shop-images, admin,
 close-shop, reports, settings, settings-documents (HTTP), pnl (0083: no labor

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { fetchAll } from "@/lib/fetch-all";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
 import {
@@ -51,7 +52,7 @@ async function ShopTransfersBody() {
   const profile = await getProfile();
   const myShopId = profile?.shop_id ?? null;
 
-  const [shopsRes, stockRes, enginesRes, txRes, lineRes, returnsRes, returnLinesRes] =
+  const [shopsRes, stock, engines, txRes, lineRes, returnsRes, returnLinesRes] =
     await Promise.all([
     // other live, active shops we can send to — a safe view (0067), since
     // shops_select scopes an employee to its OWN shop row only
@@ -59,8 +60,9 @@ async function ShopTransfersBody() {
       .from("shop_transfer_destinations")
       .select("id, name, color_key")
       .order("name"),
-    supabase.from("shop_stock").select("*").order("name"),
-    supabase.from("shop_engines").select("*").order("serial_number"),
+    // paged — past 1,000 products PostgREST truncates without erroring
+    fetchAll<ShopStockRow>(() => supabase.from("shop_stock").select("*"), "part_id"),
+    fetchAll<ShopEngineRow>(() => supabase.from("shop_engines").select("*"), "engine_id"),
     // both views are already scoped to the caller's shop and carry no cost
     supabase
       .from("shop_outgoing_transfers")
@@ -84,8 +86,10 @@ async function ShopTransfersBody() {
   return (
     <ShopTransfersView
       destinations={destinations}
-      stock={(stockRes.data ?? []) as ShopStockRow[]}
-      engines={(enginesRes.data ?? []) as ShopEngineRow[]}
+      stock={stock.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))}
+      engines={engines.sort((a, b) =>
+        (a.serial_number ?? "").localeCompare(b.serial_number ?? "")
+      )}
       transfers={(txRes.data ?? []) as OutgoingTransfer[]}
       lines={(lineRes.data ?? []) as OutgoingLine[]}
       returns={(returnsRes.data ?? []) as ShopReturn[]}

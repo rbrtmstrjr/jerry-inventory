@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllOffset } from "@/lib/fetch-all";
 import { getProfile } from "@/lib/auth";
 import { parseTableParams } from "@/components/data-table/table-params";
 import type { Category, EngineModel, EngineRow, PartRow } from "@/lib/db-types";
@@ -99,7 +100,14 @@ async function PartsPanel({ sp }: { sp: SP }) {
   const pageIds = (partsRes.data ?? []).map((p) => p.id);
   const [fitmentsRes, pricesRes] = pageIds.length
     ? await Promise.all([
-        supabase.from("part_fitments").select("part_id, engine_model_id").in("part_id", pageIds),
+        fetchAllOffset<{ part_id: string; engine_model_id: string }>(
+          () =>
+            supabase
+              .from("part_fitments")
+              .select("part_id, engine_model_id")
+              .in("part_id", pageIds),
+          ["part_id", "engine_model_id"]
+        ),
         supabase
           .from("supplier_price_comparison")
           .select(
@@ -107,10 +115,10 @@ async function PartsPanel({ sp }: { sp: SP }) {
           )
           .in("part_id", pageIds),
       ])
-    : [{ data: [] }, { data: [] }];
+    : [[], { data: [] }];
 
   const fitmentsByPart: Record<string, string[]> = {};
-  for (const f of fitmentsRes.data ?? []) {
+  for (const f of fitmentsRes) {
     (fitmentsByPart[f.part_id] ??= []).push(f.engine_model_id);
   }
 

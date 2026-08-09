@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { ph_today } from "@/lib/ph-date";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -92,8 +93,12 @@ async function MovementsBody({
     const shopParam = sp.shop ?? null;
     const shopId = shopParam && shopParam !== "master" ? shopParam : null;
 
-    const [partsRes, shopsRes, cardRes] = await Promise.all([
-      supabase.from("parts").select("id, name, sku, unit").is("deleted_at", null).order("name"),
+    const [partsRows, shopsRes, cardRes] = await Promise.all([
+      // paged — an unlisted product has no stock card at all
+      fetchAll<{ id: string; name: string; sku: string | null; unit: string }>(
+        () => supabase.from("parts").select("id, name, sku, unit").is("deleted_at", null),
+        "id"
+      ),
       supabase.from("shops").select("id, name, color_key, deleted_at").order("name"),
       partId
         ? supabase.rpc("fn_stock_card", {
@@ -117,7 +122,7 @@ async function MovementsBody({
         to={to}
         partId={partId}
         shopParam={shopParam}
-        parts={partsRes.data ?? []}
+        parts={partsRows.sort((a, b) => a.name.localeCompare(b.name))}
         shops={(shopsRes.data ?? []).map((s) => ({ ...s, closed: !!s.deleted_at }))}
         rows={(cardRes.data ?? []) as StockCardRow[]}
         liveQty={liveQty}
@@ -215,7 +220,7 @@ async function MovementsBody({
   if (sp.actor && sp.actor !== "all") q = q.eq("actor", sp.actor);
   if (sp.q?.trim()) q = q.ilike("search_text", `%${sp.q.trim().toLowerCase()}%`);
 
-  const [journalRes, shopsRes, partsRes, actorsRes] = await Promise.all([
+  const [journalRes, shopsRes, partsRows, actorsRes] = await Promise.all([
     q
       // Newest first, `id` as the tiebreaker so same-timestamp rows can't swap
       // between page loads and duplicate/skip across a page boundary.
@@ -223,7 +228,10 @@ async function MovementsBody({
       .order("id", { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1),
     supabase.from("shops").select("id, name, color_key").order("name"),
-    supabase.from("parts").select("id, name").is("deleted_at", null).order("name"),
+    fetchAll<{ id: string; name: string }>(
+      () => supabase.from("parts").select("id, name").is("deleted_at", null),
+      "id"
+    ),
     supabase.from("profiles").select("id, full_name").order("full_name"),
   ]);
 
@@ -242,7 +250,7 @@ async function MovementsBody({
         q: sp.q ?? "",
       }}
       shops={shopsRes.data ?? []}
-      parts={partsRes.data ?? []}
+      parts={partsRows.sort((a, b) => a.name.localeCompare(b.name))}
       actors={actorsRes.data ?? []}
     />
   );

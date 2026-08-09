@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApprovalTabs, type QueueTab } from "./approval-tabs";
 import {
@@ -114,57 +115,66 @@ async function ApprovalsBody({
   const wantSales = tab === "all" || tab === "sales";
   const wantLosses = tab === "all" || tab === "losses";
   const wantExpenses = tab === "all" || tab === "expenses";
-  const empty = Promise.resolve({ data: [] as unknown[] });
+  const empty = Promise.resolve([] as unknown[]);
 
   const [salesRes, lossesRes, expensesRes, activeCatsRes, historyRes, shopListRes] =
     await Promise.all([
     wantSales
-      ? supabase
-          .from("sales")
-          .select(
-            `id, shop_id, business_date, status, total_centavos, owner_note, created_at, batch_id,
-             payment_type, payment_method, amount_paid_centavos, balance_due_centavos, receipt_no,
-             discount_card_id, card_discount_centavos, discount_cards(card_no),
-             submission_batches(submitted_at),
-             shops(name, color_key),
-             profiles!sales_recorded_by_fkey(full_name),
-             customers(name, phone),
-             sale_lines(description, qty, unit_price_centavos, line_total_centavos, engine_id,
-                        agreed_price_centavos, list_reference_centavos, discount_centavos,
-                        engines(cost_centavos))`
-          )
-          .in("status", ["pending", "questioned"])
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
+      ? fetchAll(
+          () =>
+            supabase
+              .from("sales")
+              .select(
+                `id, shop_id, business_date, status, total_centavos, owner_note, created_at, batch_id,
+                 payment_type, payment_method, amount_paid_centavos, balance_due_centavos, receipt_no,
+                 discount_card_id, card_discount_centavos, discount_cards(card_no),
+                 submission_batches(submitted_at),
+                 shops(name, color_key),
+                 profiles!sales_recorded_by_fkey(full_name),
+                 customers(name, phone),
+                 sale_lines(description, qty, unit_price_centavos, line_total_centavos, engine_id,
+                            agreed_price_centavos, list_reference_centavos, discount_centavos,
+                            engines(cost_centavos))`
+              )
+              .in("status", ["pending", "questioned"])
+              .is("deleted_at", null),
+          "id"
+        )
       : empty,
     wantLosses
-      ? supabase
-          .from("losses")
-          .select(
-            `id, shop_id, business_date, status, reason, qty, note, owner_note, description, created_at, batch_id,
-             submission_batches(submitted_at),
-             shops(name, color_key),
-             profiles!losses_recorded_by_fkey(full_name)`
-          )
-          .in("status", ["pending", "questioned"])
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
+      ? fetchAll(
+          () =>
+            supabase
+              .from("losses")
+              .select(
+                `id, shop_id, business_date, status, reason, qty, note, owner_note, description, created_at, batch_id,
+                 submission_batches(submitted_at),
+                 shops(name, color_key),
+                 profiles!losses_recorded_by_fkey(full_name)`
+              )
+              .in("status", ["pending", "questioned"])
+              .is("deleted_at", null),
+          "id"
+        )
       : empty,
     wantExpenses
-      ? supabase
-          .from("expenses")
-          .select(
-            `id, shop_id, expense_date, status, amount, description, paid_to,
-             payment_method, reference_no, receipt_image_path, review_note, created_at, batch_id,
-             submission_batches(submitted_at),
-             shops(name, color_key),
-             profiles!expenses_recorded_by_fkey(full_name),
-             expense_categories(id, name, status)`
-          )
-          .eq("source", "shop")
-          .in("status", ["pending", "questioned"])
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
+      ? fetchAll(
+          () =>
+            supabase
+              .from("expenses")
+              .select(
+                `id, shop_id, expense_date, status, amount, description, paid_to,
+                 payment_method, reference_no, receipt_image_path, review_note, created_at, batch_id,
+                 submission_batches(submitted_at),
+                 shops(name, color_key),
+                 profiles!expenses_recorded_by_fkey(full_name),
+                 expense_categories(id, name, status)`
+              )
+              .eq("source", "shop")
+              .in("status", ["pending", "questioned"])
+              .is("deleted_at", null),
+          "id"
+        )
       : empty,
     supabase
       .from("expense_categories")
@@ -178,7 +188,7 @@ async function ApprovalsBody({
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const sales: PendingSale[] = (salesRes.data ?? []).map((s: any) => ({
+  const sales: PendingSale[] = (salesRes as any[]).map((s: any) => ({
     id: s.id,
     batch_id: s.batch_id ?? null,
     batch_submitted_at: s.submission_batches?.submitted_at ?? null,
@@ -210,7 +220,7 @@ async function ApprovalsBody({
     })),
   }));
 
-  const losses: PendingLoss[] = (lossesRes.data ?? []).map((l: any) => ({
+  const losses: PendingLoss[] = (lossesRes as any[]).map((l: any) => ({
     id: l.id,
     batch_id: l.batch_id ?? null,
     batch_submitted_at: l.submission_batches?.submitted_at ?? null,
@@ -226,7 +236,7 @@ async function ApprovalsBody({
     created_at: l.created_at,
   }));
 
-  const expenses: PendingExpense[] = (expensesRes.data ?? []).map((e: any) => ({
+  const expenses: PendingExpense[] = (expensesRes as any[]).map((e: any) => ({
     id: e.id,
     batch_id: e.batch_id ?? null,
     batch_submitted_at: e.submission_batches?.submitted_at ?? null,

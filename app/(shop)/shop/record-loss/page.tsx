@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
 import { RecordLossForm } from "./record-loss-form";
@@ -10,15 +11,18 @@ export const metadata: Metadata = { title: "Record Loss" };
 async function RecordLossBody() {
   const supabase = await createClient();
 
-  const [stockRes, enginesRes] = await Promise.all([
-    supabase.from("shop_stock").select("*").order("name"),
-    supabase.from("shop_engines").select("*").order("serial_number"),
+  // paged — past 1,000 products PostgREST truncates without erroring
+  const [stock, engines] = await Promise.all([
+    fetchAll<ShopStockRow>(() => supabase.from("shop_stock").select("*"), "part_id"),
+    fetchAll<ShopEngineRow>(() => supabase.from("shop_engines").select("*"), "engine_id"),
   ]);
 
   return (
     <RecordLossForm
-      stock={(stockRes.data ?? []) as ShopStockRow[]}
-      engines={(enginesRes.data ?? []) as ShopEngineRow[]}
+      stock={stock.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))}
+      engines={engines.sort((a, b) =>
+        (a.serial_number ?? "").localeCompare(b.serial_number ?? "")
+      )}
     />
   );
 }

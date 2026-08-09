@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { computeCashPosition, computePnl, pnlHasActivity } from "@/lib/pnl";
 import { PnlView, type PnlViewData } from "./pnl-view";
 
@@ -65,13 +66,17 @@ export async function PnlTab({ from, to }: { from: string; to: string }) {
     computePnl(supabase, { from, to }),
     computePnl(supabase, { from: prevFrom, to: prevTo }),
     computeCashPosition(supabase, { from, to }),
-    supabase
-      .from("expenses")
-      .select("amount, scope, expense_categories(name)")
-      .eq("status", "approved")
-      .gte("expense_date", from)
-      .lte("expense_date", to)
-      .is("deleted_at", null),
+    fetchAll<{ amount: number; scope: string }>(
+      () =>
+        supabase
+          .from("expenses")
+          .select("id, amount, scope, expense_categories(name)")
+          .eq("status", "approved")
+          .gte("expense_date", from)
+          .lte("expense_date", to)
+          .is("deleted_at", null),
+      "id"
+    ),
     // Only worth the queries when the range actually spans more than one month.
     months.length > 1
       ? Promise.all(
@@ -89,7 +94,7 @@ export async function PnlTab({ from, to }: { from: string; to: string }) {
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const byCategory = new Map<string, number>();
-  for (const e of (expenseRowsRes.data ?? []) as any[]) {
+  for (const e of expenseRowsRes as any[]) {
     const name = e.expense_categories?.name ?? "Uncategorised";
     byCategory.set(name, (byCategory.get(name) ?? 0) + (e.amount ?? 0));
   }
