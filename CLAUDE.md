@@ -448,7 +448,9 @@ channel and drain pending dispatches — no schema redesign. **SMS is not built.
 ## Database Schema (Postgres)
 
 **Core inventory:** `shops`, `profiles` (app logins/roles), `suppliers`,
-`product_categories`, `engine_models`, `parts` (+`merged_into` tombstone since
+`product_categories`, `engine_models` (+`is_serialized` and `sku` since 0128 —
+a model whose units carry no plate shares one product code, and only such a
+model may be received by the quantity), `parts` (+`merged_into` tombstone since
 0052), `part_fitments`, `part_merges` (merge audit, owner-only), `customers`,
 `engines` (serial-tracked), `stock_levels` (per-shop on-hand),
 `units` (0114 — controlled vocabulary for `parts.unit`; `allows_fractional`
@@ -548,7 +550,7 @@ never a stored flag. Receivable balances are
 mutable running total; `sales.balance_due_centavos` stays the at-sale snapshot
 the printed receipt shows.
 
-### Migrations (`supabase/migrations/`, 0001–0124; 0085–0098 retired)
+### Migrations (`supabase/migrations/`, 0001–0129; 0085–0098 retired)
 `0001` schema · `0002` RLS + safe views · `0003` seed · `0004` receiving fns ·
 `0005` delivery fns · `0006` record (sale/loss) fns · `0007` line descriptions ·
 `0008` approval engine + realtime · `0009` count fns · `0010`/`0011` product &
@@ -1140,6 +1142,32 @@ byte-identical to 0083 — only the two date-bound lines change — and the
 row-walk fallback in `lib/pnl.ts` gets the identical anchoring so both paths
 agree. · `0113` realtime on `expenses` · **`0114`–`0124` fractional quantities**
 — see the section below; they are one feature and must be applied in order.
+· `0128`/`0129` **non-serialized engine models** — Gerry buys five identical
+small engines that share ONE product code and have no per-unit plate. Every
+engine needed its own unique serial, so he added one and the system refused the
+rest; he was typing the shared code into the serial box because that was the
+only way in. **Serialization becomes a property of the MODEL**
+(`engine_models.is_serialized`, default true so all 30 existing models are
+untouched) — the `units.allows_fractional` decision from 0114, for the same
+reason: a Yamaha 40HP has plates and a cheap brush cutter does not, and that is
+a fact about the model, not something to remember per unit. `sku` holds the
+shared code and mirrors `parts.sku` (same concept, same word, also not unique);
+editable in the model editor, and 0128 adds a supporting index, but no other UI
+surface searches or displays it today. A receiving engine line may carry `qty`
+**only** for a non-serialized model — on a serialized one it is REFUSED, which
+is the feature: it stops a real plate being replaced by a system number by
+accident. `qty` is capped at 500 — a fat-finger guard (a typo'd 501 for 5), not
+a business rule. Units of a non-serialized model are numbered `UNIT-########`
+(`fn_generate_engine_unit_no`, mirroring `fn_generate_internal_barcode`); a
+minted value rather than a nullable serial because 146 app sites read
+`serial_number` as a string. **Engines remain ONE ROW PER PHYSICAL UNIT** — five
+units are five `engines` rows, five `receiving_lines` at qty 1 and five `+1`
+ledger rows, so the five `check (engine_id is null or qty = 1)` constraints,
+every `p_qty <> 1` guard and one-warranty-per-unit are all untouched. Serial AND
+`qty > 1` together is refused, not reconciled. `new_model` gains
+`is_serialized`/`sku` so such a model can be created inline on the receiving
+that first stocks it (0048). `test-engine-nonserial.mjs` exits 2 until 0128 is
+applied.
 
 ### Fractional quantities — the *tingi* (0114–0124)
 Gerry sells nails, lead, fasteners, welding materials and powders **by the
@@ -1220,7 +1248,10 @@ counter still refuses `0.5`, which is exactly what happened:
 `test-fractional-qty.mjs` opens with a STATIC section asserting no quantity is
 validated with `.int()` and none is parsed with `parseInt` — the RPC-level
 assertions below it cannot see either layer. Reorder levels are exempt on
-purpose (a threshold, not a measurement), as is money in centavos.
+purpose (a threshold, not a measurement), as is money in centavos. Engine
+counts are the other exemption (0128/0129) — an engine is counted, not
+measured — claimed explicitly per site with a trailing `whole-unit-qty`
+marker comment rather than a name rule, so the scan stays honest.
 
 **Money rounds PER LINE and is stored** — `round(unit_price × qty)` at the line,
 never re-derived from a fractional quantity downstream, or the receipt and the
@@ -1254,7 +1285,7 @@ a survivor so pricing/comparison roll up. Resolution is always
 `fn_approve_batch`, `fn_review_submission` (`sale`|`loss`|`payment`|`expense`),
 `fn_record_shop_expense`, `fn_approve_expense`, `fn_merge_parts`,
 `fn_set_product_image`, `fn_can_edit_product_image`,
-`fn_generate_internal_barcode`, `fn_compute_tier_price`
+`fn_generate_internal_barcode`, `fn_generate_engine_unit_no`, `fn_compute_tier_price`
 (+ `engines_sync_tier_prices` trigger), `fn_sale_balance`,
 `fn_record_utang_payment`, `fn_void_utang_payment`, `fn_notify`,
 `fn_check_stock_alerts` (+ `stock_movements_alert_hook` trigger),
@@ -1336,7 +1367,7 @@ components/
                            Receivables · Warranties), print-button, section-tabs
   ui/                      shadcn/ui primitives
   data-table/ image-upload-field · product-image · receipt-image · location-picker · date-picker · view-toggle · confirm-dialog
-supabase/migrations/       0001–0124 (schema, RLS, functions, features;
+supabase/migrations/       0001–0129 (schema, RLS, functions, features;
                            0085–0098 = a reverted experiment, numbers retired)
 scripts/                   test-*.mjs verification scripts (one per deliverable)
 ```
@@ -1514,7 +1545,12 @@ reviewed-history, supplier-payables, shop-profitability (0083: net contribution 
 gross − shop opex, no labor term), expenses, images, shop-images, admin,
 close-shop, reports, settings, settings-documents (HTTP), pnl (0083: no labor
 term; net = gross profit − shrinkage − opex − overhead), movements,
-supplier-comparison, ia-redirects (HTTP). (The `payroll`, `payroll-contributions`
+supplier-comparison,
+engine-nonserial (0128/0129: five units from one line on a non-serialized model,
+distinct UNIT- numbers, qty refused on a serialized model, serial still required
+there, serial+qty refused, inline non-serialized model creation, and a
+non-serialized unit selling and warranting like any other),
+ia-redirects (HTTP). (The `payroll`, `payroll-contributions`
 and `payroll-vale` suites were deleted with Payroll, 0083; `warranty-preview`
 was deleted with the certificates, 0103.)
 
