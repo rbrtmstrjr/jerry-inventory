@@ -88,7 +88,7 @@ async function PartsPanel({ sp }: { sp: SP }) {
     supabase.from("product_categories").select("id, name").is("deleted_at", null).order("name"),
     supabase
       .from("engine_models")
-      .select("id, brand, model, horsepower, stroke, default_warranty_months")
+      .select("id, brand, model, horsepower, stroke, default_warranty_months, is_serialized, sku")
       .is("deleted_at", null)
       .order("brand"),
     supabase.from("suppliers").select("id, name").is("deleted_at", null).order("name"),

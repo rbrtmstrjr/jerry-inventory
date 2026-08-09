@@ -1164,7 +1164,9 @@ export function ReceivingView({
       const cost = parsePesosToCentavos(l.cost || "0");
       // qty > 1 only reaches here for a non-serialized model; the RPC's own
       // total (0129) multiplies per unit the same way inside its unit loop.
-      const qty = serializedFor(l) ? 1 : parseInt(l.qty || "1", 10) || 1;
+      // No `|| 1` fallback: an explicit "0" must show as zero, not silently
+      // become one unit — onSubmit refuses "0" outright (see below).
+      const qty = serializedFor(l) ? 1 : parseInt(l.qty || "1", 10);
       if (cost !== null) t += cost * qty;
     }
     return t;
@@ -1273,8 +1275,11 @@ export function ReceivingView({
         toast.error(`Engine line ${i + 1}: serial is required — one per unit`);
         return;
       }
-      const engQty = serialized ? 1 : parseInt(l.qty || "1", 10) || 1;
-      if (!serialized && (engQty < 1 || engQty > 500)) {
+      // No `|| 1` fallback: a stray "0" (backspace typo) must be refused, not
+      // silently receive one unit — 0121/0119/0124 exist because of exactly
+      // this class of silently-wrong quantity.
+      const engQty = serialized ? 1 : parseInt(l.qty || "1", 10);
+      if (!serialized && (isNaN(engQty) || engQty < 1 || engQty > 500)) {
         toast.error(`Engine line ${i + 1}: qty must be between 1 and 500`);
         return;
       }
@@ -1709,9 +1714,13 @@ export function ReceivingView({
                                 setNewModelFor(i);
                                 return;
                               }
+                              // Reset both — a disabled box must not keep
+                              // showing a value the payload no longer sends.
                               updateEngineLine(i, {
                                 engine_model_id: v,
                                 new_model: null,
+                                qty: "1",
+                                serial_number: "",
                               });
                             }}
                           >
@@ -2090,7 +2099,14 @@ export function ReceivingView({
         supplierName={supplier?.name ?? null}
         onSave={(d) => {
           if (newModelFor === null) return;
-          updateEngineLine(newModelFor, { engine_model_id: "", new_model: d });
+          // Reset both — a disabled box must not keep showing a value the
+          // payload no longer sends.
+          updateEngineLine(newModelFor, {
+            engine_model_id: "",
+            new_model: d,
+            qty: "1",
+            serial_number: "",
+          });
         }}
         onClose={() => setNewModelFor(null)}
       />

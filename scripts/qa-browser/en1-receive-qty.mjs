@@ -21,6 +21,10 @@ const LOOSE_BRAND = "ZZ-QA Loose";
 const LOOSE_MODEL = `Engine ${RUN}`;
 const PLATED_BRAND = "ZZ-QA Plated";
 const PLATED_MODEL = `Engine ${RUN}`;
+const ZERO_BRAND = "ZZ-QA Zero";
+const ZERO_MODEL = `Engine ${RUN}`;
+const SWITCH_BRAND = "ZZ-QA Switch";
+const SWITCH_MODEL = `Engine ${RUN}`;
 
 const { browser, page, errors } = await launch({ headless: true });
 const q = await dbAuth("owner");
@@ -197,7 +201,77 @@ try {
   check(!r2.okDialog, "submitting a serialized line with no serial is refused", `dialog=${r2.okDialog}`);
   console.log(`    refusal toast: "${r2.toastText}"`);
 
-  console.log(`\nFIXTURES: ${LOOSE_BRAND} ${LOOSE_MODEL} / ${PLATED_BRAND} ${PLATED_MODEL}`);
+  // ── C — an explicit "0" must be refused, not silently received as 1 ──────
+  step("C — explicit qty 0 is refused, not silently rounded up to 1");
+  await page.reload();
+  await page.waitForTimeout(1200);
+  await openReceiving();
+  await addEngineLineWithNewModel({
+    brand: ZERO_BRAND, model: ZERO_MODEL, serialized: false,
+  });
+  const qtyBox3 = page.getByLabel("Engine quantity").last();
+  await qtyBox3.fill("0");
+  check(
+    (await qtyBox3.inputValue()) === "0",
+    "the box holds the literal 0 (the strip-non-digits handler doesn't eat it)",
+    await qtyBox3.inputValue()
+  );
+  await page.getByLabel("Cost in pesos").last().fill("50000.00");
+  await page.getByLabel("Price in pesos").last().fill("65000.00");
+  const r3 = await submitReceiving();
+  check(!r3.okDialog, "qty 0 is refused outright, not silently received as 1 unit", `dialog=${r3.okDialog}`);
+  check(
+    /qty must be between 1 and 500/i.test(r3.toastText),
+    "the refusal names the valid range",
+    r3.toastText
+  );
+  const zeroModels = await q(
+    `engine_models?brand=eq.${encodeURIComponent(ZERO_BRAND)}&model=eq.${encodeURIComponent(ZERO_MODEL)}&select=id`
+  );
+  check(
+    zeroModels.length === 0,
+    "no model/engine was created for the refused qty-0 line",
+    `${zeroModels.length} rows`
+  );
+
+  // ── D — switching a line's serialization mode resets the stale display ───
+  step("D — switching model on a line resets the sibling field's display");
+  const qtyBox4 = page.getByLabel("Engine quantity").last();
+  await qtyBox4.fill("5");
+  check((await qtyBox4.inputValue()) === "5", "qty set to 5 before switching models", "");
+
+  // Reopen the SAME line's "NEW" badge to swap in a second, SERIALIZED model.
+  await page.getByRole("button", { name: new RegExp(ZERO_MODEL) }).last().click();
+  await page.waitForTimeout(700);
+  const dlg2 = page.locator('[data-slot="dialog-content"]').last();
+  await dlg2.locator("#nm-brand").fill(SWITCH_BRAND);
+  await dlg2.locator("#nm-model").fill(SWITCH_MODEL);
+  // leave the checkbox at its default (checked = serialized)
+  await dlg2.getByRole("button", { name: /use this model/i }).click();
+  await page.waitForTimeout(600);
+
+  const qtyBox5 = page.getByLabel("Engine quantity").last();
+  const serialBox5 = page.getByLabel("Serial number").last();
+  check(
+    (await qtyBox5.inputValue()) === "1",
+    "switching to a serialized model resets the displayed Qty to 1 (was 5)",
+    await qtyBox5.inputValue()
+  );
+  check(await qtyBox5.isDisabled(), "…and the reset Qty box is locked", "");
+  check(
+    (await serialBox5.inputValue()) === "",
+    "switching to a serialized model clears the displayed Serial",
+    await serialBox5.inputValue()
+  );
+  check(!(await serialBox5.isDisabled()), "…and the cleared Serial box is enabled", "");
+  // NOTE: this exercises the NewModelDialog onSave reset site only. The other
+  // site (picking an EXISTING model from the <Select>) could not be exercised
+  // live — pre-migration, is_serialized/sku don't exist as columns, so the
+  // engine_models fetch on the Suppliers page returns zero rows and the
+  // dropdown never offers an existing model to switch to. Both sites apply
+  // the identical { qty: "1", serial_number: "" } reset; see the fix report.
+
+  console.log(`\nFIXTURES: ${LOOSE_BRAND} ${LOOSE_MODEL} / ${PLATED_BRAND} ${PLATED_MODEL} / ${ZERO_BRAND} ${ZERO_MODEL} / ${SWITCH_BRAND} ${SWITCH_MODEL}`);
   console.log("CONSOLE ERRORS:", errors.length ? errors.slice(0, 5) : "none");
 } catch (e) {
   console.error("\nEN1 THREW:", e.message);
