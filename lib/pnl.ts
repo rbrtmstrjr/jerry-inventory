@@ -154,12 +154,26 @@ async function requireOwner(supabase: SupabaseClient): Promise<void> {
 /**
  * Fetch EVERY row of a query, 1,000 at a time.
  *
- * PostgREST silently caps an un-ranged select at the API's max-rows (1,000).
- * At demo scale that was invisible; the 300k-row load test showed the P&L
- * quietly computing from the first 1,000 of ~29,000 sales — a confidently
- * wrong number, the exact thing this module refuses to be. The builder is a
- * FACTORY because a supabase query is consumed on await; each page needs a
- * fresh one. A page error throws — partial money math is not money math.
+ * PostgREST silently caps an un-ranged select at the API's max-rows. At demo
+ * scale that was invisible; the 300k-row load test showed the P&L quietly
+ * computing from the first 1,000 of ~29,000 sales — a confidently wrong
+ * number. On 2026-08-09 the same cap hit STOCK: Gloria Trading crossed 1,032
+ * products and the 32 sorting last (the Zekokis) vanished from every shop
+ * screen — invisible on the shelf, unsellable at the counter, never flagged
+ * low. The rows were in `stock_levels` the whole time.
+ *
+ * It truncates with no error, so the failure always looks like missing data
+ * rather than a broken query. Any select over a set that GROWS — stock,
+ * catalog, ledger — must page through this.
+ *
+ * The builder is a FACTORY because a supabase query is consumed on await;
+ * each page needs a fresh one. A page error throws — partial data is worse
+ * than no data, because it looks like an answer.
+ *
+ * `key` must be UNIQUE across the whole result set. Keyset pagination steps
+ * with `> cursor`, so a duplicate key at a page boundary silently drops every
+ * row sharing it. Scope the query until the key is unique (per shop, say)
+ * rather than reaching for a non-unique one.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function fetchAll<T = any>(
@@ -187,11 +201,40 @@ export async function fetchAll<T = any>(
         await new Promise((r) => setTimeout(r, attempt * 1500));
         continue;
       }
-      throw new Error(`P&L query failed: ${error.message}`);
+      throw new Error(`Paged query failed: ${error.message}`);
     }
     out.push(...page);
     if (page.length < 1000) return out;
     cursor = (page[page.length - 1] as any)[key];
+  }
+}
+
+/**
+ * Same guarantee for a table with NO single unique column — a composite
+ * primary key, or a view that exposes no id (`part_fitments`, `shop_stock`
+ * read across every shop).
+ *
+ * Offset paging, so deep pages get progressively more expensive: Postgres
+ * walks and discards everything before the offset. Use `fetchAll` whenever a
+ * unique key exists. This is for the tables that genuinely have none, and it
+ * is still strictly better than a silent truncation.
+ *
+ * `order` must be a total ordering or a row can repeat/vanish across pages;
+ * pass every column of the composite key.
+ */
+export async function fetchAllOffset<T = any>(
+  build: () => any,
+  order: string[]
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += 1000) {
+    let q = build();
+    for (const col of order) q = q.order(col, { ascending: true });
+    const { data, error } = await q.range(from, from + 999);
+    if (error) throw new Error(`Paged query failed: ${error.message}`);
+    const page = (data ?? []) as T[];
+    out.push(...page);
+    if (page.length < 1000) return out;
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

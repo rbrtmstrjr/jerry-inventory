@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import type { MasterLowStockRow, ShopLowStockRow } from "@/lib/db-types";
 import {
   StockAlertsView,
@@ -47,15 +48,19 @@ async function StockAlertsBody({
   const { tab } = await searchParams;
   const supabase = await createClient();
 
-  const [masterRes, shopRes, partsRes, modelsRes, overridesRes, shopsRes, suppliersRes, requestsRes] =
+  const [masterRes, shopRes, partsRows, modelsRes, overridesRes, shopsRes, suppliersRes, requestsRes] =
     await Promise.all([
       supabase.from("master_low_stock").select("*"),
       supabase.from("shop_low_stock").select("*"),
-      supabase
-        .from("parts")
-        .select("id, name, unit, reorder_level, preferred_supplier_id")
-        .is("deleted_at", null)
-        .order("name"),
+      // paged — an unlisted product can never have its reorder level set
+      fetchAll<{ id: string; name: string }>(
+        () =>
+          supabase
+            .from("parts")
+            .select("id, name, unit, reorder_level, preferred_supplier_id")
+            .is("deleted_at", null),
+        "id"
+      ),
       supabase
         .from("engine_models")
         .select("id, brand, model, reorder_level, preferred_supplier_id")
@@ -86,7 +91,7 @@ async function StockAlertsBody({
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const products: ProductThresholdRow[] = [
-    ...(partsRes.data ?? []).map((p: any) => ({
+    ...partsRows.map((p: any) => ({
       kind: "part" as const,
       id: p.id,
       name: p.name,

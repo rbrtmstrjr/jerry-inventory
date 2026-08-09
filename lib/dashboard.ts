@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { ph_today } from "@/lib/ph-date";
+import { fetchAll } from "@/lib/fetch-all";
 
 /**
  * Dashboard + nav-badge data, computed in ONE fast round-trip.
@@ -51,22 +52,6 @@ export interface BadgeCounts {
   suppliers: number;
 }
 
-// walk every row of a query (keyset by a unique column) — only used by fallbacks
-async function pageAll(build: () => any, key = "id"): Promise<any[]> {
-  const out: any[] = [];
-  let cursor: any = null;
-  for (;;) {
-    let q = build().order(key, { ascending: true }).limit(1000);
-    if (cursor !== null) q = q.gt(key, cursor);
-    const { data, error } = await q;
-    if (error) throw error;
-    const rows = data ?? [];
-    out.push(...rows);
-    if (rows.length < 1000) return out;
-    cursor = rows[rows.length - 1][key];
-  }
-}
-
 export const getDashboardSummary = cache(async (): Promise<DashboardSummary> => {
   const supabase = await createClient();
 
@@ -106,21 +91,27 @@ export const getDashboardSummary = cache(async (): Promise<DashboardSummary> => 
   ] = await Promise.all([
     supabase.from("sales").select("id", { count: "exact", head: true }).in("status", ["pending", "questioned"]).is("deleted_at", null),
     supabase.from("losses").select("id", { count: "exact", head: true }).in("status", ["pending", "questioned"]).is("deleted_at", null),
-    supabase.from("sales").select("total_centavos").eq("status", "approved").eq("business_date", today).is("deleted_at", null),
-    supabase.from("stock_levels").select("qty, parts!inner(deleted_at)").is("shop_id", null).gt("qty", 0),
+    fetchAll(
+      () => supabase.from("sales").select("id, total_centavos").eq("status", "approved").eq("business_date", today).is("deleted_at", null),
+      "id"
+    ),
+    fetchAll(
+      () => supabase.from("stock_levels").select("part_id, qty, parts!inner(deleted_at)").is("shop_id", null).gt("qty", 0),
+      "part_id"
+    ),
     supabase.from("engines").select("id", { count: "exact", head: true }).eq("status", "in_master").is("deleted_at", null),
     supabase.from("shop_low_stock").select("product_id", { count: "exact", head: true }),
     supabase.from("deliveries").select("id", { count: "exact", head: true }).eq("status", "in_transit").is("deleted_at", null),
     supabase.from("deliveries").select("id", { count: "exact", head: true }).in("status", ["discrepancy", "requested"]).is("deleted_at", null),
     supabase.from("supplier_payables").select("outstanding, overdue_amount, overdue_count"),
-    pageAll(() => supabase.from("receivables").select("sale_id, balance_centavos"), "sale_id"),
+    fetchAll(() => supabase.from("receivables").select("sale_id, balance_centavos"), "sale_id"),
   ]);
   const open = (recv as any[]).filter((r) => (r.balance_centavos ?? 0) > 0);
   return {
     pendingCount: (pendS.count ?? 0) + (pendL.count ?? 0),
-    todayRevenue: (todayS.data ?? []).reduce((s: number, r: any) => s + (r.total_centavos ?? 0), 0),
-    todayCount: (todayS.data ?? []).length,
-    masterItemCount: (masterP.data ?? []).filter((r: any) => !r.parts.deleted_at).length + (masterE.count ?? 0),
+    todayRevenue: (todayS as any[]).reduce((s: number, r: any) => s + (r.total_centavos ?? 0), 0),
+    todayCount: (todayS as any[]).length,
+    masterItemCount: (masterP as any[]).filter((r: any) => !r.parts.deleted_at).length + (masterE.count ?? 0),
     lowStockCount: low.count ?? 0,
     inTransitCount: inT.count ?? 0,
     needYouCount: needY.count ?? 0,
@@ -139,7 +130,7 @@ export const getTopProducts = cache(async (from: string, to: string): Promise<To
     return (data as any[]).map((r) => ({ name: r.name as string, qty: Number(r.qty) }));
   }
   // fallback — paginate month sales + aggregate in JS
-  const rows = await pageAll(
+  const rows = await fetchAll(
     () => supabase.from("sales").select("id, sale_lines(description, qty)").eq("status", "approved").gte("business_date", from).lte("business_date", to).is("deleted_at", null),
     "id"
   );

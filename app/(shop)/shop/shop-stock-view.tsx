@@ -48,6 +48,10 @@ export function ShopStockView({
   const lowStock = stock.filter((s) => s.qty <= s.reorder_level && s.reorder_level > 0);
   const [view, setView] = usePersistedView("jm-view-shop-stock");
   const [cardSearch, setCardSearch] = React.useState("");
+  // Separate from cardSearch on purpose: the two tabs search different things
+  // (item/barcode vs serial/model), so one box would carry a meaningless term
+  // across when the shop switches tab.
+  const [engineSearch, setEngineSearch] = React.useState("");
   const [photoTarget, setPhotoTarget] = React.useState<PhotoTarget | null>(null);
 
   // The card grids render EVERY row. There was a scroll-reveal here (12 at a
@@ -67,6 +71,17 @@ export function ShopStockView({
           (s.category ?? "").toLowerCase().includes(q)
       )
     : stock;
+
+  // Same fields the Engines TABLE view searches, so the two views agree.
+  const eq = engineSearch.trim().toLowerCase();
+  const cardEngines = eq
+    ? engines.filter(
+        (e) =>
+          e.serial_number.toLowerCase().includes(eq) ||
+          `${e.brand} ${e.model}`.toLowerCase().includes(eq) ||
+          (e.horsepower != null && `${e.horsepower}hp`.includes(eq))
+      )
+    : engines;
 
   const stats = [
     {
@@ -420,23 +435,37 @@ export function ShopStockView({
             />
           ) : (
             <div className="flex flex-col gap-3">
-              <div className="flex justify-end">
-                <ViewToggle value={view} onChange={setView} />
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative w-full max-w-xs">
+                  <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={engineSearch}
+                    onChange={(e) => setEngineSearch(e.target.value)}
+                    placeholder="Search serial or model…"
+                    className="pl-8"
+                    aria-label="Search engines"
+                  />
+                </div>
+                <div className="ml-auto">
+                  <ViewToggle value={view} onChange={setView} />
+                </div>
               </div>
-              {engines.length === 0 ? (
+              {cardEngines.length === 0 ? (
                 <Empty>
                   <EmptyHeader>
                     <EmptyMedia variant="icon">
                       <Search />
                     </EmptyMedia>
                     <EmptyDescription>
-                      No engines at your shop right now.
+                      {eq
+                        ? `Nothing matches “${engineSearch}”.`
+                        : "No engines at your shop right now."}
                     </EmptyDescription>
                   </EmptyHeader>
                 </Empty>
               ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                  {engines.map((e) => (
+                  {cardEngines.map((e) => (
                     <div
                       key={e.engine_id}
                       className="flex flex-col overflow-hidden rounded-lg border bg-card transition-shadow hover:shadow-md"
@@ -492,7 +521,9 @@ export function ShopStockView({
                 </div>
               )}
               <p className="text-xs text-muted-foreground tabular-nums">
-                {engines.length} engine{engines.length === 1 ? "" : "s"} on hand
+                {eq
+                  ? `${cardEngines.length} of ${engines.length} engines`
+                  : `${engines.length} engine${engines.length === 1 ? "" : "s"} on hand`}
               </p>
             </div>
           )}

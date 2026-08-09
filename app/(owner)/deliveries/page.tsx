@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { classifyRequestLines, type ClassifiedRequest } from "@/lib/request-fulfillment";
+import { fetchAll } from "@/lib/fetch-all";
 import { DeliveriesView } from "./deliveries-view";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -149,8 +150,8 @@ async function DeliveriesBody({
 
   const [
     shopsRes,
-    masterStockRes,
-    enginesRes,
+    masterStockRows,
+    engineRows,
     deliveriesRes,
     returnsRes,
     transitRes,
@@ -163,19 +164,29 @@ async function DeliveriesBody({
         .eq("active", true)
         .is("deleted_at", null)
         .order("name"),
-      supabase
-        .from("stock_levels")
-        .select("part_id, qty, parts!inner(name, sku, barcode, unit, deleted_at)")
-        .is("shop_id", null)
-        .gt("qty", 0),
-      supabase
-        .from("engines")
-        .select(
-          "id, serial_number, status, shop_id, engine_model_id, engine_models(brand, model, horsepower)"
-        )
-        .in("status", ["in_master", "delivered"])
-        .is("deleted_at", null)
-        .order("serial_number"),
+      // Both paged: the delivery form IS the picker. A truncated list means a
+      // product cannot be delivered at all, with stock sitting in master.
+      // part_id is unique within master (one stock_levels row per part+shop).
+      fetchAll(
+        () =>
+          supabase
+            .from("stock_levels")
+            .select("part_id, qty, parts!inner(name, sku, barcode, unit, deleted_at)")
+            .is("shop_id", null)
+            .gt("qty", 0),
+        "part_id"
+      ),
+      fetchAll(
+        () =>
+          supabase
+            .from("engines")
+            .select(
+              "id, serial_number, status, shop_id, engine_model_id, engine_models(brand, model, horsepower)"
+            )
+            .in("status", ["in_master", "delivered"])
+            .is("deleted_at", null),
+        "id"
+      ),
       supabase
         .from("deliveries")
         .select(
@@ -232,7 +243,7 @@ async function DeliveriesBody({
     ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const masterParts: MasterPartOption[] = (masterStockRes.data ?? [])
+  const masterParts: MasterPartOption[] = masterStockRows
     .filter((s: any) => !s.parts.deleted_at)
     .map((s: any) => ({
       part_id: s.part_id,
@@ -244,14 +255,17 @@ async function DeliveriesBody({
     }))
     .sort((a: MasterPartOption, b: MasterPartOption) => a.name.localeCompare(b.name));
 
-  const engines: EngineOption[] = (enginesRes.data ?? []).map((e: any) => ({
-    id: e.id,
-    serial_number: e.serial_number,
-    label: `${e.serial_number} — ${e.engine_models?.brand ?? ""} ${e.engine_models?.model ?? ""}${
-      e.engine_models?.horsepower != null ? ` ${e.engine_models.horsepower}HP` : ""
-    }`,
-    shop_id: e.status === "in_master" ? null : e.shop_id,
-  }));
+  const engines: EngineOption[] = engineRows
+    .map((e: any) => ({
+      id: e.id,
+      serial_number: e.serial_number,
+      label: `${e.serial_number} — ${e.engine_models?.brand ?? ""} ${e.engine_models?.model ?? ""}${
+        e.engine_models?.horsepower != null ? ` ${e.engine_models.horsepower}HP` : ""
+      }`,
+      shop_id: e.status === "in_master" ? null : e.shop_id,
+    }))
+    // fetchAll orders by the keyset column, so restore the display order
+    .sort((a, b) => a.serial_number.localeCompare(b.serial_number));
 
   // "Convert to delivery": pre-fill this form from a shop's request. Engines
   // are requested by MODEL but delivered by SERIAL, so pick the first
@@ -271,7 +285,7 @@ async function DeliveriesBody({
 
     if (req && (req as any).status === "open") {
       const r = req as any;
-      const inMaster = (enginesRes.data ?? [])
+      const inMaster = engineRows
         .filter((e: any) => e.status === "in_master")
         .map((e: any) => ({ id: e.id, engine_model_id: e.engine_model_id }));
 
