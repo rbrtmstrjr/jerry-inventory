@@ -65,13 +65,23 @@ section("No quantity is treated as an integer (static)");
 
   // A quantity identifier — deliberately NOT reorder_level (a threshold, not a
   // measurement; Gerry asked for those to stay whole) and not *_centavos.
+  //
+  // An engine count is the other legitimate exception: an engine is counted,
+  // not measured, so `.int()`/`parseInt` are correct there (0128/0129). Rather
+  // than carve that out by name — fragile, and silent the next time someone
+  // adds an integer qty — a site claims the exemption explicitly with a
+  // trailing `whole-unit-qty` marker comment. It's greppable, and adding one
+  // is a decision that has to justify itself at the call site, not a way to
+  // quietly silence this check.
   const QTY = String.raw`\w*(?<!reorder_)qty\w*|\bcounted\b|\bgood\b|\bdamaged\b|\bavailable\b`;
+  const WHOLE_UNIT = /whole-unit-qty/;
 
   const zodInts = [];
   const parseInts = [];
   for (const f of files) {
     const src = readFileSync(f, "utf8");
     src.split("\n").forEach((line, i) => {
+      if (WHOLE_UNIT.test(line)) return;
       if (new RegExp(String.raw`(${QTY})\s*:\s*z\s*\.number\(\)\s*\.int\(\)`).test(line))
         zodInts.push(`${f}:${i + 1}`);
       if (/parseInt\(/.test(line) && new RegExp(QTY, "i").test(line))

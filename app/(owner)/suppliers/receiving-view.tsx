@@ -137,6 +137,8 @@ interface NewModelDraft {
   horsepower: string;
   stroke: "" | "2-stroke" | "4-stroke";
   default_warranty_months: string;
+  is_serialized: boolean;
+  sku: string;
 }
 
 interface PartLine {
@@ -154,7 +156,19 @@ interface EngineLine {
   cost: string;
   price: string;
   warranty_months: string;
+  qty: string;
 }
+
+const emptyEngineLine = (): EngineLine => ({
+  serial_number: "",
+  engine_model_id: "",
+  new_model: null,
+  condition: "brand_new",
+  cost: "",
+  price: "",
+  warranty_months: "",
+  qty: "1",
+});
 
 const emptyPartLine = (): PartLine => ({
   part_id: "",
@@ -437,6 +451,8 @@ function NewModelDialog({
     horsepower: "",
     stroke: "",
     default_warranty_months: "12",
+    is_serialized: true,
+    sku: "",
   };
   const [d, setD] = React.useState<NewModelDraft>(empty);
   React.useEffect(() => {
@@ -522,6 +538,31 @@ function NewModelDialog({
               />
             </div>
           </div>
+          <div className="grid gap-2">
+            <Label htmlFor="nm-sku">Product code</Label>
+            <Input
+              id="nm-sku"
+              value={d.sku}
+              placeholder="e.g. HONDA-GX35-2026"
+              onChange={(e) => set({ sku: e.target.value })}
+              aria-label="Product code for the new model"
+            />
+          </div>
+          <label className="flex items-start gap-2 rounded-md border p-2.5">
+            <Checkbox
+              checked={d.is_serialized}
+              onCheckedChange={(v) => set({ is_serialized: v === true })}
+              aria-label="Units of the new model have serial numbers"
+            />
+            <span className="text-sm">
+              <span className="font-medium">Units have serial numbers</span>
+              <span className="block text-xs text-muted-foreground">
+                Leave this on for outboards with a plate on the block. Turn it OFF for
+                engines that share one product code — then you can receive several at once
+                and the system numbers them for you.
+              </span>
+            </span>
+          </label>
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
@@ -1104,6 +1145,13 @@ export function ReceivingView({
     setLimit(null);
   }
 
+  /** A model with plates: serial required, quantity locked at 1. No model
+   *  picked yet defaults to serialized — the safe assumption is plates matter. */
+  const serializedFor = (l: EngineLine) =>
+    l.new_model
+      ? l.new_model.is_serialized
+      : (models.find((m) => m.id === l.engine_model_id)?.is_serialized ?? true);
+
   /** Running cost of everything in the form — what this receiving is worth. */
   const total = React.useMemo(() => {
     let t = 0;
@@ -1114,10 +1162,16 @@ export function ReceivingView({
     }
     for (const l of engineLines) {
       const cost = parsePesosToCentavos(l.cost || "0");
-      if (cost !== null) t += cost;
+      // qty > 1 only reaches here for a non-serialized model; the RPC's own
+      // total (0129) multiplies per unit the same way inside its unit loop.
+      // No `|| 1` fallback: an explicit "0" must show as zero, not silently
+      // become one unit — onSubmit refuses "0" outright (see below).
+      const qty = serializedFor(l) ? 1 : parseInt(l.qty || "1", 10); // whole-unit-qty: engines are counted, not measured
+      if (cost !== null) t += cost * qty;
     }
     return t;
-  }, [partLines, engineLines]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partLines, engineLines, models]);
 
   /**
    * What actually lands on the supplier's tab. 'paid' adds nothing; 'partial'
@@ -1211,12 +1265,22 @@ export function ReceivingView({
 
     const enginesPayload = [];
     for (const [i, l] of engineLines.entries()) {
-      if (!l.serial_number.trim()) {
+      if (!l.engine_model_id && !l.new_model) {
+        toast.error(`Engine line ${i + 1}: pick a model or create a new one`);
+        return;
+      }
+      // The model decides: serialized needs a typed plate, unserialized takes a qty.
+      const serialized = serializedFor(l);
+      if (serialized && !l.serial_number.trim()) {
         toast.error(`Engine line ${i + 1}: serial is required — one per unit`);
         return;
       }
-      if (!l.engine_model_id && !l.new_model) {
-        toast.error(`Engine line ${i + 1}: pick a model or create a new one`);
+      // No `|| 1` fallback: a stray "0" (backspace typo) must be refused, not
+      // silently receive one unit — 0121/0119/0124 exist because of exactly
+      // this class of silently-wrong quantity.
+      const engQty = serialized ? 1 : parseInt(l.qty || "1", 10); // whole-unit-qty: engines are counted, not measured
+      if (!serialized && (isNaN(engQty) || engQty < 1 || engQty > 500)) {
+        toast.error(`Engine line ${i + 1}: qty must be between 1 and 500`);
         return;
       }
       const cost = parsePesosToCentavos(l.cost || "0");
@@ -1232,7 +1296,8 @@ export function ReceivingView({
         return;
       }
       enginesPayload.push({
-        serial_number: l.serial_number.trim(),
+        serial_number: serialized ? l.serial_number.trim() : null,
+        qty: engQty,
         ...(l.new_model
           ? {
               new_model: {
@@ -1244,6 +1309,8 @@ export function ReceivingView({
                 stroke: l.new_model.stroke || null,
                 default_warranty_months:
                   parseInt(l.new_model.default_warranty_months || "12", 10) || 12,
+                is_serialized: l.new_model.is_serialized,
+                sku: l.new_model.sku.trim() || null,
               },
             }
           : { engine_model_id: l.engine_model_id }),
@@ -1571,7 +1638,8 @@ export function ReceivingView({
                 <div>
                   <h3 className="text-sm font-semibold">Engines</h3>
                   <p className="text-xs text-muted-foreground">
-                    Serialized — one line and one serial per unit, no exceptions
+                    One serial per unit for a serialized model — a model with no
+                    serials takes a quantity instead
                   </p>
                 </div>
                 <Button
@@ -1579,18 +1647,7 @@ export function ReceivingView({
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    setEngineLines((ls) => [
-                      ...ls,
-                      {
-                        serial_number: "",
-                        engine_model_id: "",
-                        new_model: null,
-                        condition: "brand_new",
-                        cost: "",
-                        price: "",
-                        warranty_months: "",
-                      },
-                    ])
+                    setEngineLines((ls) => [...ls, emptyEngineLine()])
                   }
                 >
                   <Plus className="size-4" /> Add engine
@@ -1603,8 +1660,9 @@ export function ReceivingView({
                 </p>
               ) : (
                 <div className="thin-scrollbar overflow-x-auto p-4">
-                  <div className="grid min-w-[66rem] grid-cols-[11rem_minmax(12rem,1fr)_9rem_7rem_7rem_6rem_4.5rem] items-center gap-x-2 gap-y-2">
+                  <div className="grid min-w-[71rem] grid-cols-[11rem_4.5rem_minmax(12rem,1fr)_9rem_7rem_7rem_6rem_4.5rem] items-center gap-x-2 gap-y-2">
                     <span className="text-xs font-medium text-muted-foreground">Serial</span>
+                    <span className="text-xs font-medium text-muted-foreground">Qty</span>
                     <span className="text-xs font-medium text-muted-foreground">Model</span>
                     <span className="text-xs font-medium text-muted-foreground">Condition</span>
                     <span className="text-xs font-medium text-muted-foreground">Cost ₱</span>
@@ -1616,11 +1674,26 @@ export function ReceivingView({
                         <Input
                           className="font-mono"
                           value={l.serial_number}
+                          disabled={!serializedFor(l)}
+                          placeholder={
+                            serializedFor(l)
+                              ? "scan or type the plate"
+                              : "no serials — numbered automatically"
+                          }
                           onChange={(e) =>
                             updateEngineLine(i, { serial_number: e.target.value })
                           }
-                          placeholder="Scan / type"
                           aria-label="Serial number"
+                        />
+                        <Input
+                          inputMode="numeric"
+                          aria-label="Engine quantity"
+                          className="w-16 tabular-nums"
+                          value={l.qty}
+                          onChange={(e) =>
+                            updateEngineLine(i, { qty: e.target.value.replace(/\D/g, "") })
+                          }
+                          disabled={serializedFor(l)}
                         />
                         {l.new_model ? (
                           <button
@@ -1641,9 +1714,13 @@ export function ReceivingView({
                                 setNewModelFor(i);
                                 return;
                               }
+                              // Reset both — a disabled box must not keep
+                              // showing a value the payload no longer sends.
                               updateEngineLine(i, {
                                 engine_model_id: v,
                                 new_model: null,
+                                qty: "1",
+                                serial_number: "",
                               });
                             }}
                           >
@@ -2022,7 +2099,14 @@ export function ReceivingView({
         supplierName={supplier?.name ?? null}
         onSave={(d) => {
           if (newModelFor === null) return;
-          updateEngineLine(newModelFor, { engine_model_id: "", new_model: d });
+          // Reset both — a disabled box must not keep showing a value the
+          // payload no longer sends.
+          updateEngineLine(newModelFor, {
+            engine_model_id: "",
+            new_model: d,
+            qty: "1",
+            serial_number: "",
+          });
         }}
         onClose={() => setNewModelFor(null)}
       />

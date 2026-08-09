@@ -529,6 +529,8 @@ const modelEditSchema = z.object({
   horsepower: z.number().min(0).nullable(),
   stroke: z.enum(["2-stroke", "4-stroke"]).nullable(),
   default_warranty_months: z.number().int().min(0),
+  is_serialized: z.boolean().default(true),
+  sku: z.string().trim().max(80).optional().nullable(),
 });
 
 export async function updateEngineModel(input: unknown): Promise<ActionResult> {
@@ -536,9 +538,12 @@ export async function updateEngineModel(input: unknown): Promise<ActionResult> {
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
-  const { id, ...fields } = parsed.data;
+  const { id, sku, ...fields } = parsed.data;
   const supabase = await createClient();
-  const { error } = await supabase.from("engine_models").update(fields).eq("id", id);
+  const { error } = await supabase
+    .from("engine_models")
+    .update({ ...fields, sku: sku || null })
+    .eq("id", id);
   if (error) {
     if (error.code === "23505") {
       return { ok: false, error: "That brand + model already exists." };
