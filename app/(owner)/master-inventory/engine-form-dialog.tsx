@@ -4,7 +4,7 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2 } from "lucide-react";
+import { Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 import type { EngineModel, EngineRow } from "@/lib/db-types";
@@ -33,14 +33,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { setEngineImage, updateEngine } from "./actions";
+import { setEngineImage, updateEngine, updateEngineModel } from "./actions";
 
 const pesoField = z
   .string()
   .refine((v) => parsePesosToCentavos(v) !== null, "Enter a valid ₱ amount");
 
 const formSchema = z.object({
+  engine_model_id: z.string().min(1, "Pick a model"),
   condition: z.enum(["brand_new", "second_hand"]),
+  cost: pesoField,
   price: pesoField,
   warranty_months: z.string(), // "" = model default
 });
@@ -62,12 +64,17 @@ export function EngineFormDialog({
   onOpenChange: (open: boolean) => void;
   models: EngineModel[];
   engine: EngineRow | null;
-  /** 0100: the selling price is Gerry-only after entry (cost is already fixed). */
+  /** 0100: cost + selling price are Gerry-only after entry. */
   priceLocked?: boolean;
 }) {
   const [imageAction, setImageAction] = React.useState<ImageAction>({
     type: "keep",
   });
+  const [renameOpen, setRenameOpen] = React.useState(false);
+  const [renameBrand, setRenameBrand] = React.useState("");
+  const [renameName, setRenameName] = React.useState("");
+  const [renameHp, setRenameHp] = React.useState("");
+  const [renameBusy, setRenameBusy] = React.useState(false);
 
   const {
     register,
@@ -79,7 +86,9 @@ export function EngineFormDialog({
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      engine_model_id: "",
       condition: "brand_new",
+      cost: "0",
       price: "0",
       warranty_months: "",
     },
@@ -88,8 +97,11 @@ export function EngineFormDialog({
   React.useEffect(() => {
     if (open && engine) {
       setImageAction({ type: "keep" });
+      setRenameOpen(false);
       reset({
+        engine_model_id: engine.engine_model_id,
         condition: engine.condition,
+        cost: (engine.cost_centavos / 100).toFixed(2),
         price: (engine.price_centavos / 100).toFixed(2),
         warranty_months: engine.warranty_months?.toString() ?? "",
       });
@@ -97,9 +109,13 @@ export function EngineFormDialog({
   }, [open, engine, reset]);
 
   const conditionValue = watch("condition");
+  const modelValue = watch("engine_model_id");
+  // reassignment fixes a wrong-model receiving; units that left master are history
+  const inMaster = engine?.status === "in_master";
+  const selectedModel = models.find((m) => m.id === modelValue);
 
-  // Selling price must clear cost — the new single-price floor (0053).
-  const costC = engine?.cost_centavos ?? 0;
+  // Selling price must clear cost — floor moves live if Gerry edits the cost.
+  const costC = parsePesosToCentavos(watch("cost")) ?? engine?.cost_centavos ?? 0;
   const priceC = parsePesosToCentavos(watch("price"));
   const belowCost = priceC !== null && priceC <= costC;
 
@@ -133,6 +149,47 @@ export function EngineFormDialog({
     }
   }
 
+  function openRename() {
+    const m = models.find((x) => x.id === modelValue);
+    setRenameBrand(m?.brand ?? engine?.brand ?? "");
+    setRenameName(m?.model ?? engine?.model ?? "");
+    setRenameHp(m?.horsepower != null ? String(m.horsepower) : "");
+    setRenameOpen(true);
+  }
+
+  async function saveRename() {
+    const m = models.find((x) => x.id === modelValue);
+    if (!m) {
+      toast.error("This model is retired — restore it from the Models dialog first");
+      return;
+    }
+    if (!renameBrand.trim() || !renameName.trim()) {
+      toast.error("Brand and model are required");
+      return;
+    }
+    const hp = renameHp.trim() === "" ? null : parseFloat(renameHp);
+    if (hp !== null && (isNaN(hp) || hp < 0)) {
+      toast.error("Invalid HP");
+      return;
+    }
+    setRenameBusy(true);
+    const res = await updateEngineModel({
+      id: m.id,
+      brand: renameBrand.trim(),
+      model: renameName.trim(),
+      horsepower: hp,
+      stroke: (m.stroke as "2-stroke" | "4-stroke" | null) ?? null,
+      default_warranty_months: m.default_warranty_months ?? 12,
+      is_serialized: m.is_serialized ?? true,
+      sku: m.sku ?? null,
+    });
+    setRenameBusy(false);
+    if (res.ok) {
+      toast.success(`Model renamed to ${renameBrand.trim()} ${renameName.trim()}`);
+      setRenameOpen(false);
+    } else toast.error(res.error);
+  }
+
   async function onSubmit(values: FormValues) {
     const warranty =
       values.warranty_months.trim() === ""
@@ -143,15 +200,19 @@ export function EngineFormDialog({
       return;
     }
     if (!engine) return; // edit-only since 0049 — never opened without one
+    const cost_centavos = priceLocked
+      ? engine.cost_centavos
+      : parsePesosToCentavos(values.cost)!;
     const price_centavos = parsePesosToCentavos(values.price)!;
-    if (price_centavos <= engine.cost_centavos) {
-      toast.error(`Selling price must be above cost ${formatCentavos(engine.cost_centavos)}`);
+    if (price_centavos <= cost_centavos) {
+      toast.error(`Selling price must be above cost ${formatCentavos(cost_centavos)}`);
       return;
     }
     const res = await updateEngine({
       id: engine.id,
+      engine_model_id: values.engine_model_id,
       condition: values.condition,
-      cost_centavos: engine.cost_centavos,
+      cost_centavos,
       warranty_months: warranty,
       price_centavos,
     });
@@ -181,18 +242,52 @@ export function EngineFormDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="grid min-w-0 gap-2">
-              <Label>Model</Label>
-              <Input
-                value={
-                  models.find((m) => m.id === engine?.engine_model_id)
-                    ? `${models.find((m) => m.id === engine?.engine_model_id)!.brand} ${
-                        models.find((m) => m.id === engine?.engine_model_id)!.model
-                      }`
-                    : "—"
-                }
-                disabled
-                aria-label="Engine model (fixed at receiving)"
-              />
+              <div className="flex items-center justify-between gap-2">
+                <Label>Model</Label>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={openRename}
+                >
+                  <Pencil className="size-3" /> Rename model
+                </button>
+              </div>
+              {inMaster ? (
+                <Select
+                  value={modelValue}
+                  onValueChange={(v) => setValue("engine_model_id", v, { shouldValidate: true })}
+                >
+                  <SelectTrigger className="w-full" aria-label="Engine model">
+                    <SelectValue placeholder="Pick a model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {/* engine's own model may be retired — keep it selectable */}
+                    {!selectedModel && engine && (
+                      <SelectItem value={engine.engine_model_id}>
+                        {engine.brand} {engine.model} (retired)
+                      </SelectItem>
+                    )}
+                    {models.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.brand} {m.model}
+                        {m.horsepower != null ? ` — ${m.horsepower}HP` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={
+                    selectedModel
+                      ? `${selectedModel.brand} ${selectedModel.model}`
+                      : engine
+                        ? `${engine.brand} ${engine.model}`
+                        : "—"
+                  }
+                  disabled
+                  aria-label="Engine model (fixed once the engine has left master)"
+                />
+              )}
             </div>
             <div className="grid min-w-0 gap-2">
               <Label>Condition</Label>
@@ -213,10 +308,59 @@ export function EngineFormDialog({
             </div>
           </div>
 
+          {renameOpen && (
+            <div className="grid gap-2 rounded-md border p-3">
+              <p className="text-xs text-muted-foreground">
+                Renames the model everywhere — every engine of this model, past and present.
+              </p>
+              <div className="grid grid-cols-[1fr_1fr_5rem] gap-2">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="rename-brand">Brand</Label>
+                  <Input
+                    id="rename-brand"
+                    value={renameBrand}
+                    onChange={(e) => setRenameBrand(e.target.value)}
+                    placeholder="Brand"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="rename-model">Model</Label>
+                  <Input
+                    id="rename-model"
+                    value={renameName}
+                    onChange={(e) => setRenameName(e.target.value)}
+                    placeholder="Model"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="rename-hp">HP</Label>
+                  <Input
+                    id="rename-hp"
+                    inputMode="decimal"
+                    value={renameHp}
+                    onChange={(e) => setRenameHp(e.target.value)}
+                    placeholder="—"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setRenameOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="button" size="sm" disabled={renameBusy} onClick={saveRename}>
+                  {renameBusy && <Loader2 className="size-4 animate-spin" />} Rename
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
-              <Label>Cost ₱ (owner-only)</Label>
-              <Input value={formatCentavos(costC)} disabled aria-label="Cost (set at receiving)" />
+              <Label htmlFor="engine-cost">Cost ₱ (owner-only)</Label>
+              <Input id="engine-cost" inputMode="decimal" disabled={priceLocked} {...register("cost")} />
+              {errors.cost && (
+                <p className="text-sm text-destructive">{errors.cost.message}</p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="engine-warranty">Warranty (months)</Label>
@@ -240,7 +384,7 @@ export function EngineFormDialog({
               </p>
             ) : priceLocked ? (
               <p className="text-xs text-muted-foreground">
-                Only the owner can change the selling price.
+                Only the owner can change cost or selling price.
               </p>
             ) : null}
           </div>

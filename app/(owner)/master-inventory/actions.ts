@@ -359,6 +359,7 @@ export async function generateInternalBarcode(partId: string): Promise<ActionRes
 // ---------------------------------------------------------------------------
 const engineEditSchema = z.object({
   id: z.uuid(),
+  engine_model_id: z.uuid(),
   condition: z.enum(["brand_new", "second_hand"]),
   cost_centavos: z.number().int().min(0),
   price_centavos: z.number().int().min(0),
@@ -370,14 +371,33 @@ export async function updateEngine(input: unknown): Promise<ActionResult> {
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
-  const { id, cost_centavos, price_centavos, ...rest } = parsed.data;
+  const { id, engine_model_id, cost_centavos, price_centavos, ...rest } = parsed.data;
   // 0100: same rule as parts — an admin's edit never touches the money columns
   const profile = await getProfile();
-  const fields =
-    profile?.role === "admin"
-      ? rest
-      : { ...rest, cost_centavos, price_centavos };
   const supabase = await createClient();
+
+  // model reassignment fixes a wrong-model receiving — master-only, units that
+  // left are history
+  const { data: current } = await supabase
+    .from("engines")
+    .select("engine_model_id, status")
+    .eq("id", id)
+    .single();
+  if (!current) return { ok: false, error: "Engine not found" };
+  const modelChanged = current.engine_model_id !== engine_model_id;
+  if (modelChanged && current.status !== "in_master") {
+    return { ok: false, error: "Model can only be changed while the engine is in master stock" };
+  }
+
+  if (profile?.role !== "admin" && price_centavos <= cost_centavos) {
+    return { ok: false, error: "Selling price must be above cost" };
+  }
+
+  const fields = {
+    ...rest,
+    ...(modelChanged ? { engine_model_id } : {}),
+    ...(profile?.role === "admin" ? {} : { cost_centavos, price_centavos }),
+  };
   const { error } = await supabase.from("engines").update(fields).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/master-inventory");
