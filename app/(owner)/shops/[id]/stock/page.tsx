@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import type { ShopEngineRow, ShopStockRow } from "@/lib/db-types";
 import { Button } from "@/components/ui/button";
 import { TableSkeleton } from "@/components/shell/streaming-skeletons";
@@ -57,19 +58,25 @@ async function ShopStockBody({ shopId }: { shopId: string }) {
   const supabase = await createClient();
   // the same employee-safe views — for the owner they return every shop,
   // so filter to this one
-  const [stockRes, enginesRes] = await Promise.all([
-    supabase.from("shop_stock").select("*").eq("shop_id", shopId).order("name"),
-    supabase
-      .from("shop_engines")
-      .select("*")
-      .eq("shop_id", shopId)
-      .order("serial_number"),
+  // Paged, and scoped to ONE shop first: part_id is unique per shop but not
+  // across shops, and keyset paging on a repeated key drops rows.
+  const [stock, engines] = await Promise.all([
+    fetchAll<ShopStockRow>(
+      () => supabase.from("shop_stock").select("*").eq("shop_id", shopId),
+      "part_id"
+    ),
+    fetchAll<ShopEngineRow>(
+      () => supabase.from("shop_engines").select("*").eq("shop_id", shopId),
+      "engine_id"
+    ),
   ]);
 
   return (
     <ShopStockReadonly
-      stock={(stockRes.data ?? []) as ShopStockRow[]}
-      engines={(enginesRes.data ?? []) as ShopEngineRow[]}
+      stock={stock.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))}
+      engines={engines.sort((a, b) =>
+        (a.serial_number ?? "").localeCompare(b.serial_number ?? "")
+      )}
     />
   );
 }

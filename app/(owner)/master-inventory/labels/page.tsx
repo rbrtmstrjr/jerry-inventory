@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { LabelPrinter } from "./label-printer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -31,16 +32,30 @@ async function LabelsBody({
   const { ids } = await searchParams;
   const supabase = await createClient();
 
-  const { data } = await supabase
-    .from("parts")
-    .select("id, name, barcode, price_centavos")
-    .is("deleted_at", null)
-    .not("barcode", "is", null)
-    .order("name");
+  // paged — a product missing from this list cannot have a label printed
+  const parts = await fetchAll<{
+    id: string;
+    name: string;
+    barcode: string | null;
+    price_centavos: number;
+  }>(
+    () =>
+      supabase
+        .from("parts")
+        .select("id, name, barcode, price_centavos")
+        .is("deleted_at", null)
+        .not("barcode", "is", null),
+    "id"
+  );
 
   const preselected = (ids ?? "").split(",").filter(Boolean);
 
-  return <LabelPrinter parts={data ?? []} preselected={preselected} />;
+  return (
+    <LabelPrinter
+      parts={parts.sort((a, b) => a.name.localeCompare(b.name))}
+      preselected={preselected}
+    />
+  );
 }
 
 function LabelsSkeleton() {

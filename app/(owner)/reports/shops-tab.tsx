@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import { computePnl, fetchAll } from "@/lib/pnl";
+import { computePnl } from "@/lib/pnl";
+import { fetchAll, fetchAllOffset } from "@/lib/fetch-all";
 import { ph_today } from "@/lib/ph-date";
 import { clampReportRange } from "@/lib/report-range";
 import { ShopReports, type ShopReportData } from "./shop-reports";
@@ -40,8 +41,8 @@ export async function ShopsTab({
     shopsRes,
     deliveriesRes,
     returnsRes,
-    stockRes,
-    enginesRes,
+    stockRows,
+    engineRows,
     pendingSalesRes,
     pendingLossesRes,
     shopExpenseRows,
@@ -61,8 +62,18 @@ export async function ShopsTab({
       .gte("returned_at", from)
       .lte("returned_at", to + "T23:59:59")
       .is("deleted_at", null),
-    supabase.from("shop_stock").select("shop_id, qty, price_centavos"),
-    supabase.from("shop_engines").select("shop_id, price_centavos"),
+    // Stock value is a MONEY figure summed over every shop, so a silent
+    // truncation here understates it with no sign anything went wrong. Read
+    // across all shops, part_id repeats — offset paging on the full key.
+    fetchAllOffset<{ shop_id: string; qty: number; price_centavos: number }>(
+      () => supabase.from("shop_stock").select("shop_id, qty, price_centavos"),
+      ["shop_id", "part_id"]
+    ),
+    // engine_id is unique across every shop, so keyset paging is safe
+    fetchAll<{ shop_id: string; price_centavos: number }>(
+      () => supabase.from("shop_engines").select("engine_id, shop_id, price_centavos"),
+      "engine_id"
+    ),
     supabase
       .from("sales")
       .select("shop_id")
@@ -120,10 +131,10 @@ export async function ShopsTab({
       for (const l of (r as any).return_lines ?? []) c.returned_units += l.qty;
     });
   }
-  for (const s of stockRes.data ?? []) {
+  for (const s of stockRows) {
     bump(s.shop_id, (c) => (c.stock_value += s.qty * s.price_centavos));
   }
-  for (const e of enginesRes.data ?? []) {
+  for (const e of engineRows) {
     bump(e.shop_id, (c) => (c.stock_value += e.price_centavos));
   }
   for (const p of [...(pendingSalesRes.data ?? []), ...(pendingLossesRes.data ?? [])]) {

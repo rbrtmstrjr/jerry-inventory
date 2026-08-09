@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { Anchor } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { formatQty } from "@/lib/format";
 import { getBusinessIdentity } from "@/lib/business-identity";
 import { PrintButton } from "@/components/shell/print-button";
@@ -41,13 +42,19 @@ export default async function CountSheetPage({
   const s = snap as any;
 
   // engines currently at the shop — checklist section
-  const { data: engines } = await supabase
-    .from("engines")
-    .select("serial_number, engine_models(brand, model, horsepower)")
-    .eq("shop_id", s.shop_id)
-    .eq("status", "delivered")
-    .is("deleted_at", null)
-    .order("serial_number");
+  // paged — a count sheet that silently omits units is worse than useless
+  const engines = (
+    await fetchAll<any>(
+      () =>
+        supabase
+          .from("engines")
+          .select("id, serial_number, engine_models(brand, model, horsepower)")
+          .eq("shop_id", s.shop_id)
+          .eq("status", "delivered")
+          .is("deleted_at", null),
+      "id"
+    )
+  ).sort((a, b) => a.serial_number.localeCompare(b.serial_number));
 
   const lines = (s.count_snapshot_lines ?? [])
     .map((l: any) => ({

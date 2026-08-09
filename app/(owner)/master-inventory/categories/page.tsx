@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { getProfile } from "@/lib/auth";
 import { CategoriesView } from "./categories-view";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,7 +25,7 @@ async function CategoriesBody() {
   const supabase = await createClient();
 
   // 0102: retiring a category is Gerry-only; create/rename/restore stay office
-  const [profile, catsRes, partsRes] = await Promise.all([
+  const [profile, catsRes, partsRows] = await Promise.all([
     getProfile(),
     supabase
       .from("product_categories")
@@ -32,11 +33,15 @@ async function CategoriesBody() {
       .is("deleted_at", null)
       .order("name"),
     // usage = how many LIVE parts reference each category
-    supabase.from("parts").select("category_id").is("deleted_at", null),
+    // paged — a truncated read silently UNDERCOUNTS each category's usage
+    fetchAll<{ id: string; category_id: string | null }>(
+      () => supabase.from("parts").select("id, category_id").is("deleted_at", null),
+      "id"
+    ),
   ]);
 
   const usage: Record<string, number> = {};
-  for (const p of partsRes.data ?? []) {
+  for (const p of partsRows) {
     if (p.category_id) usage[p.category_id] = (usage[p.category_id] ?? 0) + 1;
   }
 

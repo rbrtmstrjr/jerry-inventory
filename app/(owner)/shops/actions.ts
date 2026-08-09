@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/fetch-all";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatQty } from "@/lib/format";
 import { getProfile } from "@/lib/auth";
@@ -99,7 +100,17 @@ export async function closeShop(id: string): Promise<ActionResult> {
 
   const [stockRes, enginesRes, loginRes, payrollStaffRes, salesRes, lossesRes] =
     await Promise.all([
-      supabase.from("stock_levels").select("qty").eq("shop_id", id).gt("qty", 0),
+      // paged — the refusal message reports Σ qty, and a shop can hold well
+      // over 1,000 product rows (Gloria Trading: 1,032)
+      fetchAll<{ qty: number }>(
+        () =>
+          supabase
+            .from("stock_levels")
+            .select("part_id, qty")
+            .eq("shop_id", id)
+            .gt("qty", 0),
+        "part_id"
+      ),
       supabase
         .from("engines")
         .select("id", { count: "exact", head: true })
@@ -134,7 +145,7 @@ export async function closeShop(id: string): Promise<ActionResult> {
         .is("deleted_at", null),
     ]);
 
-  const units = (stockRes.data ?? []).reduce((s, r) => s + r.qty, 0);
+  const units = stockRes.reduce((s, r) => s + r.qty, 0);
   if (units > 0) {
     return {
       ok: false,
