@@ -550,7 +550,7 @@ never a stored flag. Receivable balances are
 mutable running total; `sales.balance_due_centavos` stays the at-sale snapshot
 the printed receipt shows.
 
-### Migrations (`supabase/migrations/`, 0001–0129; 0085–0098 retired)
+### Migrations (`supabase/migrations/`, 0001–0131; 0085–0098 retired)
 `0001` schema · `0002` RLS + safe views · `0003` seed · `0004` receiving fns ·
 `0005` delivery fns · `0006` record (sale/loss) fns · `0007` line descriptions ·
 `0008` approval engine + realtime · `0009` count fns · `0010`/`0011` product &
@@ -1227,17 +1227,20 @@ a business rule would hinge on spelling. `0114` turns that loophole into the
 mechanism: `public.units` (`code`, `label`, **`allows_fractional`**,
 `sort_order`, soft-delete) is a controlled vocabulary — the `shops.color_key`
 pattern from 0050, shaped like `product_categories`. `0115` wires `parts.unit`
-to it by FK. **`kg`, `m`, `ft` and `roll` are splittable (0130)**; `pc`, `set`,
-`box` and `pair` are not. That expansion was a one-row UPDATE with no schema
-change and no code — which is the whole reason the vocabulary is data. Tenths
+to it by FK. **`kg`, `m` and `ft` are splittable (0130)**; `pc`, `set`,
+`box`, `pair` and `roll` are not — `roll` joined the splittable set in 0130 and
+was **reverted by 0131** the same day (Gerry: a roll sells WHOLE; a customer
+wanting part of one buys the by-the-metre product instead). Both the expansion
+and the revert were one-row UPDATEs with no schema change and no code — which
+is the whole reason the vocabulary is data. Tenths
 remain the granularity BY DECISION (Gerry, 2026-08-10): `0.5 ft` is six inches
 and expressible, a second decimal is not, and allowing one would mean ALTERing
 all fifteen quantity columns. The two layers refuse it differently, and the
 difference matters when reading a bug report: the DATABASE refuses `0.25` by
 name (`fn_assert_qty` raises, the `round(qty, 1)` CHECKs back it at rest), while
 a quantity BOX masks the second decimal as it is typed (`sanitizeQtyInput`), so
-a cashier typing `0.25 ft` ends up with `0.2` in the box rather than an error. A `roll` is counted BY THE ROLL — `0.5 roll`, never
-converted to metres. Office writes it, every role reads it (the shop needs
+a cashier typing `0.25 ft` ends up with `0.2` in the box rather than an error.
+Office writes it, every role reads it (the shop needs
 the label to render "12 kg on hand"). Choosing "Kilogram" in Receiving is the
 whole action — there is no per-product flag to remember.
 
@@ -1470,7 +1473,7 @@ components/
                            Receivables · Warranties), print-button, section-tabs
   ui/                      shadcn/ui primitives
   data-table/ image-upload-field · product-image · receipt-image · location-picker · date-picker · view-toggle · confirm-dialog
-supabase/migrations/       0001–0129 (schema, RLS, functions, features;
+supabase/migrations/       0001–0131 (schema, RLS, functions, features;
                            0085–0098 = a reverted experiment, numbers retired)
 scripts/                   test-*.mjs verification scripts (one per deliverable)
 ```

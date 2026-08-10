@@ -124,10 +124,12 @@ section("Units are controlled reference data");
     .map((u) => u.code)
     .sort()
     .join(",");
-  check("exactly kg, m, ft and roll are fractional (0130)",
-    fractionalCodes === "ft,kg,m,roll", fractionalCodes);
+  check("exactly kg, m and ft are fractional (0130; roll reverted by 0131)",
+    fractionalCodes === "ft,kg,m", fractionalCodes);
   // `pc` is already asserted a few lines above — do not double-count it.
-  for (const whole of ["set", "box", "pair"]) {
+  // `roll` is here BY DECISION (0131): Gerry sells a roll whole — part of one
+  // is the by-the-metre product, not 0.5 roll.
+  for (const whole of ["set", "box", "pair", "roll"]) {
     check(`${whole} is NOT fractional`, byCode[whole]?.allows_fractional === false);
   }
 

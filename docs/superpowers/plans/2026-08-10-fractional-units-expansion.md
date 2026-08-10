@@ -1,5 +1,11 @@
 # Fractional Units Expansion (m · ft · roll) Implementation Plan
 
+> **AMENDED 2026-08-10 (after shipping):** Gerry clarified that a **roll sells
+> WHOLE** — part of a roll is the by-the-metre product, never `0.5 roll`.
+> Migration **0131** reverts the roll arm of 0130; `m` and `ft` keep their
+> tenths. This plan is kept as written for history — read `roll` references
+> below with that in mind.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let Gerwin Trading sell part-metres, part-feet and part-rolls in tenths, exactly as it already sells part-kilos.

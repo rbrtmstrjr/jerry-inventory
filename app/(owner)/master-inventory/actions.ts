@@ -373,8 +373,7 @@ export async function updateEngine(input: unknown): Promise<ActionResult> {
   }
   const { id, engine_model_id, cost_centavos, price_centavos, ...rest } = parsed.data;
   // 0100: same rule as parts — an admin's edit never touches the money columns
-  const profile = await getProfile();
-  const supabase = await createClient();
+  const [profile, supabase] = await Promise.all([getProfile(), createClient()]);
 
   // model reassignment fixes a wrong-model receiving — master-only, units that
   // left are history
@@ -387,6 +386,19 @@ export async function updateEngine(input: unknown): Promise<ActionResult> {
   const modelChanged = current.engine_model_id !== engine_model_id;
   if (modelChanged && current.status !== "in_master") {
     return { ok: false, error: "Model can only be changed while the engine is in master stock" };
+  }
+  if (modelChanged) {
+    // 0128: a UNIT-… number must never pose as a real plate (or vice versa)
+    const { data: pair } = await supabase
+      .from("engine_models")
+      .select("id, is_serialized")
+      .in("id", [current.engine_model_id, engine_model_id]);
+    const from = pair?.find((m) => m.id === current.engine_model_id);
+    const to = pair?.find((m) => m.id === engine_model_id);
+    if (!to) return { ok: false, error: "Model not found" };
+    if ((from?.is_serialized ?? true) !== (to.is_serialized ?? true)) {
+      return { ok: false, error: "Cannot move a unit between serialized and non-serialized models — the serial formats don't match" };
+    }
   }
 
   if (profile?.role !== "admin" && price_centavos <= cost_centavos) {

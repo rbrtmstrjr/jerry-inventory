@@ -1,8 +1,11 @@
 # Extend tingi (fractional quantities) to Meter, Foot and Roll
 
 **Date:** 2026-08-10
-**Status:** approved, ready for an implementation plan
-**Migration:** `0130_more_fractional_units.sql`
+**Status:** shipped, then PARTIALLY REVERTED — Gerry clarified (message read
+late, same day) that a **roll sells WHOLE**: part of a roll is the by-the-metre
+product, never `0.5 roll`. `0131_roll_stays_whole.sql` reverts the roll arm;
+`m` and `ft` keep their tenths.
+**Migration:** `0130_more_fractional_units.sql` + `0131_roll_stays_whole.sql`
 
 ---
 

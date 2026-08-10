@@ -1,6 +1,7 @@
 // FQ20 — a METRE product is splittable at the counter, exactly like a kilo.
 //
-// 0130 flipped m/ft/roll to allows_fractional. No code decides this: the form
+// 0130 flipped m/ft to allows_fractional (roll joined briefly, reverted by
+// 0131 — a roll sells whole). No code decides this: the form
 // asks the units table. This proves the whole chain end to end, because an
 // RPC-level suite cannot see the form or the server action — test-fractional-qty
 // was once 41/41 green while the counter still refused 0.5.
