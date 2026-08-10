@@ -145,7 +145,7 @@ meta-refresh — `?view=<id>` passes through).
 ### Owner — Master Inventory (2)
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/master-inventory` | Products | **View + edit only** — the catalog you look at; products land here because a supplier delivered them. Browse (cards/table, photos, filters), edit existing (selling price, reorder, category, photo, notes — the engine-margin tiers died with 0053), per-product **Suppliers & Prices** (provenance-labelled, cheapest marked, preferred changeable inline), reference-data maintenance (rename/retire engine models from the Engines view — type definitions, not stock; **product categories moved to their own Category tab**, 0059-era), and **Merge duplicates** (0052: fold same-SKU/name parts into one survivor — catalog-identity only, refused while the duplicate holds stock/transit/open lines). **Tier note (0102): every DESTRUCTIVE control on this page is Gerry-only** — Remove product, Remove engine (in-master), Retire model, Retire category, and Merge duplicates are hidden for an admin and refused by a DB trigger / `fn_merge_parts`' own guard. An admin sees and uses the rest of the page normally, so it stays in their sidebar. **Add product / Add engine** (0059): custom catalog + opening stock (qty 0 allowed) with owner cost + selling price (> cost), category, and a **supplier dropdown incl. "No supplier"** (attribution → preferred supplier only, never debt). Both go through `fn_receive_stock` with `p_supplier_id = NULL` (0049 lockdown intact — no direct INSERT); real purchases-with-debt still use Suppliers → Receiving. **Edit Engine unlocked (2026-08, no migration):** the dialog's dead Model/Cost displays became real fields — **cost** edits like the parts dialog (`disabled={priceLocked}`; `updateEngine` strips money fields for an admin, the 0100 trigger is the real gate, and the action re-checks price > cost); the **model** is a dropdown while the unit is still `in_master` (reassignment fixes a wrong-model receiving — `updateEngine` re-reads the row and refuses once the unit left master; app-level UX guard, office-tier like a part rename), disabled display afterward; and a **Rename model** panel edits brand/model/HP inline through the existing office-tier `updateEngineModel` (model-wide — renames every engine of that model; stroke + default warranty stay in the Models dialog) |
+| `/master-inventory` | Products | **View + edit only** — the catalog you look at; products land here because a supplier delivered them. Browse (cards/table, photos, filters), edit existing (selling price, reorder, category, photo, notes — the engine-margin tiers died with 0053), per-product **Suppliers & Prices** (provenance-labelled, cheapest marked, preferred changeable inline), reference-data maintenance (rename/retire engine models from the Engines view — type definitions, not stock; **product categories moved to their own Category tab**, 0059-era), and **Merge duplicates** (0052: fold same-SKU/name parts into one survivor — catalog-identity only, refused while the duplicate holds stock/transit/open lines). **Tier note (0102): every DESTRUCTIVE control on this page is Gerry-only** — Remove product, Remove engine (in-master), Retire model, Retire category, and Merge duplicates are hidden for an admin and refused by a DB trigger / `fn_merge_parts`' own guard. An admin sees and uses the rest of the page normally, so it stays in their sidebar. **Add product / Add engine** (0059): custom catalog + opening stock (qty 0 allowed) with owner cost + selling price (> cost), category, and a **supplier dropdown incl. "No supplier"** (attribution → preferred supplier only, never debt). Both go through `fn_receive_stock` with `p_supplier_id = NULL` (0049 lockdown intact — no direct INSERT); real purchases-with-debt still use Suppliers → Receiving. **Add engine requires a SERIAL even for a non-serialized model — by design, not a gap** (see 0128/0129): the qty-per-line feature is Receiving-only, deliberately. **Edit Engine unlocked (2026-08, no migration):** the dialog's dead Model/Cost displays became real fields — **cost** edits like the parts dialog (`disabled={priceLocked}`; `updateEngine` strips money fields for an admin, the 0100 trigger is the real gate, and the action re-checks price > cost); the **model** is a dropdown while the unit is still `in_master` (reassignment fixes a wrong-model receiving — `updateEngine` re-reads the row and refuses once the unit left master; app-level UX guard, office-tier like a part rename), disabled display afterward; and a **Rename model** panel edits brand/model/HP inline through the existing office-tier `updateEngineModel` (model-wide — renames every engine of that model; stroke + default warranty stay in the Models dialog) |
 | `/master-inventory/categories` | Category | Manage **product** categories (0059-era) — create (the piece the old rename/retire modal lacked), rename, retire, with a live-usage count per category. Owner-only writes (`createCategory`/`updateCategory`/`softDeleteCategory`, re-checked via `getProfile`; case-insensitive dedupe — an active match is refused, a retired one is restored). A new category flows to every product picker/filter via revalidation. Tab order: Products · Category · Labels. Engine-model reference data stays on the Engines view |
 | `/master-inventory/labels` | Print Labels | Generate/print Code128 barcode labels (`?ids=` preselects, e.g. straight from a receiving's new products) |
 
@@ -228,7 +228,7 @@ so old bookmarks don't 404) — delivery requests live as a tab on **Stock Alert
 | `/shop/warranties` | Warranties | Warranties for engines THIS shop sold; serial lookup (scan-friendly, also finds card numbers), status + near-expiry highlighting. **Record the physical card's number** (0103): each row shows/edits `warranty_serial` via `fn_set_warranty_serial` (selling shop or office only; unique across cards) — the card itself is printed externally, so there is nothing to print here (the certificate + point-of-sale preview pages were retired by 0103). **File a warranty claim** (0070): repair / replace (pick an on-hand engine) / refund → `fn_request_warranty_claim`, waits for Admin approval; a **My claims** list shows status + Cancel while requested. No edit/void/extend |
 | `/shop/deliveries` | Incoming Deliveries | Count + confirm what actually arrived (no reject/return — a shortfall goes to Admin); history |
 | `/shop/low-stock` | Low Stock | This shop's items at/below their effective threshold → Request delivery from Admin; own request history. Can also add **new/custom products the shop doesn't carry** (a customer asked for something not in the catalog) to the SAME request (0077) — free-text lines that Admin sees badged "New product" and creates via Receiving before delivering. The request form now shows even when nothing is low, so a new-product request can go out anytime |
-| `/shop/record-sale` | Record Sale | Scan/browse cart, cash/change helper; since 0053 EVERY line (part + engine) shows its own-shop **cost** (read-only, the tawad floor) and an editable selling price defaulting to catalog — server rejects any price at/below cost; partial payment (customer required); a **payment-method** picker (cash/gcash/bank/other, 0061 — the change helper shows only for cash) saved on the sale; saves as `recorded`. A **"Print receipt on save"** checkbox (default ON, sticky per-browser via `localStorage jm-sale-autoprint`) prints the 58mm receipt **in-place** on save — an off-screen iframe loads `/receipt/[id]` and fires its own print dialog, so the cashier never leaves the page (with a kiosk-printing default printer it prints with no dialog). Unchecked = no auto-print; reprint any sale from its Submissions row. The picker shows what is **left to sell**, not what is on the shelf: `available` = `shop_stock.qty` MINUS everything already committed to a sale this shop recorded but the owner has not approved. Stock only moves on approval, so without that subtraction every new sale saw the full shelf again — Bacoor recorded 0.5 + 0.7 + 1.4 + 2.2 kg against one 3 kg bag, each valid on its own, and the owner's whole batch then failed atomically at approval naming only the last line. Captions read `1.1 kg left · 2.2 awaiting Admin` so the cashier knows why the number is lower than the bag in front of them, and a fully-committed product stays VISIBLE at `0 left` rather than vanishing (a missing item with a full bag on the counter is the more confusing failure). `fn_record_sale` is deliberately unchanged — a hard server block would stop a shop recording a real sale whenever Admin has not confirmed a delivery yet and the on-hand reads low |
+| `/shop/record-sale` | Record Sale | Scan/browse cart, cash/change helper; since 0053 EVERY line (part + engine) shows its own-shop **cost** (read-only, the tawad floor) and an editable selling price defaulting to catalog — server rejects any price at/below cost; partial payment (customer required); a **payment-method** picker (cash/gcash/bank/other, 0061 — the change helper shows only for cash) saved on the sale; saves as `recorded`. A **"Print receipt on save"** checkbox (default ON, sticky per-browser via `localStorage jm-sale-autoprint`) prints the 58mm receipt **in-place** on save — an off-screen iframe loads `/receipt/[id]` and fires its own print dialog, so the cashier never leaves the page (with a kiosk-printing default printer it prints with no dialog). Unchecked = no auto-print; reprint any sale from its Submissions row. The picker shows what is **left to sell**, not what is on the shelf: `available` = `shop_stock.qty` MINUS everything already committed to a sale this shop recorded but the owner has not approved. Stock only moves on approval, so without that subtraction every new sale saw the full shelf again — Bacoor recorded 0.5 + 0.7 + 1.4 + 2.2 kg against one 3 kg bag, each valid on its own, and the owner's whole batch then failed atomically at approval naming only the last line. Captions read `1.1 kg left · 2.2 awaiting Admin` so the cashier knows why the number is lower than the bag in front of them, and a fully-committed product stays VISIBLE at `0 left` rather than vanishing (a missing item with a full bag on the counter is the more confusing failure). `fn_record_sale` is deliberately unchanged — a hard server block would stop a shop recording a real sale whenever Admin has not confirmed a delivery yet and the on-hand reads low. **The quantity box is HARD-CAPPED at `available` in its own `onChange`** (2026-08-10) — the same pattern the owner's delivery form and the shop's transfer form already use — **and the clamp SAYS SO** (a toast carrying a stable sonner id per part, so a held-down key replaces the message instead of stacking twenty). The history is why the code looks as it does: the clamp used to fire on blur, and pressing Save BLURS the box, so the correction and the save landed in one gesture — type 13465 against 2.1 available, press Save once, and the cashier got a toast reading like a refusal *plus* a recorded sale at 2.1 they never typed. The save-time `l.qty > l.available` check could never catch it because `setQty` had already made the number legal. Capping as you type removes the race entirely, and the parsed value is lifted on EVERY keystroke (exactly as the price boxes already did — which is why price never had this bug family), so the line's amount, the grand Total, the change helper, the balance due and the saved sale are ONE number rather than the row reading ₱300 above a Total still reading ₱10. `qtyCorrected` (`setQty` flags it, `onSubmit` refuses that press, any later in-range change lifts the gate) is now **unreachable by typing and kept deliberately** as the backstop for a future caller that sets a quantity without going through the box — and it goes live again the moment someone weakens the `onChange` cap, which is exactly the regression worth catching. Scanning is deliberately NOT gated — `addPart` capping at `available` is the documented way to walk a weight up |
 | `/shop/record-loss` | Record Loss | Reason-tagged write-off request; saves as `recorded` |
 | `/shop/receivables` | Receivables (Utang) | This shop's outstanding balances + Record Payment (posts immediately) + payment history. The Void button left with 0101 — a mistaken payment means calling the owner (voided entries still show struck-through) |
 | `/shop/expenses` | Expenses | Record this shop's expenses (category or propose-new, optional receipt photo) — saves as `recorded`, rides the submission batch, **counts only when approved**; list shows own submissions with statuses + Admin-recorded entries for this shop; company expenses invisible |
@@ -550,7 +550,7 @@ never a stored flag. Receivable balances are
 mutable running total; `sales.balance_due_centavos` stays the at-sale snapshot
 the printed receipt shows.
 
-### Migrations (`supabase/migrations/`, 0001–0129; 0085–0098 retired)
+### Migrations (`supabase/migrations/`, 0001–0131; 0085–0098 retired)
 `0001` schema · `0002` RLS + safe views · `0003` seed · `0004` receiving fns ·
 `0005` delivery fns · `0006` record (sale/loss) fns · `0007` line descriptions ·
 `0008` approval engine + realtime · `0009` count fns · `0010`/`0011` product &
@@ -1204,7 +1204,15 @@ every `p_qty <> 1` guard and one-warranty-per-unit are all untouched. Serial AND
 `qty > 1` together is refused, not reconciled. `new_model` gains
 `is_serialized`/`sku` so such a model can be created inline on the receiving
 that first stocks it (0048). `test-engine-nonserial.mjs` exits 2 until 0128 is
-applied.
+applied. **The feature is delivered on RECEIVING ONLY, and that is a decision,
+not an unfinished edge** (confirmed by Gerry 2026-08-09 after demoing the flow):
+Master Inventory → **Add engine** still requires a serial. Receiving is the
+single stock entry point (0049), Add engine is the supplier-less catalog +
+opening-stock path, and keeping the serial mandatory there preserves the
+plate-bearing default — it stops a real plate being replaced by a system
+`UNIT-########` by accident, which is the whole point of the `is_serialized`
+gate. More units of a shared-code model is a Receiving action. Do not "fix"
+this by relaxing that dialog.
 
 ### Fractional quantities — the *tingi* (0114–0124)
 Gerry sells nails, lead, fasteners, welding materials and powders **by the
@@ -1219,8 +1227,20 @@ a business rule would hinge on spelling. `0114` turns that loophole into the
 mechanism: `public.units` (`code`, `label`, **`allows_fractional`**,
 `sort_order`, soft-delete) is a controlled vocabulary — the `shops.color_key`
 pattern from 0050, shaped like `product_categories`. `0115` wires `parts.unit`
-to it by FK. Only `kg` is fractional today; selling rope by the metre is an
-UPDATE, not a migration. Office writes it, every role reads it (the shop needs
+to it by FK. **`kg`, `m` and `ft` are splittable (0130)**; `pc`, `set`,
+`box`, `pair` and `roll` are not — `roll` joined the splittable set in 0130 and
+was **reverted by 0131** the same day (Gerry: a roll sells WHOLE; a customer
+wanting part of one buys the by-the-metre product instead). Both the expansion
+and the revert were one-row UPDATEs with no schema change and no code — which
+is the whole reason the vocabulary is data. Tenths
+remain the granularity BY DECISION (Gerry, 2026-08-10): `0.5 ft` is six inches
+and expressible, a second decimal is not, and allowing one would mean ALTERing
+all fifteen quantity columns. The two layers refuse it differently, and the
+difference matters when reading a bug report: the DATABASE refuses `0.25` by
+name (`fn_assert_qty` raises, the `round(qty, 1)` CHECKs back it at rest), while
+a quantity BOX masks the second decimal as it is typed (`sanitizeQtyInput`), so
+a cashier typing `0.25 ft` ends up with `0.2` in the box rather than an error.
+Office writes it, every role reads it (the shop needs
 the label to render "12 kg on hand"). Choosing "Kilogram" in Receiving is the
 whole action — there is no per-product flag to remember.
 
@@ -1274,6 +1294,17 @@ counter still refuses `0.5`, which is exactly what happened:
 - **the form** — a quantity box is `sanitizeQtyInput` (digits + one decimal) and
   `parseQtyInput`, *never* `parseInt`, which silently TRUNCATED 0.5 to 0 at ~20
   sites, and never a `/\D/g` stripper, which eats the decimal point itself.
+  **`sanitizeQtyInput` deliberately PRESERVES `.1` and `2.`** so a half-typed
+  weight is not fought mid-keystroke — so anything that validates the box must
+  NORMALISE those two forms, not refuse them. `parseQty` originally refused both
+  (and `test-lib-unit` asserted that as intended), which cost a production stock
+  discrepancy on 2026-08-10: a cashier typed `.1`, Record Sale's refusal branch
+  restored the PREVIOUS quantity **silently**, the amount never moved, and the
+  approved sale deducted 1 kg instead of 0.1. `parseQty` now prepends the `0`
+  and drops a trailing dot before its tenths regex; `0.12`, `.` and `.0` are
+  still refused. Two lessons, both general: a refusal must never be silent (it
+  reads as acceptance and the wrong number gets saved), and the sanitiser and
+  the validator must agree on the intermediate forms typing produces.
 - **the server action** — `qtySchema()` from `lib/qty-schema.ts`, never
   `z.number().int()`, which rejected the decimal outright with "expected int,
   received number" before the database was ever asked.
@@ -1442,7 +1473,7 @@ components/
                            Receivables · Warranties), print-button, section-tabs
   ui/                      shadcn/ui primitives
   data-table/ image-upload-field · product-image · receipt-image · location-picker · date-picker · view-toggle · confirm-dialog
-supabase/migrations/       0001–0129 (schema, RLS, functions, features;
+supabase/migrations/       0001–0131 (schema, RLS, functions, features;
                            0085–0098 = a reverted experiment, numbers retired)
 scripts/                   test-*.mjs verification scripts (one per deliverable)
 ```

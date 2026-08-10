@@ -71,6 +71,8 @@ export function EngineFormDialog({
     type: "keep",
   });
   const [renameOpen, setRenameOpen] = React.useState(false);
+  // pinned at openRename — the dropdown may move to another model afterwards
+  const [renameTargetId, setRenameTargetId] = React.useState<string | null>(null);
   const [renameBrand, setRenameBrand] = React.useState("");
   const [renameName, setRenameName] = React.useState("");
   const [renameHp, setRenameHp] = React.useState("");
@@ -113,11 +115,21 @@ export function EngineFormDialog({
   // reassignment fixes a wrong-model receiving; units that left master are history
   const inMaster = engine?.status === "in_master";
   const selectedModel = models.find((m) => m.id === modelValue);
+  // 0128: a UNIT-… number must never pose as a real plate — only offer models
+  // of the same serialization kind (server re-checks; unknown when retired)
+  const ownModelSerialized = models.find((m) => m.id === engine?.engine_model_id)?.is_serialized;
+  const pickableModels =
+    ownModelSerialized == null
+      ? models
+      : models.filter((m) => m.is_serialized === ownModelSerialized);
+  const ownModelRetired = engine != null && !models.some((m) => m.id === engine.engine_model_id);
 
   // Selling price must clear cost — floor moves live if Gerry edits the cost.
+  // Not enforced under priceLocked: the admin can't change money anyway (the
+  // action strips it), and a legacy at/below-cost row must not block their edit.
   const costC = parsePesosToCentavos(watch("cost")) ?? engine?.cost_centavos ?? 0;
   const priceC = parsePesosToCentavos(watch("price"));
-  const belowCost = priceC !== null && priceC <= costC;
+  const belowCost = !priceLocked && priceC !== null && priceC <= costC;
 
   async function applyImage(engineId: string) {
     if (imageAction.type === "keep") return;
@@ -151,6 +163,7 @@ export function EngineFormDialog({
 
   function openRename() {
     const m = models.find((x) => x.id === modelValue);
+    setRenameTargetId(m?.id ?? null);
     setRenameBrand(m?.brand ?? engine?.brand ?? "");
     setRenameName(m?.model ?? engine?.model ?? "");
     setRenameHp(m?.horsepower != null ? String(m.horsepower) : "");
@@ -158,7 +171,7 @@ export function EngineFormDialog({
   }
 
   async function saveRename() {
-    const m = models.find((x) => x.id === modelValue);
+    const m = models.find((x) => x.id === renameTargetId);
     if (!m) {
       toast.error("This model is retired — restore it from the Models dialog first");
       return;
@@ -167,11 +180,12 @@ export function EngineFormDialog({
       toast.error("Brand and model are required");
       return;
     }
-    const hp = renameHp.trim() === "" ? null : parseFloat(renameHp);
-    if (hp !== null && (isNaN(hp) || hp < 0)) {
+    const hpRaw = renameHp.trim();
+    if (hpRaw !== "" && !/^\d+(\.\d+)?$/.test(hpRaw)) {
       toast.error("Invalid HP");
       return;
     }
+    const hp = hpRaw === "" ? null : parseFloat(hpRaw);
     setRenameBusy(true);
     const res = await updateEngineModel({
       id: m.id,
@@ -204,7 +218,7 @@ export function EngineFormDialog({
       ? engine.cost_centavos
       : parsePesosToCentavos(values.cost)!;
     const price_centavos = parsePesosToCentavos(values.price)!;
-    if (price_centavos <= cost_centavos) {
+    if (!priceLocked && price_centavos <= cost_centavos) {
       toast.error(`Selling price must be above cost ${formatCentavos(cost_centavos)}`);
       return;
     }
@@ -255,19 +269,22 @@ export function EngineFormDialog({
               {inMaster ? (
                 <Select
                   value={modelValue}
-                  onValueChange={(v) => setValue("engine_model_id", v, { shouldValidate: true })}
+                  onValueChange={(v) => {
+                    setValue("engine_model_id", v, { shouldValidate: true });
+                    setRenameOpen(false); // panel is pinned to the previous model — don't leave it up
+                  }}
                 >
                   <SelectTrigger className="w-full" aria-label="Engine model">
                     <SelectValue placeholder="Pick a model" />
                   </SelectTrigger>
                   <SelectContent>
                     {/* engine's own model may be retired — keep it selectable */}
-                    {!selectedModel && engine && (
+                    {ownModelRetired && engine && (
                       <SelectItem value={engine.engine_model_id}>
                         {engine.brand} {engine.model} (retired)
                       </SelectItem>
                     )}
-                    {models.map((m) => (
+                    {pickableModels.map((m) => (
                       <SelectItem key={m.id} value={m.id}>
                         {m.brand} {m.model}
                         {m.horsepower != null ? ` — ${m.horsepower}HP` : ""}
@@ -309,7 +326,17 @@ export function EngineFormDialog({
           </div>
 
           {renameOpen && (
-            <div className="grid gap-2 rounded-md border p-3">
+            <div
+              className="grid gap-2 rounded-md border p-3"
+              onKeyDown={(e) => {
+                // Enter here must rename, never implicitly submit the engine form
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!renameBusy) saveRename();
+                }
+              }}
+            >
               <p className="text-xs text-muted-foreground">
                 Renames the model everywhere — every engine of this model, past and present.
               </p>
