@@ -526,12 +526,15 @@ export function RecordSaleForm({
       setCart((c) => c.filter((l) => !(l.kind === "part" && l.part_id === partId)));
       return;
     }
-    // A typed quantity over what is available is CORRECTED here, and the
-    // correction has to be acknowledged before it can be saved — see
-    // `qtyCorrected` in onSubmit. Computed OUTSIDE the updater on purpose: an
-    // updater is queued and React runs it twice in development, so a setState
-    // inside one is both late and doubled (same reason addEngine's duplicate
-    // toast lives outside its updater).
+    // A quantity over what is available is CORRECTED here, and the correction
+    // has to be acknowledged before it can be saved — see `qtyCorrected` in
+    // onSubmit. Unreachable by TYPING today (the box is hard-capped in its own
+    // onChange), and kept precisely for that reason: it is the backstop for any
+    // future caller that sets a quantity without going through the box, and it
+    // goes live again the moment someone weakens that cap. Computed OUTSIDE the
+    // updater on purpose: an updater is queued and React runs it twice in
+    // development, so a setState inside one is both late and doubled (same
+    // reason addEngine's duplicate toast lives outside its updater).
     const target = cart.find(
       (l): l is CartPart => l.kind === "part" && l.part_id === partId
     );
@@ -573,9 +576,12 @@ export function RecordSaleForm({
     : engines;
 
   async function onSubmit() {
-    // Refuse the click that CAUSED a correction. Pressing Save blurs the
-    // quantity box, so the clamp fires in the same gesture; without this the
-    // cashier saw "Only 2.1 kg left" and a saved sale at 2.1 they never typed.
+    // Refuse the click that CAUSED a correction. Historically the clamp fired on
+    // blur, and pressing Save blurs the quantity box — so the correction and the
+    // save landed in one gesture and the cashier saw "Only 2.1 kg left" AND a
+    // saved sale at 2.1 they never typed. The box is hard-capped on every
+    // keystroke now, so nothing typed can reach this gate; it stays as the
+    // backstop for a caller that sets a quantity without going through the box.
     // Cleared here, so the very next press goes through deliberately.
     if (qtyCorrected) {
       setQtyCorrected(false);
@@ -1200,17 +1206,20 @@ function PartCartLine({
   const step = fractional ? 0.1 : 1;
 
   // Typed quantity is held as text while editing so "0." and "1." are not
-  // fought mid-keystroke; it commits on blur.
+  // fought mid-keystroke. The NUMBER is lifted on every keystroke (see
+  // onChange), so `line.qty` is always what the box means.
   const [qtyRaw, setQtyRaw] = React.useState(String(line.qty));
-  React.useEffect(() => setQtyRaw(formatQty(line.qty)), [line.qty]);
-
-  // What the box currently reads, for the AMOUNT only — so the money tracks the
-  // keystrokes instead of waiting for blur. Falls back to the committed qty
-  // while the value is half-typed ("1." parses, "" does not).
-  const typedQty = fractional
-    ? parseQty(qtyRaw, { allowFractional: true })
-    : null;
-  const shownQty = typedQty ?? line.qty;
+  // Resync only when the committed quantity stops matching what the box says —
+  // the −/+ buttons and a restored draft need it, a keystroke does not. A blind
+  // `setQtyRaw(formatQty(line.qty))` would now fire on every keystroke and
+  // rewrite the text mid-word, erasing the "." in "2." as it was typed.
+  React.useEffect(() => {
+    setQtyRaw((cur) =>
+      parseQty(cur, { allowFractional: fractional }) === line.qty
+        ? cur
+        : formatQty(line.qty)
+    );
+  }, [line.qty, fractional]);
 
   function commitQty() {
     const parsed = parseQty(qtyRaw, { allowFractional: fractional });
@@ -1224,21 +1233,14 @@ function PartCartLine({
       );
       return;
     }
+    // Blur only NORMALISES what is already committed (".1" → "0.1", "2." → "2").
+    // The cap and its toast both fire in onChange, so there is nothing left to
+    // clamp here and nothing to announce — announcing it again would toast twice
+    // for one correction.
     const capped = Math.min(parsed, line.available);
-
-    // Write the box back from the CAPPED number, always. The effect above only
-    // resyncs when `line.qty` changes, so typing 3.5 against 1.1 available —
-    // where the line is ALREADY 1.1 — clamped the state correctly and left the
-    // box reading 3.5. The cashier then sees a quantity the sale will not store.
     setQtyRaw(formatQty(capped));
-    if (capped < parsed) {
-      toast.error(
-        `Only ${formatQty(line.available)} ${line.unit} left to sell — set to ${formatQty(capped)}`
-      );
-    }
-    // Hand up the RAW parsed value, not `capped`: setQty is the one clamp
-    // authority, and it can only flag a correction it actually performs. Passing
-    // the pre-clamped number left it blind, which is why Save went through.
+    // Hand up the RAW parsed value, not `capped`: setQty flags a correction only
+    // when it actually performs one, and that flag is the backstop.
     onQty(parsed, true);
   }
 
@@ -1257,15 +1259,17 @@ function PartCartLine({
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{line.name}</div>
           <div className="text-xs text-muted-foreground tabular-nums">
-            {formatCentavos(price)} × {formatQty(shownQty)} {line.unit} ={" "}
+            {formatCentavos(price)} × {formatQty(line.qty)} {line.unit} ={" "}
             <span className="font-medium text-foreground">
               {/* Math.round mirrors the server's round(v_unit * qty) — the
                   cashier must never see a total the sale will not store.
-                  `shownQty` tracks the box while typing; blur clamps it to
-                  what is available and says so. */}
-              {formatCentavos(Math.round(price * shownQty))}
+                  `line.qty` is lifted on every keystroke, so this row, the
+                  grand Total and the saved sale are all ONE number. */}
+              {formatCentavos(Math.round(price * line.qty))}
             </span>
-            {shownQty > line.available && (
+            {/* Backstop, not decoration: the box cannot type past `available`,
+                but a future caller that sets a quantity without the box can. */}
+            {line.qty > line.available && (
               <span className="ml-1 font-medium text-destructive">
                 (max {formatQty(line.available)})
               </span>
@@ -1297,7 +1301,17 @@ function PartCartLine({
               // HARD-CAPPED AT `available` AS YOU TYPE — the same pattern the
               // owner's delivery form and the shop's transfer form already use.
               // Clamping only on blur let the box display 6568 kg against 2.1
-              // available, with a ₱656,800 total, until focus left.
+              // available, with a ₱656,800 total, until focus left. The clamp
+              // must SAY SO: silently rewriting 12 to 2.1 is the same wrong
+              // number, just quieter. One stable toast id, so a held-down key
+              // replaces the message instead of stacking twenty of them.
+              //
+              // The parsed value is lifted on EVERY keystroke, exactly as the
+              // price boxes do — that is why price never had this bug. Deferring
+              // to blur left the line's amount live while the grand Total, the
+              // change helper and the balance all still read the last committed
+              // quantity, and made the save depend on blur firing before the
+              // click, which is platform behaviour rather than a guarantee.
               //
               // Keep the SANITISED STRING when in range, never
               // String(theNumber): mid-keystroke "1." parses to 1 and
@@ -1307,7 +1321,21 @@ function PartCartLine({
                 const raw = sanitizeQtyInput(e.target.value);
                 if (raw === "") return setQtyRaw("");
                 const n = parseQtyInput(raw);
-                setQtyRaw(n > line.available ? formatQty(line.available) : raw);
+                const over = n > line.available;
+                setQtyRaw(over ? formatQty(line.available) : raw);
+                if (over) {
+                  toast.error(
+                    `Only ${formatQty(line.available)} ${line.unit} left to sell`,
+                    { id: `qtycap-${line.part_id}` }
+                  );
+                }
+                // parseQty is the validity ANSWER: null for "0." and "0", where
+                // committing would hand setQty a 0 and DELETE the line the
+                // cashier is halfway through typing into.
+                const v = parseQty(String(over ? line.available : n), {
+                  allowFractional: fractional,
+                });
+                if (v !== null) onQty(v, true);
               }}
               onBlur={commitQty}
               onKeyDown={(e) => {

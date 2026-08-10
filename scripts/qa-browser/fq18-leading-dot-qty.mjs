@@ -146,6 +146,10 @@ try {
   check(masked === ".2", `'.25' masked to '.2' as typed (got "${masked}")`);
 
   step("A genuinely refused entry is LOUD, not silent");
+  // The quantity restored is the last COMMITTED one, and the commit now happens
+  // on the keystroke — so it is the 0.2 the step above typed, not the 2 from the
+  // step before it. Read it off the box instead of hardcoding either number.
+  const kept = Number(await box.inputValue());
   await box.fill("");           // empty is the one thing left that can refuse
   await box.blur();
   await shop.page.waitForTimeout(900);
@@ -161,16 +165,22 @@ try {
     toastText
   );
   const restored = await box.inputValue();
-  check(Number(restored) === 2, `the previous quantity is kept (${restored})`, restored);
+  check(
+    Number(restored) === kept,
+    `the previous quantity is kept (${restored}, was ${kept})`,
+    restored
+  );
   await shot(shop.page, "fq18-02-refusal-toast");
 
   step("Over-available is capped ON THE KEYSTROKE, not on blur");
   // This step used to assert the inline "(max 3)" hint, which was correct while
   // the clamp happened on blur. The box is now hard-capped in onChange (the
-  // owner delivery / shop transfer pattern), so an over-limit value cannot be
-  // displayed at all and the hint has nothing to warn about. The hint stays in
-  // the code for the one path that can still exceed: a restored draft whose
-  // saved quantity is now above what is on hand.
+  // owner delivery / shop transfer pattern) and toasts when it caps, so an
+  // over-limit value cannot be displayed at all and the hint has nothing to warn
+  // about. The hint stays in the code as a BACKSTOP for a future caller that
+  // sets a quantity without going through this box — not for a restored draft,
+  // which carries `qty` and `available` from the same snapshot and therefore
+  // cannot exceed its own limit.
   await box.fill("");
   await box.type("9.5", { delay: 80 });
   const overRow = await rowText(shop.page);
