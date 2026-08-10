@@ -96,7 +96,15 @@ export function parseQty(
   input: string,
   { allowFractional = false, allowZero = false } = {}
 ): number | null {
-  const cleaned = input.replace(/[,\s]/g, "");
+  let cleaned = input.replace(/[,\s]/g, "");
+  // NORMALISE a leading or trailing dot before validating. `sanitizeQtyInput`
+  // deliberately preserves ".1" and "2." so a half-typed weight is not fought
+  // mid-keystroke — so validating for canonical form only meant the COMMIT step
+  // refused strings the INPUT step exists to allow. Record Sale's refusal branch
+  // silently restored the previous quantity, so a cashier typing ".1" saw the
+  // amount stay put and the sale deducted 1 kg. ".1" has exactly one meaning.
+  if (cleaned.startsWith(".")) cleaned = `0${cleaned}`;
+  if (cleaned.endsWith(".")) cleaned = cleaned.slice(0, -1);
   if (!/^\d+(\.\d)?$/.test(cleaned)) return null; // tenths only — 0.12 refused
   const n = Number(cleaned);
   if (!Number.isFinite(n)) return null;
