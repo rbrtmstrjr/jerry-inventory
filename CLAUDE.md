@@ -1227,8 +1227,13 @@ a business rule would hinge on spelling. `0114` turns that loophole into the
 mechanism: `public.units` (`code`, `label`, **`allows_fractional`**,
 `sort_order`, soft-delete) is a controlled vocabulary — the `shops.color_key`
 pattern from 0050, shaped like `product_categories`. `0115` wires `parts.unit`
-to it by FK. Only `kg` is fractional today; selling rope by the metre is an
-UPDATE, not a migration. Office writes it, every role reads it (the shop needs
+to it by FK. **`kg`, `m`, `ft` and `roll` are splittable (0130)**; `pc`, `set`,
+`box` and `pair` are not. That expansion was a one-row UPDATE with no schema
+change and no code — which is the whole reason the vocabulary is data. Tenths
+remain the granularity BY DECISION (Gerry, 2026-08-10): `0.5 ft` is six inches
+and expressible, `0.25 ft` is refused, and two decimals would mean ALTERing all
+fifteen quantity columns. A `roll` is counted BY THE ROLL — `0.5 roll`, never
+converted to metres. Office writes it, every role reads it (the shop needs
 the label to render "12 kg on hand"). Choosing "Kilogram" in Receiving is the
 whole action — there is no per-product flag to remember.
 

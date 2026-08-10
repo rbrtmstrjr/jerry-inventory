@@ -72,8 +72,10 @@ export function UnitSelect({
                 editable at the counter. Otherwise the connection is invisible
                 and the owner wonders why nails can't be sold by the half. */}
             {u.allows_fractional && (
+              /* Unit-neutral since 0130: metres, feet and rolls are splittable
+                 too, so "sold by weight" was wrong for three of the four. */
               <span className="ml-2 text-xs text-muted-foreground">
-                sold by weight
+                sold in parts
               </span>
             )}
           </SelectItem>
