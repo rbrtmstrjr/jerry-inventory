@@ -112,9 +112,24 @@ section("Units are controlled reference data");
   const byCode = Object.fromEntries((units ?? []).map((u) => [u.code, u]));
   check("pc exists and is whole-unit", byCode.pc && byCode.pc.allows_fractional === false);
   check("kg exists and is fractional", byCode.kg && byCode.kg.allows_fractional === true);
-  check("only kg is fractional today",
-    (units ?? []).filter((u) => u.allows_fractional).map((u) => u.code).join() === "kg",
-    (units ?? []).filter((u) => u.allows_fractional).map((u) => u.code).join());
+  // The vocabulary is asserted EXACTLY, so an accidental flip (someone making
+  // `pc` fractional and letting a shop sell half a spark plug) fails the build.
+  // A future intentional flip must edit this line — that friction is the point:
+  // the decision then shows up in a diff instead of living only as DB state.
+  //
+  // SORTED: the select has no .order(), so PostgREST may return these rows in
+  // any order. Comparing an unsorted join() would flap between runs.
+  const fractionalCodes = (units ?? [])
+    .filter((u) => u.allows_fractional)
+    .map((u) => u.code)
+    .sort()
+    .join(",");
+  check("exactly kg, m, ft and roll are fractional (0130)",
+    fractionalCodes === "ft,kg,m,roll", fractionalCodes);
+  // `pc` is already asserted a few lines above — do not double-count it.
+  for (const whole of ["set", "box", "pair"]) {
+    check(`${whole} is NOT fractional`, byCode[whole]?.allows_fractional === false);
+  }
 
   // The shop needs the label to render "12 kg on hand".
   const { data: seen, error } = await shop.client.from("units").select("code").eq("code", "kg");
