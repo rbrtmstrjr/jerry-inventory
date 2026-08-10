@@ -11,12 +11,8 @@ function addDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * Per-shop profitability, moved in verbatim from /shops/reports (which now
- * redirects here). It is FINANCIAL reporting and already shares lib/pnl.ts
- * with the P&L tab — it belongs beside the financials, not under shop
- * management. Only the wrapper changed; the body and figures did not.
- */
+/** Per-shop profitability, moved verbatim from /shops/reports (now a redirect).
+ *  Shares lib/pnl.ts with the P&L tab, so it belongs beside the financials. */
 export async function ShopsTab({
   params,
 }: {
@@ -32,10 +28,8 @@ export async function ShopsTab({
 
   const supabase = await createClient();
 
-  // The money comes from lib/pnl.ts — the SAME module /reports?tab=pnl uses, so
-  // the two pages cannot drift apart. Everything fetched alongside it here is
-  // operational context (stock on hand, units moved, what's waiting for you),
-  // which is this page's own concern and has no place in a P&L.
+  // Money comes from lib/pnl.ts, the same module the P&L tab uses. Everything
+  // fetched alongside is operational context, not part of the statement.
   const [
     pnl,
     shopsRes,
@@ -62,9 +56,8 @@ export async function ShopsTab({
       .gte("returned_at", from)
       .lte("returned_at", to + "T23:59:59")
       .is("deleted_at", null),
-    // Stock value is a MONEY figure summed over every shop, so a silent
-    // truncation here understates it with no sign anything went wrong. Read
-    // across all shops, part_id repeats — offset paging on the full key.
+    // A MONEY figure summed over every shop, so truncation understates it
+    // silently. part_id repeats across shops — offset-page on the full key.
     fetchAllOffset<{ shop_id: string; qty: number; price_centavos: number }>(
       () => supabase.from("shop_stock").select("shop_id, qty, price_centavos"),
       ["shop_id", "part_id"]
@@ -84,8 +77,7 @@ export async function ShopsTab({
       .select("shop_id")
       .in("status", ["pending", "questioned"])
       .is("deleted_at", null),
-    // Shop expenses by category — the breakdown behind each shop's opex. SAME
-    // filter as lib/pnl.ts's opex (scope=shop, approved, in range, live) so the
+    // Shop expenses by category. SAME filter as lib/pnl.ts's opex, so the
     // matrix's column totals reconcile to the "Shop exp." figures.
     fetchAll<{
       id: string;
@@ -155,9 +147,8 @@ export async function ShopsTab({
       color_key: colorByShopId.get(r.shop_id) ?? null,
       ...(ctx.get(r.shop_id) ?? zeroCtx()),
     }))
-    // An open shop always earns a row, even at zero. A closed one only if
-    // something actually happened — including stock it still holds or units it
-    // moved, which is why this test is wider than the P&L's money-only one.
+    // Open shops always earn a row; closed ones only when something happened.
+    // Wider than the P&L's money-only test — stock held and units moved count.
     .filter(
       (r) =>
         !r.closed ||
@@ -234,11 +225,8 @@ export async function ShopsTab({
       // Overhead belongs to the business, not to any shop. Subtracted ONCE at
       // the bottom — never spread across them.
       companyOverhead: pnl.companyOverhead,
-      // NOTE: this is net BEFORE shrinkage — it is a contribution figure, not
-      // the business's net income. Losses stay out of a shop's number on
-      // purpose, so their sum can't be an income statement. The consolidated
-      // P&L (/reports?tab=pnl) subtracts shrinkage from exactly this figure to
-      // reach net income; the two reconcile by construction.
+      // Net BEFORE shrinkage — a contribution figure, not net income. The P&L
+      // tab subtracts shrinkage from exactly this to reach net income.
       businessNet: shopNetTotal - pnl.companyOverhead,
       losses: sum("losses"),
       stockValue: sum("stock_value"),

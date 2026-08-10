@@ -17,12 +17,8 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-/**
- * Return Slip — the document a shop→master return travels with, signed on both
- * ends. Outside every role group (like /receipt and /transfer/[id]/slip): the
- * party-scoped `return_slip` view is the gate — a non-party (or anon) session
- * reads no row → notFound(). Reads public_settings for the letterhead.
- */
+/** Travels with a shop→master return, signed both ends. Outside every role
+ *  group — the party-scoped `return_slip` view is the gate. */
 export default async function ReturnSlipPage({
   params,
 }: {

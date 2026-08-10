@@ -31,15 +31,8 @@ const JOB_PURPOSE: Record<string, string> = {
   "supplier-overdue-daily": "Finds supplier balances past their due date and alerts you.",
 };
 
-/**
- * Read-only health. Nothing here writes, and nothing here is a secret.
- *
- * The cron table is the whole reason this panel exists: two daily jobs raise
- * the alerts this business depends on, and if either dies the alerts simply
- * stop — silently. Nobody finds out until a warranty lapses or a supplier
- * calls. A job that has not run in over 24h is therefore the loudest thing on
- * the page.
- */
+/** Read-only health. The cron table is why it exists — if a daily job dies the
+ *  alerts stop silently, so a >24h stale job is the loudest thing here. */
 export function SystemSection({
   cron,
   env,

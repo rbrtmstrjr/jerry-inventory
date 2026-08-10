@@ -10,17 +10,8 @@ const TABS = [
   { value: "engines", label: "Engine History" },
 ] as const;
 
-/**
- * `?tab=` links, matching /deliveries and /reports.
- *
- * Each tab is a different server query — the journal paginates the whole
- * ledger, the stock card runs a window function for one product — so they are
- * links, not client state: switching must not fetch all three.
- *
- * Filters are deliberately DROPPED when switching tabs. A journal filter
- * (location, type, actor) means nothing to a stock card, and carrying `?type=`
- * across would silently narrow a card the user thinks is complete.
- */
+/** Links, not client state — each tab is a different server query, so switching
+ *  must not fetch all three. Filters are DROPPED: they don't transfer. */
 export function MovementTabs({ active }: { active: "journal" | "ledger" | "engines" }) {
   return (
     <nav

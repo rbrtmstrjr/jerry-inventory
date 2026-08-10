@@ -72,11 +72,8 @@ function Section({
   );
 }
 
-/**
- * Right-side drawer for one reviewed item. Driven entirely by the `item` URL
- * param ("<type>:<id>") so refreshing or sharing the link reopens the same
- * item. Radix Sheet gives focus trapping, Esc and overlay-click for free.
- */
+/** Drawer for one reviewed item, driven entirely by the `item` URL param so a
+ *  refresh or shared link reopens the same one. */
 export function ReviewedDetailSheet({
   openItem,
   shops,

@@ -12,10 +12,8 @@ import { PrintButton } from "@/components/shell/print-button";
 
 export const metadata: Metadata = { title: "Receipt" };
 
-// Route-scoped print CSS — 58mm thermal roll. Rendered ONLY by this page, so
-// the @page size cannot leak into the other printables (each is its own route /
-// print job). Monochrome (thermal is 1-bit): black on white, no fills, no
-// theme tokens. `58mm` here is also the fingerprint the doc HTTP suite asserts.
+// Route-scoped 58mm print CSS — must stay on this route so the @page size can't
+// leak into the other printables. Monochrome; `58mm` is the suite's fingerprint.
 const THERMAL_CSS = `
 /* thermal-receipt-58mm */
 @page { size: 58mm auto; margin: 0; }
@@ -51,11 +49,8 @@ export default async function ReceiptPage({
   const { saleId } = await params;
   const supabase = await createClient();
 
-  // Identity comes from `public_settings`, not `settings`. This page is shared:
-  // the SHOP opens it right after recording a sale, and `settings` is
-  // owner-only — so it used to render a nameless receipt for the one caller
-  // who prints nearly all of them, while the owner's reprint of the same sale
-  // looked complete.
+  // `public_settings`, not `settings` — this page is shared and `settings` is
+  // owner-only, so a shop would print a nameless receipt.
   const [saleRes, business] = await Promise.all([
     supabase
       .from("sales")

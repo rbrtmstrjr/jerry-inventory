@@ -157,9 +157,8 @@ export function PartsTable({
     );
   }
 
-  // Add product = a supplier-less receiving through fn_receive_stock (0059) —
-  // creation still only via the definer function (0049 direct-INSERT lockdown
-  // intact). Real purchases with debt still go through Suppliers → Receiving.
+  // Add product = a supplier-less receiving through fn_receive_stock, the only
+  // creation path. Real purchases with debt go through Suppliers → Receiving.
   const toolbarButtons = (
     <>
       {!retireLocked && (
@@ -173,9 +172,8 @@ export function PartsTable({
     </>
   );
 
-  // Cards render the same server page as the table: search + paging live in
-  // the URL, so a search covers the whole catalog rather than one page, and the
-  // grid is bounded by page size (the old scroll-reveal is no longer needed).
+  // Cards render the same server page as the table, so a search covers the whole
+  // catalog and the grid stays bounded by page size.
   const cardVisibleParts = parts;
 
   const columns: ColumnDef<PartRow>[] = [

@@ -29,10 +29,8 @@ export interface PhotoTarget {
   image_path: string | null;
 }
 
-/**
- * Employee photo editor — only reachable for items in their own shop;
- * the storage policies + DB function enforce that server-side too.
- */
+/** Employee photo editor, own shop only — the storage policies and DB function
+ *  enforce that server-side too. */
 export function ShopPhotoDialog({
   target,
   onClose,
@@ -88,10 +86,8 @@ export function ShopPhotoDialog({
       }
       toast.success(`Photo saved for ${target.name}`);
     } else {
-      // Clear the POINTER first, then the object. The other way round (which
-      // this used to do) deletes the file and then, if the RPC fails, leaves
-      // image_path aimed at a file that no longer exists — a broken thumbnail
-      // the shop cannot clear. Failing in this order merely orphans bytes.
+      // Clear the POINTER first, then the object — the reverse leaves image_path
+      // aimed at a deleted file if the RPC fails. This way only orphans bytes.
       const res = await setShopProductImage({
         kind: target.kind,
         id: target.id,

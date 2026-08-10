@@ -291,10 +291,8 @@ export function ShopWarrantiesView({
                 ref={scanRef}
                 value={lookup}
                 onChange={(e) => setLookup(e.target.value)}
-                // A scanner ends with Enter and this box never clears itself, so
-                // a second scan used to append to the first ("SN-A" + "SN-B"),
-                // match nothing, and wrongly tell the customer their engine
-                // wasn't sold here. Selecting the text makes the next scan replace it.
+                // Select the text so the next scan REPLACES it — appending two
+                // serials matches nothing and reads as "not sold here".
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -393,9 +391,8 @@ export function ShopWarrantiesView({
   );
 }
 
-/** Record / correct the number of the PHYSICAL warranty card (0103) — the
- *  card itself is printed by Admin's external system; this just ties its
- *  number to the engine sale. Scanner-friendly: focused input, Enter saves. */
+/** Record the PHYSICAL card's number — the card is printed externally, this
+ *  just ties it to the sale. Scanner-friendly: focused input, Enter saves. */
 function CardNoDialog({
   warranty,
   onClose,

@@ -8,15 +8,8 @@ import { getProfile } from "@/lib/auth";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
-/**
- * Re-verify the owner in the action itself.
- *
- * RLS already refuses a non-owner write, so this is belt to its braces — but a
- * Server Action is an independently addressable POST endpoint and does NOT
- * inherit the (owner) layout's gate. /shops/actions.ts makes the same call for
- * the same reason. The payoff is also a sentence instead of a raw Postgres RLS
- * error.
- */
+/** A Server Action is its own POST endpoint and does NOT inherit the layout's
+ *  gate. RLS still backs this; the payoff is a sentence, not a raw RLS error. */
 async function requireOwnerAction(): Promise<boolean> {
   const profile = await getProfile();
   return profile?.role === "owner";
@@ -24,14 +17,8 @@ async function requireOwnerAction(): Promise<boolean> {
 
 const DENIED = "Only the owner can change settings." as const;
 
-/**
- * Every document that prints business identity.
- *
- * These are all dynamic (they read cookies), so nothing is statically cached
- * and this is mostly belt-and-braces — but the moment one of them gains a cache
- * hint, a stale letterhead is exactly the bug nobody thinks to look for.
- * Dynamic routes need the literal segment pattern, not a filled-in path.
- */
+/** Every document printing business identity. All dynamic today, but a stale
+ *  letterhead is the bug nobody looks for. Use the literal segment pattern. */
 function revalidateDocuments() {
   revalidatePath("/settings");
   revalidatePath("/receipt/[saleId]", "page");
@@ -40,15 +27,8 @@ function revalidateDocuments() {
   revalidatePath("/stock-alerts/purchase-list");
 }
 
-// ---------------------------------------------------------------------------
-// Business identity — everything here lands on printed paper.
-//
-// Note `address` / `phone` / `receipt_footer`, NOT business_address /
-// business_contact. Those columns have existed since 0001 and are already read
-// by the receipt, delivery note, certificate and payslip; a second pair under
-// new names would be two columns holding one fact, with the documents reading
-// the old ones.
-// ---------------------------------------------------------------------------
+// ── Business identity — everything here lands on printed paper ──────────────
+// `address`/`phone`, NOT business_address/business_contact: one fact, one column.
 const businessSettingsSchema = z.object({
   business_name: z.string().trim().min(1, "Business name is required"),
   address: z.string().trim().max(300).nullable(),
@@ -102,15 +82,8 @@ export async function updateDefaults(input: unknown): Promise<ActionResult> {
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Alert thresholds.
-//
-// Both mirror their settings CHECK constraint; the DB stays the authority.
-// `warranty_expiry_alert_days` has no upper bound in the DB, so 365 is a UI
-// sanity bound only — 0 stays legal because it means something (alert on the
-// day of expiry), and banning a value the DB accepts would be this form
-// inventing a rule.
-// ---------------------------------------------------------------------------
+// ── Alert thresholds ────────────────────────────────────────────────────────
+// Mirror the settings CHECKs; the DB stays the authority. 365 is a UI bound only.
 const alertSettingsSchema = z.object({
   warranty_expiry_alert_days: z
     .number()
@@ -122,10 +95,7 @@ const alertSettingsSchema = z.object({
     .int()
     .min(1, "Warning percent must be between 1 and 100")
     .max(100, "Warning percent must be between 1 and 100"),
-  // Deliberately absent from the original Settings overhaul: no quotes feature
-  // existed and a dial that controls nothing is decoration. 0046 built the
-  // feature, so the dial and its editor arrived together. 1..365 mirrors the
-  // settings CHECK.
+  // 1..365 mirrors the settings CHECK.
   quote_stale_days: z
     .number()
     .int()
@@ -164,14 +134,8 @@ export async function updateAlertSettings(input: unknown): Promise<ActionResult>
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Admin accounts (0099) — Gerry mints and manages the office logins.
-//
-// requireOwnerAction() checks role === 'owner' STRICTLY, so an admin can never
-// reach these even though they pass the office-tier layout. RLS backs it up:
-// profiles insert/update/delete is is_primary_owner()-only, so even a direct
-// PostgREST call from an admin session dies at the database.
-// ---------------------------------------------------------------------------
+// ── Admin accounts (0099) — Gerry mints the office logins ───────────────────
+// role === 'owner' STRICTLY; profiles RLS is is_primary_owner()-only behind it.
 const createAdminSchema = z.object({
   full_name: z.string().trim().min(1, "Name is required"),
   email: z.email("Valid email required"),
@@ -241,9 +205,8 @@ export async function setAdminActive(input: unknown): Promise<ActionResult> {
   if (!(await getAdminTarget(parsed.data.id)))
     return { ok: false, error: "Not an admin account" };
 
-  // getProfile() returns null for inactive accounts and both DB helper
-  // functions check `and active` — flipping this flag cuts app AND database
-  // access; nothing else to revoke.
+  // Both getProfile() and the DB helpers check `active`, so flipping this flag
+  // cuts app AND database access — nothing else to revoke.
   const admin = createAdminClient();
   const { error } = await admin
     .from("profiles")
@@ -315,10 +278,8 @@ export async function deleteAdminAccount(input: unknown): Promise<ActionResult> 
   if (!(await getAdminTarget(parsed.data.id)))
     return { ok: false, error: "Not an admin account" };
 
-  // Deleting the auth user cascades onto the profile. If this admin has any
-  // recorded history (receivings, approvals, ledger rows), the attribution
-  // FKs refuse the cascade — that history must keep its author, so the
-  // account can only be DEACTIVATED, never erased.
+  // Deleting the auth user cascades onto the profile. Attribution FKs refuse
+  // once the admin has history — deactivate instead.
   const admin = createAdminClient();
   const { error } = await admin.auth.admin.deleteUser(parsed.data.id);
   if (error) {

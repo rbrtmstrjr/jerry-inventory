@@ -64,9 +64,8 @@ export function StockCardView({
   const moves = rows.filter((r) => r.kind === "movement");
   const closing = moves.length ? moves[moves.length - 1].balance : (opening?.balance ?? 0);
 
-  // The card's closing balance is only meant to equal live stock when the
-  // period runs to today. Say which case the reader is looking at rather than
-  // showing a red flag for a historical card that is perfectly correct.
+  // Closing balance equals live stock only when the period runs to today, so
+  // name the case rather than red-flagging a correct historical card.
   const endsToday = to >= today;
   const reconciles = liveQty !== null && Number(closing) === Number(liveQty);
 

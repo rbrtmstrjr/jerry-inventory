@@ -60,9 +60,8 @@ export function SettingsView({
       : "business"
   );
 
-  // Keep the URL in step so a section can be linked, bookmarked and reloaded.
-  // `replace`, not `push`: flicking through tabs should not stack up history
-  // entries the back button then has to walk out of.
+  // Keep the URL in step so a section is linkable. `replace`, not `push` —
+  // flicking through tabs must not stack up history entries.
   function onTabChange(v: string) {
     setTab(v as TabValue);
     router.replace(`/settings?tab=${v}`, { scroll: false });

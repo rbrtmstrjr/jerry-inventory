@@ -9,10 +9,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "Categories" };
 
-/**
- * The tab bar (in the layout) stays instant; only the categories card streams
- * in behind a matching skeleton — consistent with the Products tab.
- */
+/** The layout's tab bar stays instant; only the categories card streams in
+ *  behind a matching skeleton. */
 export default function CategoriesPage() {
   return (
     <Suspense fallback={<CategoriesSkeleton />}>

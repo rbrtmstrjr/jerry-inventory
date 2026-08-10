@@ -46,16 +46,8 @@ export default function ShopDeliveriesPage() {
 async function ShopDeliveriesBody() {
   const supabase = await createClient();
 
-  // Both views are already scoped to the caller's shop and carry no cost.
-  //
-  // The lines are fetched for the deliveries actually shown, IN PAGES. An
-  // unbounded select is capped at 1000 rows by PostgREST, and with no ORDER BY
-  // the surviving 1000 are an arbitrary subset — so on a shop with real history
-  // (35 deliveries here, 5 660 lines between them, monthly restocks of ~250)
-  // the newest deliveries were silently starved of their lines. The card still
-  // said "N items on the way" and still offered "Confirm what arrived", but
-  // there was nothing to count, so confirming would have posted an empty
-  // payload and booked the entire delivery as missing.
+  // Lines are fetched IN PAGES: an unbounded select caps at 1000 arbitrary rows,
+  // which starved newer deliveries and would book them entirely as missing.
   const delRes = await supabase
     .from("shop_incoming_deliveries")
     .select("*")

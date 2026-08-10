@@ -1,11 +1,8 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
-/**
- * Shared loading skeletons for streaming page shells. Kept generic so the
- * many owner list/report pages that stream their body behind `<Suspense>` can
- * share one matching placeholder instead of each hand-rolling its own.
- */
+/** Shared skeletons for streaming page shells, so every page that suspends its
+ *  body uses one matching placeholder rather than hand-rolling its own. */
 
 /** Toolbar (search + action) over a bordered table — matches a `<DataTable>`. */
 export function TableSkeleton({

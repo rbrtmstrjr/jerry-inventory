@@ -18,9 +18,8 @@ export interface LatLng {
 // Cebu as a sensible starting view when no pin exists yet
 const DEFAULT_CENTER: LatLng = { lat: 10.3157, lng: 123.8854 };
 
-/** Themed SVG pin (avoids Leaflet's bundler-broken default icon assets).
- *  Fill is a CSS color/token expression — divIcon HTML lives in the DOM, so
- *  var(--…) resolves against the theme (shop pins pass their palette token). */
+/** Themed SVG pin, avoiding Leaflet's bundler-broken default icons. divIcon
+ *  HTML lives in the DOM, so var(--…) resolves against the theme. */
 const pinSvg = (fill: string) => `
 <svg xmlns="http://www.w3.org/2000/svg" width="30" height="42" viewBox="0 0 30 42">
   <path d="M15 0C6.7 0 0 6.7 0 15c0 11 15 27 15 27s15-16 15-27C30 6.7 23.3 0 15 0z" fill="${fill}"/>
@@ -28,10 +27,7 @@ const pinSvg = (fill: string) => `
 </svg>`;
 const PIN_SVG = pinSvg("var(--primary)");
 
-/**
- * Small read-only map preview with a pin — clicking opens Google Maps.
- * Used on shop cards.
- */
+/** Read-only map preview with a pin; clicking opens Google Maps. */
 export function MapPreview({
   lat,
   lng,
@@ -109,10 +105,8 @@ export function MapPreview({
   );
 }
 
-/**
- * Click-to-pin map (Leaflet + OpenStreetMap, no API key). Click sets the pin,
- * the pin is draggable, geolocation jumps to the user's position.
- */
+/** Click-to-pin map (Leaflet + OpenStreetMap, no API key). The pin is draggable
+ *  and geolocation jumps to the user's position. */
 export function LocationPicker({
   value,
   onChange,
@@ -123,9 +117,8 @@ export function LocationPicker({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<LeafletMap | null>(null);
   const markerRef = React.useRef<Marker | null>(null);
-  // Keep a ref to the latest onChange so the once-only map-init effect can call
-  // it without re-subscribing. Assigned in an effect, not during render — a ref
-  // write during render is the react-hooks/refs anti-pattern.
+  // Ref to the latest onChange so the once-only init effect can call it without
+  // re-subscribing. Assigned in an effect — a render-time ref write is an error.
   const onChangeRef = React.useRef(onChange);
   React.useEffect(() => {
     onChangeRef.current = onChange;

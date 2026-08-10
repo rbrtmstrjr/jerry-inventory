@@ -88,9 +88,8 @@ export function SukiCardsView({
     setCreateOpen(true);
   }
 
-  // Replace = deactivate the old card (so the one-active-per-customer rule
-  // allows a new one), then open New card pre-filled with the same customer to
-  // record the number of the freshly printed physical card.
+  // Deactivate the old card so the one-active-per-customer rule allows a new
+  // one, then open New card pre-filled with the same customer.
   async function replaceCard(c: CardRow) {
     const res = await setDiscountCardStatus(c.id, "inactive");
     if (!res.ok) {
@@ -378,9 +377,8 @@ function CreateCardDialog({
                         {customers.map((c) => (
                           <CommandItem
                             key={c.id}
-                            // the id suffix keeps the value UNIQUE — cmdk keys
-                            // hover/selection by value, so two customers with
-                            // the same name would otherwise highlight together
+                            // The id suffix keeps the value UNIQUE — cmdk keys
+                            // selection by value, so same-named rows would pair.
                             value={`${c.name} ${c.phone ?? ""} ${c.id}`}
                             onSelect={() => {
                               setCustomerId(c.id);

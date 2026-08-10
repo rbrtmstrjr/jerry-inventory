@@ -7,15 +7,8 @@ import { isPrimaryOwner } from "@/lib/auth";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
-/**
- * Void a posted utang payment (0101) — Gerry's alone, above even the admin:
- * the person who can erase a money record must not be anyone who handles the
- * money. Soft-deleted, so the entry stays in the history struck-through, the
- * balance goes straight back up, and the office is alerted.
- *
- * fn_void_utang_payment re-checks is_primary_owner() server-side — this check
- * just turns a raw RLS error into a sentence.
- */
+/** Gerry-only: whoever handles the cash must not be able to erase its record.
+ *  Soft-deletes, so the entry stays struck-through. The RPC re-checks. */
 export async function voidUtangPayment(
   id: string,
   reason?: string

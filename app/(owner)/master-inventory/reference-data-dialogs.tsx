@@ -26,11 +26,8 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { softDeleteEngineModel, updateEngineModel } from "./actions";
 
-/**
- * Reference data is CREATED at receiving only (0049 revoked direct INSERT);
- * here it is edited or retired — fixing a typo'd model name or deactivating a
- * discontinued model must not require a receiving.
- */
+/** Reference data is CREATED at receiving only (0049); here it is edited or
+ *  retired, so fixing a typo'd model name needs no receiving. */
 export function ModelManagerDialog({
   open,
   models,

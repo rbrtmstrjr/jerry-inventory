@@ -64,11 +64,8 @@ export interface PaymentHistoryRow {
   recorded_by: string;
 }
 
-/**
- * One tab's list — the rows are ALREADY scoped to Open (balance > 0) or Fully
- * paid (balance ≤ 0) by the server, so this only does the in-tab search / shop /
- * date filtering, CSV of what's shown, and scroll reveal.
- */
+/** Rows arrive already scoped to the tab, so this only does in-tab search,
+ *  shop/date filtering, CSV of what's shown, and scroll reveal. */
 export function ReceivablesList({
   tab,
   rows,

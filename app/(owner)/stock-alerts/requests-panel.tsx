@@ -69,15 +69,8 @@ const STATUS: Record<
   dismissed: { label: "Dismissed", variant: "destructive" },
 };
 
-/**
- * Shops asking for stock. Lives on Stock Alerts — a request is a stock-alert
- * signal, not a stock movement. Converting one jumps to the Deliveries page's
- * New Delivery form pre-filled (via ?request=), where the actual movement
- * happens; the printable Stock Request Receipt is the ingoing (shop→admin)
- * document, and a fulfilled request links to its outgoing Delivery Note.
- *
- * The inner Open/Reviewed tabs use variant="line" so they read as a sub-level.
- */
+/** Shops asking for stock — a stock-alert signal, not a movement. Converting one
+ *  jumps to the New Delivery form pre-filled via ?request=. */
 export function RequestsPanel({
   requests,
   onConvert,

@@ -24,11 +24,8 @@ const STATUS_LABEL: Record<string, string> = {
   unpaid: "Unpaid (on credit)",
 };
 
-/**
- * Printable goods-received voucher for one receiving — the owner's record of
- * what a supplier delivered, at what cost, and how it was paid. Owner route
- * (reads owner-only `receivings`/`receiving_lines`).
- */
+/** Printable goods-received voucher: what a supplier delivered, at what cost,
+ *  and how it was paid. Owner route — reads owner-only tables. */
 export default async function ReceivingVoucherPage({
   params,
 }: {

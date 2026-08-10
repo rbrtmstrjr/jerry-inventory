@@ -14,18 +14,12 @@ async function requireOwner(): Promise<boolean> {
   return profile?.role === "owner" || profile?.role === "admin";
 }
 
-// 0102: retiring or merging a catalog product is Gerry's alone — a retire is
-// the one catalog action that removes evidence. These checks are UX (a clean
-// toast instead of a raw trigger message); the real gates are the BEFORE
-// UPDATE triggers and fn_merge_parts' own is_primary_owner() guard.
+// 0102: retire/merge is Gerry-only. These checks are UX (a clean toast); the
+// real gates are the BEFORE UPDATE triggers and fn_merge_parts' own guard.
 const RETIRE_DENIED = "Only the owner can retire a product";
 
-// ---------------------------------------------------------------------------
-// Add custom product / engine (0059) — supplier OPTIONAL. Creation still goes
-// through fn_receive_stock (the ONLY door, 0049); p_supplier_id NULL means a
-// supplier-less, no-debt receiving. A chosen supplier is attribution only
-// (preferred_supplier_id) — never a payable.
-// ---------------------------------------------------------------------------
+// Add custom product / engine (0059). Creation still goes through
+// fn_receive_stock; a chosen supplier is attribution only, never a payable.
 const addProductSchema = z
   .object({
     name: z.string().trim().min(1, "Name is required"),
@@ -208,11 +202,8 @@ export async function upsertPart(input: unknown): Promise<ActionResult> {
   return { ok: true, id: data.id };
 }
 
-/**
- * Read-only preview of whether a duplicate part can be merged (0052). Mirrors
- * fn_merge_parts's preconditions so the dialog can grey out blocked sources
- * before anyone clicks. The RPC re-checks server-side — this is UX, not the gate.
- */
+/** Preview whether a duplicate part can be merged, so the dialog can grey out
+ *  blocked sources. The RPC re-checks — this is UX, not the gate. */
 export async function checkPartMergeable(
   sourceId: string
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -349,14 +340,10 @@ export async function generateInternalBarcode(partId: string): Promise<ActionRes
   return { ok: true, barcode: data as string };
 }
 
-// Bulk Add was retired by 0048: creating products with no supplier and no
-// stock (its initial-qty receiving was hardcoded p_supplier_id NULL — no debt,
-// no last-paid history) contradicted "receiving is the single entry point".
-// Bulk entry lives on as the bulk-lines grid inside /master-inventory/receiving.
+// Bulk Add was retired by 0048 — bulk entry lives on as the bulk-lines grid
+// inside Receiving, the single stock entry point.
 
-// ---------------------------------------------------------------------------
-// Engines
-// ---------------------------------------------------------------------------
+// ── Engines ─────────────────────────────────────────────────────────────────
 const engineEditSchema = z.object({
   id: z.uuid(),
   engine_model_id: z.uuid(),
@@ -466,9 +453,7 @@ export async function setEngineImage(
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Fitment: which engine models a part fits
-// ---------------------------------------------------------------------------
+// ── Fitment: which engine models a part fits ────────────────────────────────
 const fitmentSchema = z.object({
   part_id: z.uuid(),
   engine_model_ids: z.array(z.uuid()),
@@ -498,9 +483,7 @@ export async function setPartFitments(input: unknown): Promise<ActionResult> {
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Suppliers
-// ---------------------------------------------------------------------------
+// ── Suppliers ───────────────────────────────────────────────────────────────
 const supplierSchema = z.object({
   id: z.uuid().optional(),
   name: z.string().trim().min(1, "Name is required"),
@@ -549,11 +532,8 @@ export async function softDeleteSupplier(id: string): Promise<ActionResult> {
 // Receiving moved to app/(owner)/suppliers/actions.ts — receiving is a
 // supplier transaction (it picks a supplier, creates debt, checks the limit).
 
-// ---------------------------------------------------------------------------
-// Reference data (engine models, categories): CREATED inline at receiving
-// only; EDITED/DEACTIVATED here. They're type definitions, not stock — fixing
-// a typo'd model name must not require a receiving.
-// ---------------------------------------------------------------------------
+// ── Reference data (engine models, categories) ──────────────────────────────
+// Created inline at receiving only; edited/deactivated here.
 const modelEditSchema = z.object({
   id: z.uuid(),
   brand: z.string().trim().min(1, "Brand is required"),
@@ -609,11 +589,8 @@ function revalidateCategories() {
   revalidatePath("/master-inventory/categories");
 }
 
-/**
- * Create a product category (the missing piece — 0059 era). Owner-only.
- * Case-insensitive dedupe: an ACTIVE match is rejected; a RETIRED match is
- * RESTORED (predictable — you can't end up with two "Oil & Lubricants").
- */
+/** Owner-only. Case-insensitive dedupe: an active match is rejected, a retired
+ *  one is restored — so you can never end up with two "Oil & Lubricants". */
 export async function createCategory(name: string): Promise<ActionResult> {
   if (!(await requireOwner())) return { ok: false, error: "Only the owner can manage categories" };
   const parsed = z.string().trim().min(1, "Category name is required").max(60).safeParse(name);
@@ -691,11 +668,8 @@ export async function softDeleteCategory(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-/**
- * Change which supplier a product is reordered from (purchase list grouping,
- * "preferred isn't cheapest" badges). Surfaced on the product's
- * Suppliers & Prices panel.
- */
+/** Change which supplier a product is reordered from — drives purchase-list
+ *  grouping and the "preferred isn't cheapest" badge. */
 export async function setPreferredSupplier(
   partId: string,
   supplierId: string | null

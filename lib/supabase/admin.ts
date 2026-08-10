@@ -1,12 +1,8 @@
 import "server-only";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
-/**
- * Service-role client — bypasses RLS. SERVER ONLY.
- * Used exclusively for auth-admin operations (creating employee accounts,
- * resetting passwords). Every caller must verify the current user is the
- * owner BEFORE touching this client.
- */
+/** Service-role client — bypasses RLS, SERVER ONLY, auth-admin operations only.
+ *  Every caller must verify the current user is the owner first. */
 export function createAdminClient() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {

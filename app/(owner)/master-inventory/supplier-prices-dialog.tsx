@@ -60,11 +60,8 @@ export function provenanceLabel(r: ComparisonRow): string {
   }
 }
 
-/**
- * Every supplier this product has been bought from (or quoted by): last-paid
- * with date + receiving link, quotes with stale flags, cheapest marked, and
- * the preferred supplier changeable in place.
- */
+/** Every supplier this product was bought from or quoted by — last-paid, stale
+ *  flags, cheapest marked, preferred changeable in place. */
 export function SupplierPricesDialog({
   open,
   productName,

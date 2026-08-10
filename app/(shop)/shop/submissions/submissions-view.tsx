@@ -134,9 +134,8 @@ export function SubmissionsView({
   const currentValue = currentSales.reduce((sum, s) => sum + s.total_centavos, 0);
   const currentExpenseValue = currentExpenses.reduce((sum, e) => sum + e.amount, 0);
 
-  // Group everything already submitted by its batch. A batch stays in
-  // "Submitted" while anything inside still awaits Admin; once every item
-  // is approved/rejected it moves to "Reviewed".
+  // Group submitted items by batch. A batch stays in "Submitted" while anything
+  // inside still awaits Admin, then moves to "Reviewed".
   const { submitted, reviewed } = React.useMemo(() => {
     const map = new Map<string, ShopBatch>();
     const groupFor = (batchId: string | null, submittedAt: string | null) => {

@@ -5,18 +5,8 @@ import type { BusinessIdentity } from "@/lib/db-types";
 import { productImageUrl } from "@/lib/product-image";
 import { PrintButton } from "@/components/shell/print-button";
 
-/**
- * The warranty certificate document. Shared by the owner route
- * (/warranties/[id]/certificate) and the shop route
- * (/shop/warranties/[id]/certificate) so a reprint from either side is byte
- * -for-byte the same paper. Presentational only — the caller does the
- * fetching and, for shops, the ownership check.
- *
- * That byte-for-byte claim was not actually true until 0043: both callers read
- * the owner-only `settings` table, so the SHOP's copy came back null and
- * printed with a hardcoded name and no address. Both now read
- * `public_settings`, which is what makes the promise in this comment hold.
- */
+/** The warranty certificate document, shared by the owner and shop routes so a
+ *  reprint is identical. Presentational — the caller fetches and authorises. */
 export interface WarrantyCertificateData {
   id: string;
   serial_number: string;

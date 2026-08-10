@@ -14,11 +14,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "Stock Alerts" };
 
-/**
- * Stock Alerts streams: the heading paints instantly and the body (summary
- * cards + tabs + tables) loads behind a matching skeleton — only the data area
- * shows a skeleton, not the whole page.
- */
+/** The heading paints instantly; the summary cards, tabs and tables stream in
+ *  behind a matching skeleton. */
 export default function StockAlertsPage({
   searchParams,
 }: {

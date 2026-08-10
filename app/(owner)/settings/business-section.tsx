@@ -12,14 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { updateBusinessSettings, updateDefaults } from "./actions";
 import type { SettingsRow } from "./types";
 
-/**
- * Business identity + business defaults.
- *
- * Two cards on purpose. The first is what gets PRINTED — every field lands in
- * the header of all six documents, so a typo here is a typo on paper handed to
- * a customer. The second is a policy default that is never printed. Mixing them
- * in one form invites editing the warranty term while thinking about letterhead.
- */
+/** Two cards on purpose: the first is what gets PRINTED on every document, the
+ *  second is a policy default that never is. Mixing them invites mistakes. */
 export function BusinessSection({ settings }: { settings: SettingsRow }) {
   return (
     <div className="flex flex-col gap-4">
@@ -153,10 +147,8 @@ function DefaultsCard({ settings }: { settings: SettingsRow }) {
   const [busy, setBusy] = React.useState(false);
 
   async function onSave() {
-    // parseInt TRUNCATES rather than rejecting: "12.5" → 12, "12abc" → 12,
-    // "1e3" → 1. So `isNaN` never fired for the exact input this message was
-    // written for, and the owner got "Defaults saved" for a value they did not
-    // type. Match whole digits explicitly instead.
+    // parseInt TRUNCATES instead of rejecting ("12.5" → 12), so isNaN never
+    // fires and a value nobody typed saves. Match whole digits explicitly.
     const raw = months.trim();
     if (!/^\d+$/.test(raw)) {
       toast.error("Warranty months must be a whole number");

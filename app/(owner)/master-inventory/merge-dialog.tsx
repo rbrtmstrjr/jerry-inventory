@@ -39,13 +39,8 @@ export interface MergePart {
 
 type Eligibility = { ok: true } | { ok: false; reason: string } | undefined;
 
-/**
- * Fold duplicate parts into one survivor. Catalog identity only — the merge
- * moves no stock and writes no ledger row (fn_merge_parts). A source that
- * still holds stock / transit / open lines is shown blocked and can't be
- * selected. Reachable from Master Inventory and prefilled from the Price
- * Comparison duplicate nudge.
- */
+/** Fold duplicate parts into one survivor. Catalog identity only — no stock
+ *  moves and no ledger row; a source still holding stock is shown blocked. */
 export function MergeDuplicatesDialog({
   open,
   parts,

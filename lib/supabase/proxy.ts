@@ -1,10 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-/**
- * Refreshes the Supabase auth session on every request and redirects
- * unauthenticated users to /login. Used by the root proxy.ts.
- */
+/** Refreshes the auth session on every request and sends unauthenticated users
+ *  to /login. Used by the root proxy.ts. */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -45,19 +43,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // NOTE: this redirect only fires when the browser actually ASKS for the page,
-  // so it cannot police a history navigation the browser satisfies from its own
-  // HTTP cache. In `next dev` that is observable: dev serves pages
-  // `Cache-Control: no-cache, must-revalidate`, `no-cache` still permits reuse
-  // for a back/forward navigation, and after signing out one press of Back
-  // re-displays the last authenticated page. It does NOT reach users — a
-  // production build serves `private, no-cache, no-store, max-age=0,
-  // must-revalidate` (next/dist/build/templates/app-page.js), and `no-store`
-  // forbids exactly that reuse; verified against `next build && next start`.
-  // Do not "fix" this with a Cache-Control header here: Next overwrites the
-  // header on its own page responses, and a next.config.ts `headers()` entry
-  // REPLACES the stronger production header with a weaker one (it drops
-  // `private`, which is what keeps a shared proxy from storing an
-  // authenticated page). See bug B6 in the 2026-08-01 QA log B.
+  // Back-after-signout can replay a cached page in `next dev` only; production
+  // sends `no-store`. Do NOT add a Cache-Control header — it weakens that.
   return supabaseResponse;
 }

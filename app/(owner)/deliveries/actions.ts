@@ -43,11 +43,8 @@ export async function deliverStock(input: unknown): Promise<ActionResult> {
   return { ok: true, id: data as string };
 }
 
-/**
- * Resolve a shortfall that's still sitting in transit — OWNER ONLY.
- * Either it's found (back to master) or it's gone (transit write-off, which
- * reports keep separate from a shop loss and from a return).
- */
+/** Resolve a shortfall still in transit — OWNER ONLY. Found (back to master) or
+ *  gone (transit write-off, kept separate from a shop loss and a return). */
 export async function resolveDeliveryDiscrepancy(input: unknown): Promise<ActionResult> {
   const parsed = z
     .object({
@@ -74,10 +71,8 @@ export async function resolveDeliveryDiscrepancy(input: unknown): Promise<Action
   return { ok: true };
 }
 
-/**
- * Approve or reject a shop-to-shop transfer — OWNER ONLY. Approve debits the
- * source shop into transit; reject requires a note the source shop will see.
- */
+/** Approve or reject a shop-to-shop transfer — OWNER ONLY. Approve debits the
+ *  source into transit; reject requires a note the source shop sees. */
 export async function approveTransfer(
   deliveryId: string,
   action: "approve" | "reject",
@@ -107,11 +102,8 @@ export async function approveTransfer(
   return { ok: true };
 }
 
-/**
- * Approve or reject a shop's RETURN request (0065). Approve lands good units
- * back in master + books damaged as an approved loss at cost; reject needs a
- * note. No transit step — the owner is the receiver.
- */
+/** Approve lands good units back in master and books damaged as a loss at cost;
+ *  reject needs a note. No transit step — the owner is the receiver. */
 export async function reviewReturn(
   returnId: string,
   action: "approve" | "reject",

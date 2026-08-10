@@ -1,9 +1,7 @@
 import { SectionTabs } from "@/components/shell/section-tabs";
 
-// Master Inventory is view + edit only — products land here because a
-// supplier delivered them. Receiving moved to /suppliers?tab=receiving (it's
-// a supplier transaction); Bulk Add was retired by 0048. Both old routes
-// redirect.
+// View + edit only — products land here because a supplier delivered them.
+// Receiving moved to /suppliers?tab=receiving; Bulk Add was retired by 0048.
 const tabs = [
   { href: "/master-inventory", label: "Products" },
   { href: "/master-inventory/categories", label: "Category" },

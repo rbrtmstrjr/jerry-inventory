@@ -14,18 +14,8 @@ const TABS: { value: QueueTab; label: string }[] = [
   { value: "expenses", label: "Expenses" },
 ];
 
-/**
- * `?tab=` links, matching /movements and /reports. Each tab is a DIFFERENT
- * server query — the type tabs fetch only their own rows, "All" builds the
- * per-shop batches from every type — so they are links, not client state:
- * switching a tab renders only that tab's data, never all of them at once.
- *
- * `counts` is OPTIONAL: the count of items awaiting a decision per tab needs a
- * DB read, so the page renders this bar first WITHOUT counts (instant labels)
- * and streams a second copy WITH counts into a `<Suspense>` — the badges appear
- * a beat later without ever suspending the shell on I/O (which would fall back
- * to the whole-segment loader, heading and tabs included).
- */
+/** Links, not client state, so switching renders only that tab's data. `counts`
+ *  is optional: the bar paints without it and the badges stream in after. */
 export function ApprovalTabs({
   active,
   counts,

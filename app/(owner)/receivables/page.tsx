@@ -23,12 +23,8 @@ function resolveTab(t?: string): ReceivableTab {
   return t === "paid" ? "paid" : "open";
 }
 
-/**
- * `?tab=` picks Open (balance > 0) or Fully paid (balance ≤ 0). The shell does
- * NO DB work — heading + tab labels paint instantly. The outstanding summary,
- * the tab count badges, and the ACTIVE tab's list each stream behind their own
- * `<Suspense>`; the parent never fetches both tabs' rows for the client to split.
- */
+/** `?tab=` picks Open or Fully paid. The shell does no DB work; the summary,
+ *  badges and active list each stream behind their own <Suspense>. */
 export default async function OwnerReceivablesPage({
   searchParams,
 }: {

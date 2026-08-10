@@ -12,26 +12,8 @@ const CHANNEL_LABEL: Record<string, string> = {
   sms: "SMS",
 };
 
-/**
- * Channel status — deliberately READ-ONLY.
- *
- * The spec allowed a toggle. Neither channel has one, and both omissions are
- * the point:
- *
- *  • SMS has no provider wired. `sms` is seeded disabled and there is no worker
- *    draining its dispatches. A switch that enables it would queue rows nothing
- *    ever sends, which is worse than no switch — the alerts would look
- *    delivered and silently go nowhere.
- *
- *  • in_app is the ONLY working channel. A switch to turn it off is a switch
- *    that turns off every alert this business runs on — low stock, overdue
- *    suppliers, expiring warranties — with no second channel to catch the fall.
- *
- * The row that matters here is `notifications` itself, which is
- * channel-independent; `fn_notify` fans out a dispatch per enabled channel. So
- * adding SMS later is "wire a provider, enable the channel, drain pending
- * dispatches" — no schema change, and this panel starts reporting it for free.
- */
+/** READ-ONLY by design: SMS has no provider, so enabling it would queue rows
+ *  nothing sends, and in_app is the only channel every alert depends on. */
 export function NotificationsSection({
   channels,
   pendingCounts,

@@ -8,14 +8,8 @@ import { SukiCardsView, type CardRow } from "./suki-cards-view";
 
 export const metadata: Metadata = { title: "Suki Cards" };
 
-/**
- * Suki discount cards — the physical cards are printed by a separate system;
- * here the owner records each card's barcode number against a customer, and a
- * shop scans it at Record Sale so the engine/part percentages apply
- * automatically. Rates are Settings dials (Settings → Alerts).
- *
- * Shell: the heading paints instantly; the card table streams behind a skeleton.
- */
+/** Cards are printed externally; this records each barcode against a customer
+ *  so Record Sale can apply the rates. Rates are Settings dials. */
 export default function SukiCardsPage() {
   return (
     <div className="flex flex-col gap-4">

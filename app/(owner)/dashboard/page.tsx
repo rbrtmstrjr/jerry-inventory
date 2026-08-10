@@ -40,13 +40,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-/**
- * The dashboard streams. The shell + section skeletons render instantly; each
- * card group is an async component in its own <Suspense>, so the fast KPIs paint
- * in one round-trip while the heavier P&L fills a moment later — the page is
- * never blocked on its slowest query. Numbers come from lib/dashboard.ts (SQL
- * aggregates via 0074, with a direct-query fallback).
- */
+/** Each card group is an async component in its own <Suspense>, so the page is
+ *  never blocked on its slowest query. Numbers from lib/dashboard.ts. */
 export default async function OwnerDashboardPage() {
   const today = ph_today();
   const monthStart = `${today.slice(0, 7)}-01`;
@@ -392,8 +387,8 @@ async function PnlCard({
 }
 
 // ── admin's replacement for the P&L card: the working queue, counts only ─────
-// Same visual language as the Top-products card next to it: a highlighted
-// hero tile (the total) above an accented tile per queue — not sparse rows.
+// Same visual language as the Top-products card beside it: a hero tile for the
+// total above an accented tile per queue.
 async function WorkQueueCard() {
   const supabase = await createClient();
   const [claims, requests, returns] = await Promise.all([

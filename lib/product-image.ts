@@ -1,8 +1,5 @@
-/**
- * Product image helpers.
- * The DB stores only the object path within the `product-images` bucket
- * (e.g. "3f2a….webp") — never bytes, never full URLs.
- */
+/** The DB stores only the object path within the `product-images` bucket
+ *  (e.g. "3f2a….webp") — never bytes, never full URLs. */
 
 export const PRODUCT_IMAGE_BUCKET = "product-images";
 
@@ -25,12 +22,8 @@ const MAX_EDGE = 800;
 const WEBP_QUALITY = 0.8;
 const MAX_INPUT_BYTES = 10 * 1024 * 1024; // 10MB pre-compression cap
 
-/**
- * Browser-side pipeline: validate → decode → resize (longest edge ≤ 800px,
- * never upscale) → re-encode as WebP (~40KB). Throws Error with a
- * user-readable message on invalid input (wrong type, too big, undecodable —
- * e.g. HEIC on browsers that can't read it).
- */
+/** Validate → decode → resize (longest edge ≤ 800px, never upscale) → WebP.
+ *  Throws a user-readable Error on wrong type, too big, or undecodable. */
 export async function processProductImage(file: File): Promise<ProcessedImage> {
   if (!file.type.startsWith("image/")) {
     throw new Error("That file is not an image — pick a JPG, PNG, or WebP.");

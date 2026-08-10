@@ -176,11 +176,8 @@ export function ShopDeliveriesView({
   );
 }
 
-/**
- * The shop's only actions: enter counts (good / damaged), note + photo the
- * damage, confirm. It still only RECORDS — good lands, damaged & missing go to
- * Admin to decide. Missing is computed (sent − good − damaged).
- */
+/** Counts, notes and a damage photo only — good lands, damaged and missing go
+ *  to Admin. Missing is computed as sent − good − damaged. */
 function ConfirmCard({
   delivery,
   lines,

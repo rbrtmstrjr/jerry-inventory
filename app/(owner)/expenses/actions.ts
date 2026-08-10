@@ -14,9 +14,7 @@ function revalidate() {
   revalidatePath("/approvals");
 }
 
-// ---------------------------------------------------------------------------
-// Expenses
-// ---------------------------------------------------------------------------
+// ── Expenses ────────────────────────────────────────────────────────────────
 /** Shop claims not yet approved belong to the approval flow, never edited here. */
 async function assertEditable(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -85,9 +83,8 @@ export async function upsertExpense(input: unknown): Promise<ActionResult> {
   return { ok: true, id: data.id };
 }
 
-/** Void (soft-delete) an expense — history stays queryable if ever needed.
- *  0105: Gerry-only (a void erases a money record + its receipt photo);
- *  the DB trigger re-checks, this just gives a sentence instead of an error. */
+/** Soft-delete an expense. Gerry-only (a void erases a money record and its
+ *  receipt photo); the DB trigger is the real gate, this just phrases it. */
 export async function voidExpense(id: string): Promise<ActionResult> {
   if (!(await isPrimaryOwner()))
     return { ok: false, error: "Only the owner can void an expense" };
@@ -135,9 +132,7 @@ export async function setExpenseReceipt(
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Categories
-// ---------------------------------------------------------------------------
+// ── Categories ─────────────────────────────────────────────────────────────
 const categorySchema = z.object({
   id: z.uuid().optional(),
   name: z.string().trim().min(1, "Name is required"),
@@ -172,9 +167,7 @@ export async function softDeleteExpenseCategory(id: string): Promise<ActionResul
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Shop-proposed categories (status='proposed') — owner-only direct updates
-// ---------------------------------------------------------------------------
+// ── Shop-proposed categories — owner-only direct updates ───────────────────
 
 /** Activate a proposal, optionally renaming it first ("Rename" = rename+approve). */
 export async function approveProposedCategory(

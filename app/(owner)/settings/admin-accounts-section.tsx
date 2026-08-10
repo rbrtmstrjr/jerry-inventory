@@ -46,14 +46,8 @@ export interface AdminAccountRow {
   last_sign_in_at: string | null;
 }
 
-/**
- * Admin accounts (0099) — the office logins Gerry hands out.
- *
- * An admin runs every daily operation but never sees Reports, Settings,
- * Shops & Employees, or Expense Reports. Deactivating one cuts app AND
- * database access on the spot (the profile's `active` flag feeds both);
- * deleting is only possible while the account has no recorded history.
- */
+/** Office logins Gerry hands out. Deactivating cuts app AND database access at
+ *  once; deleting works only while the account has no recorded history. */
 export function AdminAccountsSection({ admins }: { admins: AdminAccountRow[] }) {
   const [addOpen, setAddOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<AdminAccountRow | null>(null);
