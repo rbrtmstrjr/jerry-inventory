@@ -577,10 +577,8 @@ function NewModelDialog({
   );
 }
 
-/** Bulk-lines grid — many NEW products in one sitting (replaces the old Bulk
- *  Add page, but lands inside the receiving so nothing is supplier-less).
- *  Existing products go straight in the main grid; this is for the carton of
- *  brand-new items. Keyboard-first: Enter adds a row. */
+/** Bulk grid for many NEW products at once — inside the receiving, so nothing
+ *  is supplier-less. Keyboard-first: Enter adds a row. */
 function BulkNewProductsDialog({
   open,
   categories,
@@ -1162,10 +1160,8 @@ export function ReceivingView({
     }
     for (const l of engineLines) {
       const cost = parsePesosToCentavos(l.cost || "0");
-      // qty > 1 only reaches here for a non-serialized model; the RPC's own
-      // total (0129) multiplies per unit the same way inside its unit loop.
-      // No `|| 1` fallback: an explicit "0" must show as zero, not silently
-      // become one unit — onSubmit refuses "0" outright (see below).
+      // qty > 1 only for a non-serialized model; the RPC multiplies the same way.
+      // No `|| 1` fallback — an explicit "0" must read as zero, not one unit.
       const qty = serializedFor(l) ? 1 : parseInt(l.qty || "1", 10); // whole-unit-qty: engines are counted, not measured
       if (cost !== null) t += cost * qty;
     }
@@ -1173,11 +1169,8 @@ export function ReceivingView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partLines, engineLines, models]);
 
-  /**
-   * What actually lands on the supplier's tab. 'paid' adds nothing; 'partial'
-   * adds only the unpaid remainder. Mirrors fn_receive_stock's own maths so
-   * the warning the owner sees matches the one the RPC would raise.
-   */
+  /** What lands on the supplier's tab: 'paid' adds nothing, 'partial' only the
+   *  remainder. Mirrors fn_receive_stock so the warning matches the RPC. */
   const debtFromThis = React.useMemo(() => {
     if (!supplierId || paymentStatus === "paid") return 0;
     if (paymentStatus === "unpaid") return total;
@@ -1275,9 +1268,8 @@ export function ReceivingView({
         toast.error(`Engine line ${i + 1}: serial is required — one per unit`);
         return;
       }
-      // No `|| 1` fallback: a stray "0" (backspace typo) must be refused, not
-      // silently receive one unit — 0121/0119/0124 exist because of exactly
-      // this class of silently-wrong quantity.
+      // No `|| 1` fallback — a stray "0" must be refused, not silently receive
+      // one unit. That class of silently-wrong quantity is why 0119–0124 exist.
       const engQty = serialized ? 1 : parseInt(l.qty || "1", 10); // whole-unit-qty: engines are counted, not measured
       if (!serialized && (isNaN(engQty) || engQty < 1 || engQty > 500)) {
         toast.error(`Engine line ${i + 1}: qty must be between 1 and 500`);

@@ -48,20 +48,13 @@ export function ShopStockView({
   const lowStock = stock.filter((s) => s.qty <= s.reorder_level && s.reorder_level > 0);
   const [view, setView] = usePersistedView("jm-view-shop-stock");
   const [cardSearch, setCardSearch] = React.useState("");
-  // Separate from cardSearch on purpose: the two tabs search different things
-  // (item/barcode vs serial/model), so one box would carry a meaningless term
-  // across when the shop switches tab.
+  // Separate from cardSearch on purpose — the tabs search different things, so
+  // one box would carry a meaningless term across on switch.
   const [engineSearch, setEngineSearch] = React.useState("");
   const [photoTarget, setPhotoTarget] = React.useState<PhotoTarget | null>(null);
 
-  // The card grids render EVERY row. There was a scroll-reveal here (12 at a
-  // time behind an IntersectionObserver) and it was broken: a single
-  // visibleCount + a single sentinelRef were shared by both tab panels, so the
-  // ref pointed at whichever sentinel rendered last. The observer then watched
-  // an element the user wasn't looking at, nothing ever intersected, and the
-  // grid froze at 12 while the footer read "226 of 226 items". The page already
-  // fetches the whole (shop-scoped) list server-side, so revealing in pages
-  // bought nothing but that bug.
+  // The card grids render EVERY row deliberately — the page already fetches the
+  // whole shop-scoped list, so a scroll-reveal bought nothing but bugs.
   const q = cardSearch.trim().toLowerCase();
   const cardStock = q
     ? stock.filter(

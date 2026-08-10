@@ -7,13 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
-/**
- * Record a payment to a supplier. Owner-only (re-checked in the RPC).
- *
- * This is stock COST (COGS) — it must never also be logged in the Expenses
- * module, which is for fuel/labour/rent. Double-counting it there would
- * overstate expenses and understate margin.
- */
+/** Owner-only (re-checked in the RPC). This is stock COST (COGS) — never also
+ *  log it in Expenses, or margin is understated twice over. */
 export async function recordSupplierPayment(input: unknown): Promise<
   | { ok: true; allocations: { receiving_id: string; amount: number }[]; outstanding: number }
   | { ok: false; error: string }
@@ -78,11 +73,8 @@ export async function checkSupplierLimit(
   return { ok: true, data: data as Record<string, unknown> };
 }
 
-// ---------------------------------------------------------------------------
-// Receiving (atomic through fn_receive_stock) — moved here from
-// master-inventory: receiving is a supplier transaction. It picks a supplier,
-// creates supplier debt, checks their credit limit, and feeds payables.
-// ---------------------------------------------------------------------------
+// ── Receiving (atomic through fn_receive_stock) ─────────────────────────────
+// A supplier transaction: picks a supplier, creates debt, feeds payables.
 /** A product born on the receiving itself (0048) — catalog cost comes from the line. */
 const newPartSchema = z.object({
   name: z.string().trim().min(1, "New product needs a name"),
@@ -195,10 +187,8 @@ export async function receiveStock(
   }
   const receivingId = data as string;
 
-  // Which parts were BORN on this receiving? now() is fixed inside the RPC's
-  // transaction, so an inline-created part has created_at = the receiving's
-  // own created_at; pre-existing parts are strictly older. Drives the
-  // post-save "print labels for new products" action.
+  // Parts BORN on this receiving: now() is fixed inside the RPC transaction, so
+  // an inline-created part shares the receiving's created_at. Drives print-labels.
   let newPartIds: string[] = [];
   if (parsed.data.parts.some((l) => l.new_part)) {
     const { data: rcv } = await supabase

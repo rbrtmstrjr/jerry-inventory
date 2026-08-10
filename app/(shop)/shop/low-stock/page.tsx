@@ -44,9 +44,8 @@ async function ShopLowStockBody() {
   const [lowRes, reqRes] = await Promise.all([
     // shop-safe view: already scoped to the caller's shop, no cost columns
     supabase.from("shop_low_stock_safe").select("*").order("shortfall", { ascending: false }),
-    // The embed still resolves names when 0081 isn't applied yet (fallback):
-    // parts/engine_models are owner-only so it reads null under RLS, but it
-    // keeps the pre-0081 behaviour rather than blanking the list.
+    // Fallback for when 0081 isn't applied: the embed reads null under RLS but
+    // keeps the old behaviour rather than blanking the list.
     supabase
       .from("delivery_requests")
       .select(
@@ -57,11 +56,8 @@ async function ShopLowStockBody() {
       .limit(20),
   ]);
 
-  // Line names come from the shop-safe view (0081): parts/engine_models are
-  // owner-only, so the embed above returns null names and every catalog item
-  // renders as "New product". shop_delivery_request_lines resolves the name for
-  // the shop (scoped to its own requests). If the view isn't present yet, the
-  // embed above is used as a fallback — never worse than before.
+  // Names come from the shop-safe view — parts/engine_models are owner-only, so
+  // the embed returns null and every catalog item reads as "New product".
   const reqIds = (reqRes.data ?? []).map((r) => r.id);
   const lineRes = reqIds.length
     ? await supabase

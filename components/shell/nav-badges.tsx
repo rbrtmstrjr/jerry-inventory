@@ -7,18 +7,8 @@ import { getOwnerCounts } from "@/components/shell/badge-counts";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-/**
- * Sidebar count badges (owner nav) — the same "needs your attention" hint the
- * Approval Queue has, extended to the other action pages.
- *
- * Each badge loads a count, then keeps it fresh two ways: a realtime
- * subscription on the tables that feed it (for tables in the realtime
- * publication — sales, losses, deliveries, delivery_requests, utang_payments,
- * notifications) and a reload whenever the tab regains focus (the safety net
- * for counts that derive from tables NOT in the publication, e.g. stock levels).
- *
- * All are owner-only surfaces; RLS on the owner's session returns every shop.
- */
+/** Sidebar "needs your attention" counts. Each stays fresh via a realtime
+ *  subscription plus a refresh on tab focus (for non-realtime feeder tables). */
 
 type Loader = (sb: SupabaseClient) => Promise<number>;
 
@@ -31,12 +21,8 @@ function useNavCount(
   // paint (no slow pop-in), then keep it live via realtime + focus refresh.
   const [count, setCount] = React.useState<number | null>(initialCount ?? null);
 
-  // Per-INSTANCE channel topic. supabase.channel(topic) hands back the EXISTING
-  // channel when the topic is already taken, and adding a postgres_changes
-  // callback to an already-subscribed channel throws. The nav renders twice on
-  // mobile — the desktop aside is `hidden md:flex` (hidden, still mounted) and
-  // the burger sheet mounts a second copy — so a shared topic crashed the page
-  // the moment the sheet opened. useId is unique per component instance.
+  // Per-INSTANCE topic: the nav mounts twice on mobile, and re-subscribing a
+  // shared channel throws. useId is unique per component instance.
   const instanceId = React.useId();
 
   React.useEffect(() => {
@@ -97,11 +83,8 @@ function CountBadge({ count, active }: { count: number | null; active?: boolean 
 }
 
 // ── Deliveries & Returns ────────────────────────────────────────────────────
-// What the OWNER must act on HERE: transit discrepancies to resolve + shop-to-
-// shop transfers awaiting approval. Shop stock-requests moved to Stock Alerts.
-// Regular in-transit deliveries wait on the SHOP to confirm, so they don't
-// count; `status in ('requested','discrepancy')` catches transfer requests +
-// every discrepancy (delivery or transfer), never plain in-transit.
+// Discrepancies to resolve + transfers awaiting approval. Plain in-transit
+// waits on the SHOP to confirm, so it is excluded.
 const DELIVERIES_TABLES = ["deliveries", "returns"] as const;
 async function loadDeliveries(sb: SupabaseClient) {
   return (await getOwnerCounts(sb)).deliveries;
@@ -111,10 +94,8 @@ export function DeliveriesBadge({ active, initialCount }: { active?: boolean; in
 }
 
 // ── Stock Alerts ────────────────────────────────────────────────────────────
-// Every item at/below its reorder threshold — master (buy) + all shops
-// (deliver) — PLUS open shop stock-requests (moved here from Deliveries). Low-
-// stock derives from stock levels (not realtime), so this rides notifications +
-// focus refresh; delivery_requests IS realtime, so new requests bump it live.
+// Every low item (master + all shops) plus open shop stock-requests. Low stock
+// isn't realtime, so it rides notifications + the focus refresh.
 const STOCK_TABLES = ["notifications", "delivery_requests"] as const;
 async function loadStockAlerts(sb: SupabaseClient) {
   return (await getOwnerCounts(sb)).stock_alerts;
@@ -146,11 +127,8 @@ export function WarrantiesBadge({ active, initialCount }: { active?: boolean; in
 }
 
 // ── Suppliers (Payables) ────────────────────────────────────────────────────
-// What the OWNER must act on: supplier debt that is PAST its due date. Counts
-// overdue receivings (open balance, due date passed) — the same red rows the
-// Payables tab highlights. "Overdue" is a date-based state that no table event
-// fires for, so this leans on the focus/visibility refresh plus the daily
-// overdue cron (which raises a notification → realtime bump).
+// Overdue supplier debt only — a badge lit by any credit purchase is noise.
+// Date-based, so it leans on the focus refresh + the daily overdue cron.
 const SUPPLIERS_TABLES = ["receivings", "supplier_payments", "notifications"] as const;
 async function loadOverduePayables(sb: SupabaseClient) {
   return (await getOwnerCounts(sb)).suppliers;
@@ -160,11 +138,8 @@ export function SuppliersBadge({ active, initialCount }: { active?: boolean; ini
 }
 
 // ── Birthdays (Dashboard) ───────────────────────────────────────────────────
-// Staff whose birthday is TODAY (PH month-day, from staff_birthdays_today / 0079)
-// — the celebrant card lives on the Dashboard. Date-based, so no table event
-// fires: it rides the focus/visibility refresh (plus a staff edit if `staff` is
-// in the realtime publication). Missing view (migration not applied) → the count
-// query errors → useNavCount keeps null → no badge, so it degrades gracefully.
+// Staff whose birthday is today (PH month-day). Date-based, so it rides the
+// focus refresh; a missing view leaves the count null and shows no badge.
 const BIRTHDAY_TABLES = ["staff"] as const;
 async function loadBirthdays(sb: SupabaseClient) {
   const { count } = await sb
@@ -176,11 +151,8 @@ export function BirthdayBadge({ active, initialCount }: { active?: boolean; init
   return <CountBadge count={useNavCount(loadBirthdays, BIRTHDAY_TABLES, initialCount)} active={active} />;
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Shop (employee) badges. The safe views are already RLS-scoped to the caller's
-// own shop, so a plain count is shop-specific. These render only in an employee
-// session (attached to the employee nav), never for the owner.
-// ────────────────────────────────────────────────────────────────────────────
+// ── Shop (employee) badges ──────────────────────────────────────────────────
+// The safe views are RLS-scoped, so a plain count is already shop-specific.
 
 // Incoming Deliveries — stock on the way this shop must COUNT + CONFIRM. Matches
 // the "To confirm" tab exactly: in-transit deliveries not yet confirmed.
@@ -196,9 +168,8 @@ export function ShopDeliveriesBadge({ active, initialCount }: { active?: boolean
   return <CountBadge count={useNavCount(loadShopIncoming, SHOP_DELIVERIES_TABLES, initialCount)} active={active} />;
 }
 
-// Low Stock — this shop's items at/below their effective reorder threshold.
-// Derives from stock levels (not in the realtime publication), so it rides the
-// notification bumps + the focus/visibility refresh.
+// Low Stock — this shop's items at/below their effective threshold. Not
+// realtime, so it rides notification bumps + the focus refresh.
 const SHOP_LOW_TABLES = ["notifications"] as const;
 async function loadShopLowStock(sb: SupabaseClient) {
   const { count } = await sb

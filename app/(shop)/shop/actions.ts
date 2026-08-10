@@ -79,11 +79,8 @@ export interface SukiCardInfo {
   part_pct: number;
 }
 
-/**
- * Resolve a scanned suki card. Goes through the guarded definer
- * fn_lookup_discount_card — the shop's ONLY window into cards: the customer +
- * the two live percentages, nothing else. Unknown/inactive → not found.
- */
+/** Resolve a scanned suki card. The shop's only window into cards — customer +
+ *  the two live percentages, nothing else. Unknown/inactive → not found. */
 export async function lookupDiscountCard(
   cardNo: unknown
 ): Promise<{ ok: true; card: SukiCardInfo } | { ok: false; error: string }> {
@@ -132,11 +129,8 @@ export async function recordLoss(input: unknown): Promise<ActionResult> {
   return { ok: true, id: data as string };
 }
 
-/**
- * Record a payment against an utang balance. It POSTS IMMEDIATELY — the money
- * is already owed, so collecting it isn't an approval decision. The balance
- * drops at once, Admin is alerted, and it stays in the payment history.
- */
+/** Posts IMMEDIATELY — collecting money already owed isn't an approval decision.
+ *  The balance drops at once and Admin is alerted. */
 export async function recordUtangPayment(input: unknown): Promise<ActionResult> {
   const parsed = z
     .object({
@@ -166,9 +160,8 @@ export async function recordUtangPayment(input: unknown): Promise<ActionResult> 
   return { ok: true, id: data as string };
 }
 
-// 0101: voiding a posted payment moved to the OWNER alone — the shop records
-// money in, never erases the record. The old voidUtangPayment action left
-// with its button; fn_void_utang_payment's guard is the real gate.
+// 0101: voiding a posted payment is the owner's alone — the shop records money
+// in, never erases the record. fn_void_utang_payment's guard is the real gate.
 
 const shopExpenseSchema = z
   .object({
@@ -219,11 +212,8 @@ export async function recordShopExpense(input: unknown): Promise<ActionResult> {
   return { ok: true, id: data as string };
 }
 
-/**
- * Send everything the shop has recorded (sales + losses + expenses) to the
- * owner's approval queue in one batch — at the employee's chosen moment.
- * Utang payments are NOT part of this: they post on record.
- */
+/** Send every recorded sale, loss and expense to the approval queue as one
+ *  batch. Utang payments are not part of it — they post on record. */
 export async function submitShopBatch(): Promise<
   | { ok: true; sales: number; losses: number; expenses: number }
   | { ok: false; error: string }
@@ -243,11 +233,8 @@ export async function submitShopBatch(): Promise<
   };
 }
 
-/**
- * Confirm what physically arrived. The shop can ONLY enter counts and notes —
- * anything short simply stays in transit for the owner to decide on. There is
- * deliberately no reject/return/write-off path here.
- */
+/** Counts and notes only — a shortfall stays in transit for the owner. There is
+ *  deliberately no shop-callable reject/return/write-off path. */
 export async function confirmDelivery(input: unknown): Promise<
   | { ok: true; landed: number; damaged: number; missing: number; short: number }
   | { ok: false; error: string }
@@ -285,11 +272,8 @@ export async function confirmDelivery(input: unknown): Promise<
   return { ok: true, landed: res.landed, damaged: res.damaged, missing: res.missing, short: res.short };
 }
 
-/**
- * Ask the owner to deliver stock. This is a REQUEST — it never touches stock
- * and never enters the sales approval queue; the owner converts it into a
- * real delivery through the existing flow.
- */
+/** A REQUEST — touches no stock and never enters the sales approval queue. The
+ *  owner converts it into a real delivery. */
 export async function createDeliveryRequest(input: unknown): Promise<ActionResult> {
   const parsed = z
     .object({
@@ -352,11 +336,8 @@ const transferSchema = z.object({
   note: z.string().trim().max(2000).optional().nullable(),
 });
 
-/**
- * Request a stock transfer to another shop. This is a REQUEST — it moves no
- * stock; the owner approves it, then the destination confirms arrival exactly
- * like a master delivery. The RPC enforces destination ≠ own shop and on-hand.
- */
+/** A REQUEST — moves no stock. The owner approves, then the destination confirms
+ *  arrival like any delivery. The RPC enforces destination ≠ own shop. */
 export async function requestTransfer(input: unknown): Promise<ActionResult> {
   const parsed = transferSchema.safeParse(input);
   if (!parsed.success) {
@@ -414,11 +395,8 @@ const returnSchema = z.object({
   message: "Add at least one item to return",
 });
 
-/**
- * Request a return to Admin (this shop's stock → master). A REQUEST — moves no
- * stock; the owner approves it, which lands good units back in master and books
- * damaged as a loss. The shop picks the reason + marks damaged here.
- */
+/** A REQUEST — moves no stock. On approval good units land back in master and
+ *  damaged ones book as a loss at cost. */
 export async function requestReturn(input: unknown): Promise<ActionResult> {
   const parsed = returnSchema.safeParse(input);
   if (!parsed.success) {
@@ -450,10 +428,8 @@ export async function cancelReturn(returnId: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-/**
- * Set/clear a product photo for an item in the employee's OWN shop.
- * The DB function enforces the shop scope and locks the path to {id}.webp.
- */
+/** Set/clear a product photo in the employee's OWN shop. The DB function
+ *  enforces the shop scope and locks the path to {id}.webp. */
 export async function setShopProductImage(input: unknown): Promise<ActionResult> {
   const parsed = z
     .object({

@@ -1,9 +1,5 @@
-/**
- * Shop identity palette — the KEYS only. The actual colors are design tokens
- * in app/theme.css (--shop-<key> / --shop-<key>-strong, light + dark pairs);
- * components never see a hex. Must stay in sync with the shops.color_key
- * CHECK constraint (0050).
- */
+/** Shop palette KEYS only — the colors are tokens in app/theme.css and no
+ *  component sees a hex. Must match the shops.color_key CHECK. */
 export const SHOP_COLOR_KEYS = [
   "slate",
   "teal",
@@ -23,10 +19,8 @@ export function isShopColorKey(v: string | null | undefined): v is ShopColorKey 
   return !!v && (SHOP_COLOR_KEYS as readonly string[]).includes(v);
 }
 
-/**
- * Resolve a key to its CSS custom properties. An unknown/null key gets the
- * neutral fallback — nothing breaks without a color.
- */
+/** Resolve a key to its CSS custom properties; an unknown or null key gets the
+ *  neutral fallback. */
 export function shopColorVars(key: string | null | undefined): {
   soft: string;
   strong: string;

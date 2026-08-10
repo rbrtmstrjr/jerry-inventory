@@ -63,9 +63,8 @@ async function ExpenseReportsBody({
     return q;
   };
 
-  // All three cross-module sums are paginated (fetchAll) — a date range wide
-  // enough to matter outgrows the 1,000-row cap, which silently understated
-  // every per-shop total on this report.
+  // All three cross-module sums are paged — any range wide enough to matter
+  // outgrows the 1,000-row cap and silently understates every shop total.
   const [allExpenses, shopsRes, allSales, allLosses] = await Promise.all([
     fetchAll(buildExpenses, "id"),
     supabase.from("shops").select("id, name, color_key").is("deleted_at", null).order("name"),

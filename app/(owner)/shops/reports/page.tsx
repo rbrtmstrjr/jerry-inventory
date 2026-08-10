@@ -1,11 +1,7 @@
 import { redirect } from "next/navigation";
 
-/**
- * Per-shop profitability moved to /reports?tab=shops — it's financial
- * reporting sharing lib/pnl.ts with the P&L, not shop management. This stub
- * keeps old bookmarks alive and carries the query along, so a saved
- * "/shops/reports?shop=X" link still lands on the same branch's numbers.
- */
+/** Moved to /reports?tab=shops. This stub keeps old bookmarks alive and carries
+ *  the query string, so ?shop=X still lands on the same branch. */
 export default async function ShopReportsMovedStub({
   searchParams,
 }: {

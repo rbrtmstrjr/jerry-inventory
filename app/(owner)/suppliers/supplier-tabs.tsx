@@ -14,12 +14,8 @@ const TABS = [
   { value: "payables", label: "Payables" },
 ] as const;
 
-/**
- * Overdue supplier debt — the same count the sidebar Suppliers badge shows, but
- * surfaced on the Payables tab where the action actually lives. One-shot fetch
- * on mount + a focus refresh (overdue is a date-based state; recording a payment
- * revalidates the page, which remounts this and refetches).
- */
+/** The sidebar's overdue count, surfaced where the Pay action lives. Fetched on
+ *  mount plus a focus refresh, since overdue is a date-based state. */
 function useOverdueCount() {
   const [count, setCount] = React.useState<number | null>(null);
   React.useEffect(() => {

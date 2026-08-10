@@ -73,11 +73,8 @@ const STATUS: Record<ShopReturn["status"], { label: string; variant: "secondary"
   cancelled: { label: "Cancelled", variant: "outline" },
 };
 
-/**
- * Shop → Admin returns. The shop requests a return of its own stock; Admin
- * approves (good → master, damaged → a loss at cost) or rejects. Mirrors the
- * transfer request flow — no stock moves until Admin approves.
- */
+/** Shop → Admin returns. Mirrors the transfer request flow: no stock moves
+ *  until Admin approves (good → master, damaged → a loss at cost). */
 export function ShopReturnsPanel({
   stock,
   engines,

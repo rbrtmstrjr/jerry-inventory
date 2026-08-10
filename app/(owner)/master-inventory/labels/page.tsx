@@ -8,10 +8,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "Print Labels" };
 
-/**
- * The tab bar (in the layout) stays instant; only the picker + preview stream
- * in behind a matching skeleton — consistent with the Products tab.
- */
+/** The layout's tab bar stays instant; only the picker and preview stream in
+ *  behind a matching skeleton. */
 export default function LabelsPage({
   searchParams,
 }: {

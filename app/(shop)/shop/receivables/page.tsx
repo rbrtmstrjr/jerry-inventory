@@ -49,9 +49,8 @@ async function ShopReceivablesBody() {
   const supabase = await createClient();
 
   const [rows, paymentsRes] = await Promise.all([
-    // shop_receivables is already scoped to the caller's shop. Paginated by
-    // sale_id and fail-loud, same as the owner page — one busy shop can still
-    // outgrow PostgREST's 1,000-row cap.
+    // Already scoped to the caller's shop, but paged by sale_id anyway — one
+    // busy shop still outgrows the 1,000-row cap.
     fetchAll<ReceivableRow>(() => supabase.from("shop_receivables").select("*"), "sale_id"),
     // full history: posted + voided (voided rows are soft-deleted)
     supabase

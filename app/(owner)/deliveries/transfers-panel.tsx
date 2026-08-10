@@ -102,12 +102,8 @@ function SlipLink({ id }: { id: string }) {
   );
 }
 
-/**
- * Shop-to-shop transfers. Distinct from Requests (shops asking master for
- * stock): here one shop sends to another and the owner approves the debit,
- * confirms nothing (the destination does), and resolves any shortfall — a
- * transfer shortfall can go back to the SOURCE shop, never to master.
- */
+/** Shop-to-shop transfers: the owner approves the debit, the destination
+ *  confirms, and a shortfall returns to the SOURCE shop, never to master. */
 export function TransfersPanel({
   transfers,
   returns = [],
@@ -530,10 +526,8 @@ export function TransfersPanel({
   );
 }
 
-/**
- * Resolve a transfer shortfall — mirrors transit-panel's ResolveDialog, but a
- * transfer's stock left a SOURCE SHOP, so it returns there, never to master.
- */
+/** Mirrors transit-panel's ResolveDialog, but a transfer's stock left a SOURCE
+ *  SHOP, so it returns there rather than to master. */
 function ResolveTransferDialog({
   target,
   onClose,

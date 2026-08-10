@@ -146,10 +146,8 @@ export function PartFormDialog({
       return;
     }
 
-    // Image: upload/remove the Storage object (owner-only via Storage RLS),
-    // then persist the path. Versioned names ({partId}-<ts>.webp) give every
-    // replace a fresh URL so no browser/CDN cache shows the old photo; the
-    // previous object is deleted after the swap.
+    // Versioned names ({partId}-<ts>.webp) give every replace a fresh URL, so no
+    // cache serves the old photo. The previous object is deleted after the swap.
     const partId = part?.id ?? res.id;
     if (partId && imageAction.type !== "keep") {
       const supabase = createClient();

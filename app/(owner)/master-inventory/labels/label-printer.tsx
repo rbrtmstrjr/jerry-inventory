@@ -193,8 +193,7 @@ export function LabelPrinter({
                       value={copies[p.id] ?? 1}
                       onChange={(e) => {
                         // Clamp to 1–20: `max` alone doesn't stop typing, and a
-                        // huge count renders thousands of barcode previews and
-                        // freezes the browser.
+                        // huge count renders enough previews to freeze the tab.
                         const raw = parseInt(e.target.value, 10);
                         const n = Number.isNaN(raw)
                           ? 1

@@ -46,10 +46,8 @@ type StatusBadge = {
 
 const STATUS_BADGE: Record<EngineRow["status"], StatusBadge> = {
   in_master: { label: "In master", variant: "secondary" },
-  // 0027. Stock sent toward a shop and not yet confirmed — an ordinary state,
-  // and the one that was missing: `STATUS_BADGE[status].variant` on an
-  // in-transit engine threw and took the whole Engines tab to the error
-  // boundary for every role.
+  // Sent toward a shop, not yet confirmed. Missing this key once took the whole
+  // Engines tab to the error boundary.
   in_transit: { label: "In transit", variant: "secondary" },
   delivered: { label: "At shop", variant: "default" },
   sold: { label: "Sold", variant: "outline" },
@@ -59,11 +57,8 @@ const STATUS_BADGE: Record<EngineRow["status"], StatusBadge> = {
   defective: { label: "Defective", variant: "destructive" },
 };
 
-/** Never index STATUS_BADGE directly.
- *
- *  The map is keyed on EngineRow["status"], so tsc will now force it to cover
- *  every enum value — but a migration can add one before this file is updated,
- *  and a missing key must degrade to a readable badge, not crash the page. */
+/** Never index STATUS_BADGE directly — a migration can add an enum value before
+ *  this file catches up, and a missing key must degrade, not crash. */
 function statusBadge(status: string): StatusBadge {
   return (
     STATUS_BADGE[status as EngineRow["status"]] ?? {

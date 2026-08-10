@@ -98,9 +98,8 @@ export interface PendingLoss {
   shop_color_key: string | null;
   employee: string;
   status: "pending" | "questioned";
-  // the full `loss_reason` enum — 0069 added 'warranty' for claim replacements.
-  // Typing only the original five made REASON_LABEL look exhaustive to tsc while
-  // the database could hand it a sixth (the same shape as bugs #17 and B13).
+  // The FULL loss_reason enum — a narrower type makes this map look exhaustive
+  // to tsc while the database can still hand it a value with no key.
   reason: "nasira" | "nawala" | "expired" | "sample" | "correction" | "warranty";
   qty: number;
   note: string | null;
@@ -192,17 +191,8 @@ export function ApprovalsView({
 }) {
   const router = useRouter();
 
-  // ── One ordering rule for the whole queue: NEWEST SUBMISSION FIRST ────────
-  //
-  // The server fetches each type by `created_at` (when the shop rang the sale
-  // up). With ten branches submitting all day those interleave into noise on
-  // the type tabs: a sale recorded at 5pm by a shop that has not submitted yet
-  // outranks a batch that landed on Admin's desk at 7pm. Admin works through
-  // SUBMISSIONS, so submission time is the sort key everywhere — the batch
-  // cards on "All" and the flat lists on Sales / Losses / Expenses alike.
-  //
-  // Ties (everything inside one batch) fall back to record time, newest first,
-  // so a batch still reads top-to-bottom in the order the shop rang it up.
+  // One rule for every list: NEWEST SUBMISSION FIRST, since Admin works through
+  // submissions. Ties fall back to record time so a batch reads in ring-up order.
   const bySubmittedThenRecorded = React.useCallback(
     (
       a: { batch_submitted_at: string | null; created_at: string },
@@ -237,10 +227,8 @@ export function ApprovalsView({
   const [viewingReceipt, setViewingReceipt] =
     React.useState<PendingExpense | null>(null);
 
-  // Near-live queue: refresh when any submission changes. Shops record as
-  // 'recorded' first (invisible here) and batch-submit later, so only an
-  // UPDATE landing on 'pending' means new work for the owner. One batch can
-  // flip many rows at once — the toast shares the refresh debounce window.
+  // Only an UPDATE landing on 'pending' is new work — 'recorded' rows are the
+  // shop's invisible draft. One batch flips many rows, so the toast is debounced.
   React.useEffect(() => {
     const supabase = createClient();
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -345,21 +333,14 @@ export function ApprovalsView({
     for (const e of expenses) {
       groupFor(e.batch_id, e.shop_name, e.shop_color_key, e.batch_submitted_at).expenses.push(e);
     }
-    // Newest submission first. This was arrival order (FIFO) until a shop
-    // reported "I submitted a sale and it never showed up" — it had, as batch
-    // #96 of 96, while the page reveals 5 at a time from the oldest end. FIFO
-    // is only readable when the queue is a day's work; the moment Admin falls
-    // behind, the thing a shop is waiting on is the thing furthest from view.
-    // Same instant-based rule as the type tabs above — never localeCompare on
-    // a timestamp: PostgREST can return a different UTC offset per row and
-    // "+08:00" sorts wrong against "+00:00" as text.
+    // Newest first — FIFO buries what a shop is waiting on once Admin falls
+    // behind. Compare as INSTANTS: PostgREST offsets vary per row.
     const t = (v: string | null) => (v ? Date.parse(v) : 0);
     return [...map.values()].sort((a, b) => t(b.submittedAt) - t(a.submittedAt));
   }, [sales, losses, expenses]);
 
-  // Scroll reveal for whichever tab is active. Only one list renders at a time
-  // and the body remounts on tab switch (Suspense key={tab}), so a single
-  // window resets per tab; a realtime refresh keeps it (no key change).
+  // One list renders at a time and the body remounts on tab switch, so a single
+  // reveal window resets per tab while a realtime refresh keeps it.
   const [visibleCount, setVisibleCount] = React.useState(APPROVAL_PAGE);
   const sentinelRef = React.useRef<HTMLDivElement | null>(null);
   const activeLen =

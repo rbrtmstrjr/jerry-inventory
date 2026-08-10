@@ -10,13 +10,8 @@ import { PrintButton } from "@/components/shell/print-button";
 
 export const metadata: Metadata = { title: "Stock Transfer Slip" };
 
-/**
- * Stock Transfer Slip — travels with the goods, signed on both ends. Outside
- * every role group (like /receipt): the party-scoped `transfer_slip` view is
- * the gate — a non-party (or anon) session reads no row → notFound(). Reads
- * public_settings for the letterhead (never owner-only settings, or a shop
- * would print a blank header).
- */
+/** Travels with the goods, signed both ends. Outside every role group — the
+ *  party-scoped `transfer_slip` view is the gate; a non-party gets notFound(). */
 export default async function TransferSlipPage({
   params,
 }: {

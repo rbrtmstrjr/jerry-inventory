@@ -12,12 +12,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata: Metadata = { title: "Master Inventory" };
 
-/**
- * Master Inventory streams: the tab bar (Parts / Engines) paints instantly and
- * each tab's table loads behind its own skeleton — the page is never blocked on
- * the catalog fetch, and only the DATA area shows a skeleton (not the whole
- * page). Parts and Engines fetch concurrently.
- */
+/** The tab bar paints instantly; each tab's table streams behind its own
+ *  skeleton, so the page is never blocked on the catalog fetch. */
 export default async function MasterInventoryPage({
   searchParams,
 }: {
@@ -39,10 +35,8 @@ export default async function MasterInventoryPage({
 
 type SP = Record<string, string | string[] | undefined>;
 
-/** Re-suspend key: everything EXCEPT `q`. Including the search term would
- *  remount the subtree on every debounced keystroke — destroying the search
- *  box (focus loss) and flashing the skeleton while you are still typing.
- *  Search instead re-renders in place behind the table's own pending state. */
+/** Re-suspend key: everything EXCEPT `q` — including it would remount the
+ *  subtree on every keystroke, stealing focus and flashing the skeleton. */
 function suspenseKey(sp: Record<string, string | string[] | undefined>) {
   return JSON.stringify(
     Object.entries(sp)
@@ -71,11 +65,8 @@ async function PartsPanel({ sp }: { sp: SP }) {
     )
     .is("deleted_at", null);
   if (params.q) {
-    // `or=` is a GRAMMAR, not a value: commas separate its conditions and
-    // parentheses group them. Interpolating the raw term made a search for a
-    // product named "Impeller (40HP)" return nothing, and one containing a
-    // comma raise PGRST100 — both surfaced as "Nothing matches" for a product
-    // that exists. Double-quote the value so it is parsed as a literal.
+    // `or=` is a GRAMMAR — commas and parens are syntax. Double-quote the term
+    // or "Impeller (40HP)" parses as conditions and matches nothing.
     const like = `%${params.q}%`;
     const v = `"${like.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
     partsQuery = partsQuery.or(`name.ilike.${v},sku.ilike.${v},barcode.ilike.${v}`);
@@ -146,9 +137,8 @@ async function PartsPanel({ sp }: { sp: SP }) {
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  // 0100: prices are encoded at entry; editing them afterward is Gerry-only.
-  // 0102: retiring/merging a product is Gerry-only too — one getProfile() call
-  // serves both flags.
+  // Editing prices after entry (0100) and retiring/merging (0102) are both
+  // Gerry-only — one getProfile() call serves both flags.
   const profile = await getProfile();
 
   return (
@@ -178,9 +168,8 @@ async function EnginesPanel({ sp }: { sp: SP }) {
   });
   const from = (params.page - 1) * params.pageSize;
 
-  // ONE page of serials from the flattened registry (0084) — searching serial
-  // OR model spans engines+engine_models, which the view already resolves into
-  // a single `search_text`. This used to load EVERY engine into the browser.
+  // ONE page from the flattened registry — searching serial OR model spans two
+  // tables, which the view already resolves into a single `search_text`.
   let enginesQuery = supabase
     .from("engine_registry")
     .select("*", { count: "exact" })

@@ -442,11 +442,8 @@ function TransferForm({
                           max={opt?.available}
                           value={l.qty}
                           onChange={(e) => {
-                            // Tenths only, hard-capped at what's actually available.
-                            // Keep the SANITISED STRING, never String(theNumber):
-                            // mid-keystroke "10." parses to 10 and re-stringifies
-                            // to "10", so the decimal point was erased as it was
-                            // typed and 10.5 could never be entered.
+                            // Tenths only, hard-capped at available. Keep the
+                            // string — String(n) eats a mid-keystroke ".".
                             const raw = sanitizeQtyInput(e.target.value);
                             if (raw === "") {
                               updateLine(i, { qty: "" });
@@ -458,10 +455,8 @@ function TransferForm({
                             });
                           }}
                           onBlur={() => {
-                            // `l.qty || "0"` parsed a BLANK field as 0, which is
-                            // neither NaN nor negative — so the normaliser never
-                            // fired and the box was left empty. onChange already
-                            // strips non-digits, so blank is the only case left.
+                            // A blank field parses to 0 — neither NaN nor
+                            // negative — so normalise it explicitly on blur.
                             const n = parseQtyInput(l.qty);
                             if (l.qty === "" || isNaN(n) || n < 0) {
                               updateLine(i, { qty: "0" });

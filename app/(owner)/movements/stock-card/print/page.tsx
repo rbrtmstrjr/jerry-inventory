@@ -16,14 +16,8 @@ const phDate = (iso: string) =>
     timeZone: "Asia/Manila", year: "numeric", month: "short", day: "2-digit",
   });
 
-/**
- * The filed ledger page: business header, one product at one location, opening
- * balance, every movement, closing balance, and a line to sign.
- *
- * Same shape as the delivery note / count sheet / warranty certificate — and
- * the same identity source (`public_settings` via getBusinessIdentity), so this
- * document carries the same letterhead as every other one.
- */
+/** The filed ledger page: one product at one location, opening → movements →
+ *  closing, with a signature line. Same letterhead as every other document. */
 export default async function StockCardPrintPage({
   searchParams,
 }: {

@@ -3,12 +3,8 @@
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
-/**
- * Read-only detail for one reviewed item. Nothing here mutates — the history
- * can never re-approve, reverse, or move stock.
- * Owner-only: every table read is owner-scoped by RLS, and /approvals lives in
- * the owner route group.
- */
+/** Read-only detail for one reviewed item — the history can never re-approve,
+ *  reverse, or move stock. Owner-scoped by RLS. */
 
 export interface MovementRow {
   movement_type: string;
@@ -143,11 +139,8 @@ function mapMovements(rows: any[], shopName: string): MovementRow[] {
   }));
 }
 
-/** PostgREST answers a `.single()` that matched nothing with PGRST116 and a
- *  driver-shaped message ("Cannot coerce the result to a single JSON object").
- *  Showing that to the owner leaks database internals for the ordinary case of
- *  a stale or mistyped deep link, and the `?? "Not found"` fallback never fired
- *  because `error.message` is always populated. Translate the miss. */
+/** A `.single()` that matches nothing returns PGRST116 with a driver-shaped
+ *  message. Translate it — a stale deep link shouldn't leak DB internals. */
 function detailError(error: { code?: string; message?: string } | null): string {
   if (!error) return "Not found";
   if (error.code === "PGRST116" || /coerce|rows returned/i.test(error.message ?? "")) {

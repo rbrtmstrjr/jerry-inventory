@@ -8,14 +8,8 @@ import { ResetForm } from "./reset-form";
 
 export const metadata: Metadata = { title: "Set a new password" };
 
-/**
- * Step 2 of recovery: /auth/callback has already exchanged the emailed code for
- * a session, so by the time we get here the user IS signed in — they just can't
- * remember the password. Setting one is all that's left.
- *
- * Outside every route group, so no owner/shop gate runs. Recovery has to work
- * for whoever holds the link.
- */
+/** Step 2 of recovery — /auth/callback already established the session, so only
+ *  setting the password is left. Outside every route group by design. */
 export default async function ResetPasswordPage() {
   const supabase = await createClient();
   const {

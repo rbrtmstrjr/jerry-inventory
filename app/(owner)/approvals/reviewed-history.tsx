@@ -88,12 +88,8 @@ export const STATUS_META: Record<
 };
 
 export function TypeBadge({ type }: { type: ReviewedItemRow["item_type"] }) {
-  // `type` comes from the ?item=<type>:<id> deep link, so it is user input, not
-  // a checked union. An unknown type used to throw on `m.icon` DURING RENDER —
-  // before any server call — and the nearest boundary is app/error.tsx, the
-  // ROOT one, so a mangled URL replaced the entire owner shell with "Something
-  // went wrong". Degrade instead, and let the server's own "Invalid item"
-  // response render in the sheet's error panel.
+  // `type` is user input from the deep link, not a checked union — an unknown
+  // value must degrade, not throw during render and blank the whole shell.
   const m = TYPE_META[type];
   if (!m) {
     return (

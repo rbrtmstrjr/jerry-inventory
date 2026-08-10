@@ -1,18 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/**
- * All six owner sidebar counts in ONE round-trip (fn_nav_badge_counts, 0074).
- *
- * The badges used to fire ~9 separate count queries — each its own round-trip,
- * trickling in over slow shop wifi. This batches them: every badge's loader
- * calls getOwnerCounts(), which is memoised for a short window so the mount
- * burst (6 badges at once) and each realtime-triggered refresh collapse into a
- * single RPC. Falls back to the individual count queries if 0074 isn't applied,
- * so behaviour degrades gracefully — never worse than before.
- *
- * Non-blocking: this runs client-side, so the shell still paints instantly; the
- * counts just arrive together a moment later instead of one at a time.
- */
+/** All six owner sidebar counts in ONE round-trip, memoised so the mount burst
+ *  collapses into a single RPC. Falls back to individual counts pre-0074. */
 
 export interface OwnerCounts {
   approvals: number;

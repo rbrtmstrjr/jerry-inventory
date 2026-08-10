@@ -34,9 +34,8 @@ async function ShopsBody() {
       .select("id, full_name, role, shop_id, active, shops(name)")
       .is("deleted_at", null)
       .order("full_name"),
-    // Paginated: one row per (part, shop) — 400 parts × N shops outgrows the
-    // 1,000-row cap, which was silently zeroing the units count for whichever
-    // shops fell past row 1,000.
+    // Paged: one row per (part, shop) outgrows the 1,000-row cap, which zeroed
+    // the units count for whichever shops fell past it.
     fetchAll<{ id: string; shop_id: string | null; qty: number }>(
       () => supabase.from("stock_levels").select("id, shop_id, qty").not("shop_id", "is", null).gt("qty", 0),
       "id"
@@ -78,9 +77,8 @@ async function ShopsBody() {
     pendingByShop[r.shop_id] = (pendingByShop[r.shop_id] ?? 0) + 1;
   }
 
-  // This page renders shop LOGINS only (employee role). Owner/admin emails are
-  // a Gerry-only surface (Settings → Admins), so we must not let them reach the
-  // client payload — scope the email map to the shop-login ids the page shows.
+  // Shop LOGINS only. Owner/admin emails are a Gerry-only surface, so scope the
+  // email map to the shop-login ids this page shows.
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const shopLoginIds = new Set(
     (profilesRes.data ?? [])

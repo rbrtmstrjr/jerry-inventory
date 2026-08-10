@@ -4,15 +4,8 @@ import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-/**
- * The catalog tab shell — renders the Parts/Engines tab bar INSTANTLY and takes
- * the ACTIVE tab's table as a slot (a <Suspense> boundary in the server page),
- * so the bar paints immediately while the table streams in behind a skeleton.
- *
- * URL-driven (`?tab=`): previously both slots were rendered, so opening Parts
- * still fetched every engine too. Now the server builds only the open tab, and
- * switching tabs is a navigation that fetches just that tab's page of rows.
- */
+/** Tab bar paints instantly; the active tab's table arrives as a suspended slot.
+ *  URL-driven, so only the open tab is ever fetched. */
 export function CatalogTabs({
   activeTab,
   children,

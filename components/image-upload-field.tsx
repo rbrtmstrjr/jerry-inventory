@@ -20,11 +20,8 @@ export type ImageAction =
   | { type: "set"; image: ProcessedImage }
   | { type: "remove" };
 
-/**
- * Owner-only image field: pick or drag a photo → it's resized to ≤800px and
- * converted to WebP in the browser → preview with before/after sizes.
- * Nothing uploads until the form is saved.
- */
+/** Owner-only image field: resizes to ≤800px and converts to WebP in the
+ *  browser, previewing before/after. Nothing uploads until the form saves. */
 export function ImageUploadField({
   currentPath,
   action,
@@ -34,9 +31,8 @@ export function ImageUploadField({
   currentPath: string | null;
   action: ImageAction;
   onActionChange: (a: ImageAction) => void;
-  /** What is being uploaded, for the screen-reader label — this widget is
-   *  shared by products, shop logos, and staff photos, so a hard-coded
-   *  "product photo" misdescribes two of its three uses. */
+  /** What is being uploaded, for the screen-reader label — shared by products,
+   *  shop logos and staff photos, so it cannot be hard-coded. */
   subject?: string;
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null);

@@ -211,11 +211,8 @@ export function LoginForm({
   );
 }
 
-/**
- * The way back in. This is the only recovery path that works when nobody can
- * sign in — if it breaks, Jerry is locked out of his own business with no
- * support desk to call, so it stays as simple as it can possibly be.
- */
+/** The only recovery path that works when nobody can sign in. Keep it as simple
+ *  as possible — there is no support desk behind it. */
 function ForgotPasswordDialog({
   onOpenChange,
   defaultEmail,
@@ -241,9 +238,8 @@ function ForgotPasswordDialog({
     });
     setBusy(false);
     if (err) {
-      // Say it the way the sign-in error does. Raw provider strings ("email
-      // rate limit exceeded", 'Email address "x" is invalid') reach a shop
-      // employee who already cannot sign in, and tell them nothing to do next.
+      // Raw provider strings reach someone who already cannot sign in and tell
+      // them nothing to do next. Say it the way the sign-in error does.
       const code = (err as { code?: string }).code ?? "";
       setError(
         code === "over_email_send_rate_limit"

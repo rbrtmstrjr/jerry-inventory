@@ -33,18 +33,10 @@ function addDays(iso: string, days: number): string {
 }
 const isDate = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
-/**
- * The ledger, as a book.
- *
- * Read-only throughout: there is no action on this page, no form, no button
- * that writes. `stock_movements` has no INSERT/UPDATE/DELETE policy for anyone
- * — not even the owner — so this could not mutate the ledger even if it tried.
- */
-/**
- * Shell: the heading + tab bar paint instantly; the active tab's data streams
- * in behind a matching skeleton — only the data area shows a skeleton, never the
- * whole page. Reading searchParams is cheap (no DB), so the shell never blocks.
- */
+/** The ledger as a book. Read-only throughout — stock_movements has no write
+ *  policy for anyone, not even the owner. */
+/** Heading + tab bar paint instantly; the active tab's data streams in behind a
+ *  matching skeleton. Reading searchParams costs no DB call. */
 export default async function MovementsPage({
   searchParams,
 }: {
@@ -200,9 +192,8 @@ async function MovementsBody({
   const from = isDate(sp.from) ? sp.from! : addDays(to, -30);
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
 
-  // Filtered and paginated IN POSTGRES. This table is append-only and grows
-  // forever; fetching it whole to filter in the browser would work today and
-  // fall over quietly in a year.
+  // Filtered and paginated IN POSTGRES — this table is append-only and grows
+  // forever, so browser-side filtering would fall over quietly in a year.
   let q = supabase
     .from("movement_journal")
     .select("*", { count: "exact" })

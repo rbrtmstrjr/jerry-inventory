@@ -347,9 +347,8 @@ export function WarrantiesView({
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => {
-        // never index this map bare: `status` is a database enum that has grown
-        // twice (0027, 0069), and a missing key throws inside the cell, which
-        // takes the whole Serials table down through its error boundary
+        // Never index this map bare — `status` is an enum that has grown twice,
+        // and a missing key throws inside the cell and kills the whole table.
         const s = SERIAL_STATUS[row.original.status] ?? {
           label: row.original.status,
           variant: "outline" as const,
@@ -490,9 +489,7 @@ export function WarrantiesView({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Claims dialog — list + add
-// ---------------------------------------------------------------------------
+// ── Claims dialog — list + add ──────────────────────────────────────────────
 /** Read-only claim history for a serial. Claims are filed by shops and decided
  *  in the "awaiting approval" section — there is no owner-typed claim path. */
 function ClaimsDialog({
@@ -545,9 +542,7 @@ function ClaimsDialog({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Serial journey dialog — the movements ledger for one engine
-// ---------------------------------------------------------------------------
+// ── Serial journey dialog — the movements ledger for one engine ────────────
 const MOVE_LABEL: Record<string, string> = {
   received: "Received into master",
   delivery: "Delivery",

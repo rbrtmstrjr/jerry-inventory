@@ -12,12 +12,8 @@ import type { CronJobHealth, NotificationChannelRow } from "./types";
 
 export const metadata: Metadata = { title: "Settings" };
 
-/**
- * Settings is one page with six sections, deep-linked by `?tab=` — the same
- * shape /deliveries uses. Everything the owner configures lives here; nothing
- * per-shop or per-product does (shop logins stay on /shops, reorder levels on
- * /stock-alerts), because those are scoped to a thing, not to the business.
- */
+/** Six sections deep-linked by `?tab=`. Business-wide config only — anything
+ *  scoped to a shop or product lives on that thing's own page. */
 /** Shell: the heading paints instantly; the six settings sections stream in
  *  behind a skeleton instead of the whole-segment loader. */
 export default async function SettingsPage({
@@ -58,15 +54,13 @@ async function SettingsBody({ tab }: { tab?: string }) {
 
     supabase.auth.getUser(),
 
-    // pg_cron lives outside the `public` schema, so PostgREST cannot read it —
-    // this definer function is the only route. It returns no job command and no
-    // run message: both can carry a service key.
+    // pg_cron lives outside `public`, so this definer function is the only
+    // route. It returns no command and no run message — both can carry a key.
     supabase.rpc("fn_cron_job_health"),
   ]);
 
-  // Pending dispatches per channel. PostgREST has no GROUP BY, and there are
-  // only ever a couple of channels, so a count per channel is cheaper and
-  // clearer than pulling every row back to count in JS.
+  // PostgREST has no GROUP BY and there are only ever a couple of channels, so
+  // a count per channel beats pulling every row back to count in JS.
   const channelRows = (channels ?? []) as NotificationChannelRow[];
   const pendingCounts = Object.fromEntries(
     await Promise.all(
@@ -88,9 +82,8 @@ async function SettingsBody({ tab }: { tab?: string }) {
     serviceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
   };
 
-  // Admin accounts (0099). Emails live in auth, not on the profile, so the
-  // service role resolves them — this component only ever renders for Gerry
-  // (requirePrimaryOwner above).
+  // Emails live in auth, not on the profile, so the service role resolves them.
+  // This only ever renders for Gerry (requirePrimaryOwner above).
   const service = createAdminClient();
   const { data: adminProfiles } = await service
     .from("profiles")

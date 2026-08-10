@@ -50,12 +50,8 @@ export async function cancelWarrantyClaim(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-/**
- * Record / correct the PHYSICAL warranty card's number (0103). The card is
- * printed by Gerwin's external system — the app only remembers which card
- * went with which engine sale. fn_set_warranty_serial re-checks the caller
- * is the selling shop (or the office) and enforces uniqueness across cards.
- */
+/** Record the PHYSICAL card's number — cards are printed externally, so the app
+ *  only remembers which card went with which sale. The RPC checks the caller. */
 export async function setWarrantySerial(
   warrantyId: string,
   serial: string

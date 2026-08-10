@@ -77,18 +77,15 @@ export function TransitBanner({ transit }: { transit: DiscrepancyRow[] }) {
   );
 }
 
-/**
- * In-transit lines. Anything a shop reported short is resolvable here — and
- * ONLY here, by the owner.
- */
+/** In-transit lines. A shortfall a shop reported is resolvable here, and only
+ *  here, by the owner. */
 export function TransitPanel({ transit }: { transit: DiscrepancyRow[] }) {
   const [target, setTarget] = React.useState<DiscrepancyRow | null>(null);
   const awaiting = transit.filter((t) => t.status === "in_transit");
   const short = transit.filter((t) => t.status === "discrepancy");
 
-  // Two collapsible, height-bounded sections so the tab doesn't stack into one
-  // endless scroll: the ACTIONABLE discrepancies open by default; the (long,
-  // animated) awaiting list collapsed until wanted.
+  // Two height-bounded sections rather than one endless scroll: actionable
+  // discrepancies open by default, the awaiting list collapsed.
   const [showDecision, setShowDecision] = React.useState(true);
   const [showAwaiting, setShowAwaiting] = React.useState(false);
 

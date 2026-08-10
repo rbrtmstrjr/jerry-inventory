@@ -13,10 +13,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
-/**
- * shadcn date picker over a YYYY-MM-DD string value (what the app's queries
- * and DB columns speak).
- */
+/** Date picker over a YYYY-MM-DD string — what the queries and DB columns speak. */
 export function DatePicker({
   id,
   value,

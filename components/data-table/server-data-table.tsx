@@ -51,24 +51,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-/**
- * SERVER-SIDE data table — the scalable twin of <DataTable>.
- *
- * <DataTable> pulls every row into the browser and paginates there, so its cost
- * grows with the size of the table (fine for a few hundred rows, fatal at tens
- * of thousands). This one renders ONE PAGE that the server already sliced:
- * pagination, sorting and search live in the URL, the page's server component
- * reads them and issues a bounded `.range()` query. Cost is O(page size), not
- * O(total rows) — it reads the same whether the table holds 6k rows or 6M.
- *
- * URL is the single source of truth (same idea as the Movements journal), so a
- * filtered page is shareable, bookmarkable, survives refresh, and re-suspends
- * through the page's existing skeleton. Params owned here: page · size · sort ·
- * dir · q. Every OTHER param is preserved, so a page's own filters/tabs coexist.
- *
- * Columns are plain `ColumnDef`s — the same objects <DataTable> takes — so
- * converting a page is mostly swapping the component and moving the query.
- */
+/** Server-sliced twin of <DataTable>: O(page size), not O(total rows). The URL
+ *  owns page · size · sort · dir · q; every other param is preserved. */
 
 /** Read/merge the params this table owns, preserving everything else. */
 function useTableNav() {
@@ -309,11 +293,8 @@ export function ServerDataTable<TData, TValue>({
   );
 }
 
-/**
- * Sortable header for a server-sorted table — same look as <SortableHeader>,
- * but it writes `sort`/`dir` to the URL instead of sorting rows in the browser.
- * Self-contained (reads the URL itself) so column defs stay plain objects.
- */
+/** Writes `sort`/`dir` to the URL instead of sorting in the browser. Reads the
+ *  URL itself, so column defs stay plain objects. */
 export function ServerSortableHeader({
   column,
   children,
@@ -353,11 +334,8 @@ export function ServerSortableHeader({
   );
 }
 
-/**
- * Search box wired to the URL `q` param (debounced), for views that aren't a
- * table — e.g. the product/engine CARD grids, which need the same server-side
- * search as their table twin so results aren't limited to the current page.
- */
+/** Debounced search box on the URL `q` param, for non-table views (card grids)
+ *  that still need server-side search rather than filtering one page. */
 export function ServerSearchInput({
   q = "",
   placeholder,

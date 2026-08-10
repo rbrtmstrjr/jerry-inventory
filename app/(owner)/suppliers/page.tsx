@@ -18,14 +18,8 @@ import { Card, CardContent } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "Suppliers" };
 
-/**
- * Walk every row of a comparison VIEW. These are keyed by (supplier × product),
- * with no single column to keyset on, so this uses offset paging — safe because
- * the builder carries a deterministic .order() (else pages could overlap) and
- * the views are bounded by catalog×suppliers (thousands, not transactions), so
- * a handful of pages covers them. Without this the page silently capped at the
- * PostgREST 1,000-row limit — the comparison was showing < half its rows.
- */
+/** Offset-page a comparison VIEW — keyed by (supplier × product), so there is no
+ *  column to keyset on. The builder must carry a deterministic .order(). */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 async function fetchAllPaged(build: () => any): Promise<any[]> {
   const out: any[] = [];
@@ -38,14 +32,8 @@ async function fetchAllPaged(build: () => any): Promise<any[]> {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-/**
- * Suppliers, consolidated: who they are (Directory), what we owe (Payables),
- * and stock intake (Receiving).
- *
- * STREAMS like Reports: the heading + tabs paint instantly; the selected tab's
- * body (which does the fetching) streams in behind a skeleton, so the page is
- * never blocked on it.
- */
+/** Suppliers consolidated: Directory · Payables · Receiving. Heading + tabs
+ *  paint instantly; the selected tab's body streams in behind a skeleton. */
 export default async function SuppliersPage({
   searchParams,
 }: {

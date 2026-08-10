@@ -95,11 +95,8 @@ export interface ShopReportData {
     stock_value: number;
     pending: number;
   }[];
-  /**
-   * Category × shop matrix behind the "Shop exp." column. `shops` are the same
-   * columns (order) as `perShop`; each `categories[].amounts[i]` aligns to
-   * `shops[i]`, and `shops[i].total` reconciles to that shop's `opex`.
-   */
+  /** Category × shop matrix behind "Shop exp.". Column order matches perShop,
+   *  and each shop's total reconciles to its opex. */
   expensesByShop: {
     shops: { name: string; color_key: string | null; total: number }[];
     categories: { name: string; amounts: number[]; total: number }[];

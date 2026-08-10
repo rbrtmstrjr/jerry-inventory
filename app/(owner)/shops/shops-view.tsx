@@ -201,9 +201,8 @@ export function ShopsView({
       color_key: shopColor,
     });
 
-    // Logo: upload/remove the Storage object, then persist the path. Versioned
-    // names give every replace a fresh URL; the old object is deleted after.
-    // (Same pattern as product photos — see part-form-dialog.)
+    // Versioned names give every replace a fresh URL, and the old object is
+    // deleted after. Same pattern as product photos.
     const shopId = res.ok ? res.id : null;
     if (res.ok && shopId && shopLogoAction.type !== "keep") {
       const supabase = createClient();
@@ -905,9 +904,8 @@ function CloseShopDialog({
 
   const blockers = shop
     ? [
-        // A return is SHOP-initiated since 0065 — the office can't start one, so
-        // pointing here at a "New Return" tab (retired with that migration) sent
-        // the owner to a control that no longer exists.
+        // Returns are SHOP-initiated since 0065 — the office can't start one, so
+        // there is no "New Return" tab to point at.
         shop.part_units > 0 && {
           text: `${shop.part_units} part unit(s) still at this shop`,
           fix: "the shop returns them from Transfers → Return to Admin; approve it under Deliveries & Returns → Transfers & Returns",
@@ -1003,12 +1001,8 @@ function CloseShopDialog({
   );
 }
 
-/**
- * Add/edit a shop's staff member — the people who work there, not app logins.
- * Slim on purpose (payroll is gone): name, shop, birthday, photo, notes. The
- * birthday is what powers the Dashboard/nav reminder. Photo rides the same
- * public product-images pipeline as shop logos and staff photos always have.
- */
+/** Staff are the people at a shop, not app logins: name, shop, birthday, photo,
+ *  notes. The birthday powers the nav reminder. */
 function StaffDialog({
   edit,
   shops,

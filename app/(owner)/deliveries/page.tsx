@@ -98,11 +98,8 @@ export interface TransferRow {
   lines: TransferLineRow[];
 }
 
-/**
- * Pre-fill for "Convert to delivery" coming from a shop's delivery request.
- * Every requested line is carried and classified into available (deliverable,
- * capped to master) vs no-stock (shown disabled) — see classifyRequestLines.
- */
+/** Pre-fill for "Convert to delivery". Every requested line is classified
+ *  available (capped to master) vs no-stock — see classifyRequestLines. */
 export type DeliveryPrefill = {
   requestId: string;
   shopId: string;
@@ -112,11 +109,8 @@ export type DeliveryPrefill = {
   customItems: { name: string; qty_requested: number }[];
 } & ClassifiedRequest;
 
-/**
- * Deliveries streams: the heading paints instantly and the body (tab bar +
- * content) loads behind a matching skeleton — only the data area shows a
- * skeleton, not the whole page.
- */
+/** The heading paints instantly; the tab bar and content stream behind a
+ *  matching skeleton, so only the data area flashes. */
 export default function DeliveriesPage({
   searchParams,
 }: {
@@ -164,9 +158,8 @@ async function DeliveriesBody({
         .eq("active", true)
         .is("deleted_at", null)
         .order("name"),
-      // Both paged: the delivery form IS the picker. A truncated list means a
-      // product cannot be delivered at all, with stock sitting in master.
-      // part_id is unique within master (one stock_levels row per part+shop).
+      // Both paged — the form IS the picker, so a truncated list means a product
+      // cannot be delivered at all while its stock sits in master.
       fetchAll(
         () =>
           supabase
@@ -267,9 +260,8 @@ async function DeliveriesBody({
     // fetchAll orders by the keyset column, so restore the display order
     .sort((a, b) => a.serial_number.localeCompare(b.serial_number));
 
-  // "Convert to delivery": pre-fill this form from a shop's request. Engines
-  // are requested by MODEL but delivered by SERIAL, so pick the first
-  // available in-master units of that model — the owner can still change them.
+  // Engines are requested by MODEL but delivered by SERIAL, so pre-fill the
+  // first available in-master units — the owner can still change them.
   let prefill: DeliveryPrefill | null = null;
   if (requestId) {
     const { data: req } = await supabase

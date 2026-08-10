@@ -31,11 +31,8 @@ const STATE: Record<string, { label: string; variant: "default" | "secondary" | 
   written_off: { label: "Written off", variant: "destructive" },
 };
 
-/**
- * An engine has no balance — it is one unit with a life. So this is a timeline,
- * not a stock card: "where did engine #X go?" is the question, and every step
- * links to the document that caused it.
- */
+/** An engine has no balance — one unit with a life — so this is a timeline, not
+ *  a stock card. Every step links to the document that caused it. */
 function stepFor(m: JournalRow): { title: string; detail: string; href?: string; label?: string } {
   switch (m.movement_type) {
     case "received":
@@ -72,9 +69,8 @@ export function EngineHistoryView({
   const [q, setQ] = React.useState(serial);
   const ref = React.useRef<HTMLInputElement>(null);
 
-  // Keyboard-wedge scanners type the serial then press Enter, so the field is
-  // focused on arrival — scan a serial, see its whole life, same as the shop's
-  // warranty lookup.
+  // Scanners type the serial then press Enter, so focus the field on arrival —
+  // scan a serial, see its whole life.
   React.useEffect(() => {
     ref.current?.focus();
   }, []);

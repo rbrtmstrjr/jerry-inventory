@@ -6,15 +6,8 @@ export interface ShopBadgeShop {
   color_key?: string | null;
 }
 
-/**
- * THE way a shop is named on screen. Color is an accelerant, never the
- * information: the name is always rendered (the `dot` variant is the one
- * exception and must sit next to adjacent text — never standalone), a shop
- * with no color falls back to neutral with its name intact, and print
- * documents skip this component entirely (text stays text).
- *
- * Colors resolve from theme tokens via the shop's palette key — no hex here.
- */
+/** THE way a shop is named on screen. Color is an accelerant, never the
+ *  information — the name always renders, and print documents stay text-only. */
 export function ShopBadge({
   shop,
   variant = "badge",

@@ -7,10 +7,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "Monthly Count" };
 
-/**
- * The heading paints instantly; the New-count card + history table stream in
- * behind a matching skeleton — only the data area shows a skeleton.
- */
+/** The heading paints instantly; the new-count card and history table stream in
+ *  behind a matching skeleton. */
 export default function CountsPage() {
   return (
     <div className="flex flex-col gap-4">

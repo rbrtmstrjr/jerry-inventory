@@ -55,11 +55,8 @@ const phToday = () =>
 /** Pesos, for a CSV a bookkeeper opens in Excel. Centavos are our problem. */
 const peso = (c: number) => (c / 100).toFixed(2);
 
-/*
- * A tooltip component rather than a `formatter` prop — same as
- * /shops/reports. Recharts types `formatter`'s value as possibly undefined, so
- * a (v: number) => string never type-checks against it.
- */
+/* A tooltip component rather than a `formatter` prop: Recharts types the value
+ * as possibly undefined, so (v: number) => string never type-checks. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function PesoTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
@@ -93,14 +90,8 @@ export function PnlView({ data }: { data: PnlViewData }) {
     router.push(`/reports?${p.toString()}`);
   }
 
-  /**
-   * Presets computed in PH time.
-   *
-   * Deliberately not `new Date().toISOString()`: the server runs in UTC and PH
-   * is UTC+8, so between midnight and 8am an ISO-derived "today" is yesterday —
-   * "This month" on the 1st would land you in last month. Every business_date in
-   * the database is stamped in PH, so the picker must speak the same calendar.
-   */
+  /** Presets in PH time, never `toISOString()` — the server runs UTC, so before
+   *  8am an ISO "today" is yesterday and "This month" lands in last month. */
   function phParts(d = new Date()) {
     const [y, m, day] = new Intl.DateTimeFormat("en-CA", { timeZone: PH })
       .format(d)

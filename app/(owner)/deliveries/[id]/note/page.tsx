@@ -45,9 +45,8 @@ export default async function DeliveryNotePage({
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   const noteNo = `DN-${d.id.slice(0, 8).toUpperCase()}`;
-  // Once the shop has confirmed, the note reflects what ACTUALLY landed
-  // (qty_received) — anything short was returned to master or written off, so
-  // it never reached the shop. Before confirmation it shows what was sent.
+  // After confirmation the note shows what ACTUALLY landed (qty_received);
+  // before it, what was sent. A shortfall never reached the shop.
   const confirmed = d.status !== "in_transit";
   const landedQty = (l: { qty: number; qty_received: number | null }) =>
     confirmed ? (l.qty_received ?? 0) : l.qty;

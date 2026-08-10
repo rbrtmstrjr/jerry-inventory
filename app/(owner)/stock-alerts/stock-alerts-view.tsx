@@ -109,9 +109,8 @@ export function StockAlertsView({
       (masterSupplier === "all" || (r.supplier_id ?? "__none__") === masterSupplier) &&
       (masterKind === "all" || r.kind === masterKind)
   );
-  // Print EXACTLY what's ticked; if nothing is ticked, print the whole filtered
-  // list. Either way the sheet is built from an explicit id list — so it's the
-  // filter/selection result, never fixed to all products.
+  // Print exactly what's ticked, or the whole filtered list when nothing is.
+  // Either way the sheet is built from an explicit id list.
   const toPrint = selectedMaster.length > 0 ? selectedMaster : masterRows;
   const purchaseHref = `/stock-alerts/purchase-list?ids=${encodeURIComponent(
     toPrint.map((r) => `${r.kind}:${r.product_id}`).join(",")
@@ -391,9 +390,8 @@ function ThresholdEditor({
     : products;
   const visibleRows = rows.slice(0, visibleCount);
 
-  // Scroll-down reveal: render a batch, reveal more as the sentinel nears the
-  // bottom of the SCROLL CONTAINER (root: scrollRef, not the viewport). Reset
-  // the batch whenever the search narrows the list.
+  // Reveal more as the sentinel nears the bottom of the SCROLL CONTAINER (not
+  // the viewport). Reset the batch whenever the search narrows the list.
   React.useEffect(() => {
     setVisibleCount(REORDER_PAGE);
   }, [q]);
