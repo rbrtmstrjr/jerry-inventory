@@ -3,23 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { ph_today } from "@/lib/ph-date";
 import { fetchAll } from "@/lib/fetch-all";
 
-/**
- * Dashboard + nav-badge data, computed in ONE fast round-trip.
- *
- * The dashboard used to fire ~12 queries and, worse, some fetched THOUSANDS of
- * raw rows only to sum them in JS (receivables, month sales) — which blocked
- * the whole page for seconds on the free tier. These getters read pre-aggregated
- * scalars from SQL RPCs instead (0074): the database does the sum/count and
- * returns a handful of numbers.
- *
- * GRACEFUL FALLBACK: each getter tries its RPC and, if it isn't there yet
- * (migration 0074 not applied), falls back to computing the same numbers from
- * direct queries — paginated, so still correct, just heavier. So the page works
- * before AND after the migration; applying 0074 only makes it faster.
- *
- * `cache()` memoises per request, so the two card groups that both need the
- * summary share a single database hit within one render.
- */
+/** Dashboard + nav-badge data from pre-aggregated SQL RPCs (0074), each falling
+ *  back to direct queries if unapplied. cache() dedupes per request. */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

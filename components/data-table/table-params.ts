@@ -1,12 +1,5 @@
-/**
- * Shared table paging constants + searchParams parsing.
- *
- * Deliberately NOT in server-data-table.tsx: that file is "use client", and a
- * function exported from a client module cannot be CALLED on the server (Next
- * only lets a client export be rendered as a component or passed as a prop).
- * Server components read the URL, so the parser has to live in a neutral
- * module both sides can import.
- */
+/** Table paging constants + searchParams parsing. NOT in server-data-table.tsx:
+ *  that is "use client", and a server component cannot call a client export. */
 
 export const PAGE_SIZES = [10, 20, 50, 100];
 

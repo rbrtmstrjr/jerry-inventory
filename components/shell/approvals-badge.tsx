@@ -16,9 +16,8 @@ export function ApprovalsBadge({
 }) {
   const [count, setCount] = React.useState<number | null>(initialCount ?? null);
 
-  // Per-INSTANCE topic — the nav renders twice on mobile (hidden desktop aside
-  // + burger sheet), and reusing a subscribed channel's topic throws when the
-  // second mount adds its postgres_changes callbacks. Same fix as nav-badges.
+  // Per-INSTANCE topic: the nav mounts twice on mobile, and re-subscribing a
+  // shared channel throws. Same fix as nav-badges.
   const instanceId = React.useId();
 
   React.useEffect(() => {

@@ -28,15 +28,8 @@ type ExportResult =
   | { ok: true; salesCsv: SalesCsvRow[]; lossesCsv: LossesCsvRow[] }
   | { ok: false; error: string };
 
-/**
- * On-demand CSV export for Reports → Sales & Inventory (0111 follow-up).
- *
- * The tab's page-load fetch was replaced by the fn_sales_report SQL aggregate,
- * which returns totals/pivots only — no per-line detail. Rather than keep
- * fetchAll-ing every sale_line on every page load just so a CSV button *could*
- * work, that per-line fetch now happens ONLY when the owner clicks Export.
- * Row shapes are byte-identical to the old page-load salesCsv/lossesCsv.
- */
+/** On-demand CSV export: fn_sales_report returns aggregates only, so the
+ *  per-line fetch happens only when the owner clicks Export. */
 export async function exportSalesCsv(
   from: string,
   to: string,

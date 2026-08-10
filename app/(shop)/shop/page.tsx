@@ -13,9 +13,8 @@ async function ShopStockBody() {
   const supabase = await createClient();
   const today = ph_today();
 
-  // Paged: a shop past 1,000 products loses the tail of the alphabet to
-  // PostgREST's max-rows, silently. fetchAll owns the ordering (keyset), so
-  // the display sort happens below.
+  // Paged — past 1,000 products the tail of the alphabet silently disappears.
+  // fetchAll owns the ordering, so the display sort happens below.
   const [stock, engines, todaySalesRes, receivablesRes] =
     await Promise.all([
       fetchAll<ShopStockRow>(() => supabase.from("shop_stock").select("*"), "part_id"),

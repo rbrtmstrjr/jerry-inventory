@@ -46,19 +46,8 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { lookupDiscountCard, recordSale, type SukiCardInfo } from "../actions";
 
-/**
- * A sellable line on the picker.
- *
- * `qty` is the SHELF — what a physical count would find. `available` is what is
- * genuinely still sellable: the shelf minus everything already committed to a
- * sale this shop recorded but the owner has not approved yet.
- *
- * The two differ because stock only moves on approval. Without the split, four
- * sales recorded against one 3 kg bag each looked affordable on its own and the
- * owner's whole batch then failed atomically at approval, naming only the last
- * line. The picker clamps on `available`; `committed` is shown so the cashier
- * knows WHY the number is lower than the bag in front of them.
- */
+/** `qty` is the shelf; `available` is the shelf minus stock already committed
+ *  to unapproved sales. The picker clamps on `available`. */
 export type StockOption = ShopStockRow & {
   available: number;
   committed: number;
@@ -89,9 +78,8 @@ type CartLine = CartPart | CartEngine;
 const partPrice = (l: CartPart) => parsePesosToCentavos(l.priceRaw) ?? 0;
 const engineAgreed = (l: CartEngine) => parsePesosToCentavos(l.agreedRaw) ?? 0;
 
-/** Suki card price — mirrors the server exactly: pct off the catalog price,
-    never at/below cost (capped at cost + 1). The server re-derives and clamps,
-    so this is only the preview/UX. */
+/** Suki card price: pct off catalog, never at/below cost. Preview only —
+ *  the server re-derives and clamps. */
 const sukiPrice = (catalog: number, cost: number, pct: number) =>
   Math.max(Math.round((catalog * (100 - pct)) / 100), cost + 1);
 
@@ -109,12 +97,8 @@ const AUTO_PRINT_KEY = "jm-sale-autoprint";
 // price rows further down the tree — an id avoids drilling a ref through them.
 const SCAN_INPUT_ID = "scan-box";
 
-/**
- * Print the 58mm receipt without leaving Record Sale: load `/receipt/[id]` into
- * an off-screen iframe and fire its own print dialog. Same origin, so the
- * receipt's route-scoped `@page { size: 58mm }` governs the job. With the
- * thermal printer set as default + kiosk printing on, it prints with no dialog.
- */
+/** Print the 58mm receipt in place via an off-screen iframe, so the receipt's
+ *  route-scoped `@page` governs the job and the cashier never leaves the page. */
 function printReceiptInPlace(id: string, onDone?: () => void) {
   document.getElementById("jm-receipt-print-frame")?.remove();
   const iframe = document.createElement("iframe");
@@ -126,12 +110,8 @@ function printReceiptInPlace(id: string, onDone?: () => void) {
   iframe.onload = () => {
     const win = iframe.contentWindow;
     if (!win) return;
-    // printing needs focus INSIDE the frame, which steals it from the scan
-    // input the caller just focused — and when the frame goes, focus lands on
-    // <body>. Hand it back so the next barcode scan still lands somewhere.
-    // run once: the 60s fallback below fires even on a normal print, and a
-    // second onDone() would yank focus to the scan box a minute later — while
-    // the cashier may be typing the NEXT sale's customer name.
+    // onDone hands focus back to the scan box. Run once — the 60s fallback
+    // fires even on a normal print, and a second call would steal focus later.
     let done = false;
     const finish = () => {
       if (done) return;
@@ -165,17 +145,8 @@ export function RecordSaleForm({
   // list ⇄ card-grid; card view shows images so staff can recognise by photo
   const [view, setView] = usePersistedView("jm-record-sale-view");
   const [cart, setCart] = React.useState<CartLine[]>([]);
-  /**
-   * A typed quantity was just reduced to what is on the shelf, and the cashier
-   * has not seen the corrected number yet.
-   *
-   * Clicking Save BLURS the quantity box first, so the clamp and the save used
-   * to land in one gesture: type 13465 against 2.1, press Save, get a toast
-   * that reads like a refusal — and a sale recorded at 2.1 anyway. The
-   * save-time `l.qty > l.available` guard could never catch it, because setQty
-   * had already clamped the value legal. So the correction now costs one
-   * deliberate second press.
-   */
+  /** A quantity was clamped and the cashier has not acknowledged it yet, so the
+   *  next Save is refused. Backstop only — the box caps as you type. */
   const [qtyCorrected, setQtyCorrected] = React.useState(false);
   const [custName, setCustName] = React.useState("");
   const [custPhone, setCustPhone] = React.useState("");
@@ -185,8 +156,7 @@ export function RecordSaleForm({
     React.useState<PaymentMethod>("cash");
   const [downpayment, setDownpayment] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
-  // "Print receipt on save" — defaults ON, remembers the cashier's last choice.
-  // Starts true on both server + first client render (no hydration flip); the
+  // Starts true on server + first client render (no hydration flip); the
   // stored preference is applied in the effect below.
   const [autoPrint, setAutoPrint] = React.useState(true);
   // Suki card (0072) — once applied, every line's price drops to the card
@@ -243,10 +213,8 @@ export function RecordSaleForm({
   }, [cart, custName, custPhone]);
 
   const hasEngine = cart.some((l) => l.kind === "engine");
-  // Round PER LINE, then sum — exactly what fn_record_sale does. A fractional
-  // qty makes price × qty fractional centavos (0.3 kg × ₱75.92 = 2277.6), and
-  // summing unrounded then rounding once gives a different answer. That
-  // difference is a receipt that disagrees with the sale it came from.
+  // Round PER LINE then sum, exactly as fn_record_sale does — rounding once at
+  // the end gives a different total, and the receipt would disagree with the sale.
   const total = cart.reduce(
     (s, l) =>
       s + (l.kind === "part" ? Math.round(partPrice(l) * l.qty) : engineAgreed(l)),
@@ -292,9 +260,8 @@ export function RecordSaleForm({
     setSukiBusy(false);
     if (!res.ok) {
       toast.error(res.error);
-      // Clear on failure too: a scanner leaves the rejected code in the box, so
-      // re-scanning the card appended to it ("CARD-ACARD-B") and could only
-      // fail again — the retry has to start clean.
+      // Clear on failure too, or a re-scan appends to the rejected code
+      // ("CARD-ACARD-B") and can only fail again.
       setSukiInput("");
       return;
     }
@@ -306,9 +273,8 @@ export function RecordSaleForm({
     // the card IS the customer (the server forces this too)
     setCustName(card.customer_name);
     setCustPhone(card.customer_phone ?? "");
-    // The % comes off the price ON the line — tawad first, then the card's cut
-    // on top (₱2,000 tawad − 5% = ₱1,900). Floored above cost, and never above
-    // the catalog-based suki ceiling (which is also what the server enforces).
+    // The % comes off the line's current price (tawad first, card cut on top),
+    // floored above cost and capped at the catalog-based suki ceiling.
     const applyPct = (currentRaw: string, catalog: number, cost: number, pct: number) => {
       const ceiling = sukiPrice(catalog, cost, pct);
       const current = parsePesosToCentavos(currentRaw);
@@ -356,29 +322,22 @@ export function RecordSaleForm({
   const cartQtyOf = (partId: string) =>
     cart.find((l): l is CartPart => l.kind === "part" && l.part_id === partId)?.qty ?? 0;
 
-  // Which units may be sold in tenths. Read from `units` rather than joining it
-  // into shop_stock: the safe views were dropped and rebuilt once already
-  // (0116) and every rebuild is a chance to lose a grant or security_barrier.
-  // A 7-row lookup on a table the shop can already read is the cheaper risk.
+  // Which units sell in tenths. Read from `units` rather than widening
+  // shop_stock — every rebuild of a safe view risks losing a grant.
   const units = useUnits();
   const isFractional = React.useCallback(
     (unit: string) => units.some((u) => u.code === unit && u.allows_fractional),
     [units]
   );
 
-  /** A barcode scanner types into whatever holds focus, and its trailing Enter
-   *  ACTIVATES a focused <button>. So a cashier who taps a product tile and
-   *  then scans the next item gets the tapped item added a second time while
-   *  the scanned code is swallowed — and the toast says "added", so it reads
-   *  as success. Every picker interaction therefore hands focus back here. */
+  /** A scanner's trailing Enter activates whatever button holds focus, silently
+   *  re-adding the last tapped item. Every picker interaction hands focus back. */
   function refocusScan() {
     scanRef.current?.focus({ preventScroll: true });
   }
 
-  /** For the typed fields a scan can land in by mistake (price, tendered,
-   *  downpayment, customer). None of them submit anything on Enter, so without
-   *  this the scanner's Enter does nothing, focus stays put, and the NEXT scan
-   *  appends to the same box — turning a downpayment into a five-figure one. */
+  /** For typed fields a scan can land in by mistake. Without it Enter does
+   *  nothing and the next scan appends to the same box. */
   const scanGuard = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -430,14 +389,8 @@ export function RecordSaleForm({
     toast.success(`${p.name} added`);
   }
 
-  /** @returns false when the engine was already in the cart, so a caller can
-   *  skip its own success toast. Scanning a serial twice used to show BOTH
-   *  "That engine is already in the sale" and "Engine … added".
-   *
-   *  The duplicate check and its toast run HERE, not inside the setCart
-   *  updater: an updater is queued (so a flag set inside it is still unread
-   *  when this returns) and React invokes it twice in development, which
-   *  double-fired the toast. */
+  /** @returns false when already in the cart, so the caller can skip its toast.
+   *  The check runs outside the setCart updater — updaters run twice in dev. */
   function addEngine(e: ShopEngineRow) {
     refocusScan();
     if (cart.some((l) => l.kind === "engine" && l.engine_id === e.engine_id)) {
@@ -494,9 +447,8 @@ export function RecordSaleForm({
     setScan("");
     if (!code) return;
 
-    // Suki cards are scanned into the dedicated Suki field below — printed
-    // externally now, they carry no fixed prefix, so the product scanner only
-    // resolves products here.
+    // Suki cards go in the dedicated Suki field — printed externally, they
+    // carry no fixed prefix, so this scanner resolves products only.
     const part = stock.find(
       (p) => p.barcode?.toLowerCase() === code.toLowerCase()
     );
@@ -516,31 +468,21 @@ export function RecordSaleForm({
     toast.error(`No match for "${code}" in your shop stock`);
   }
 
-  /** `keepFocus` when the change came from typing in the quantity box: that
-   *  commits on blur, and stealing focus back to the scanner would fight the
-   *  cashier who was tabbing to the price field. The −/+ buttons still hand
-   *  focus back, because those DO park it on a button. */
+  /** `keepFocus` when the change came from typing — stealing focus back would
+   *  fight the cashier tabbing to price. The −/+ buttons still hand it back. */
   function setQty(partId: string, qty: number, keepFocus = false) {
     if (!keepFocus) refocusScan(); // see refocusScan
     if (qty <= 0) {
       setCart((c) => c.filter((l) => !(l.kind === "part" && l.part_id === partId)));
       return;
     }
-    // A quantity over what is available is CORRECTED here, and the correction
-    // has to be acknowledged before it can be saved — see `qtyCorrected` in
-    // onSubmit. Unreachable by TYPING today (the box is hard-capped in its own
-    // onChange), and kept precisely for that reason: it is the backstop for any
-    // future caller that sets a quantity without going through the box, and it
-    // goes live again the moment someone weakens that cap. Computed OUTSIDE the
-    // updater on purpose: an updater is queued and React runs it twice in
-    // development, so a setState inside one is both late and doubled (same
-    // reason addEngine's duplicate toast lives outside its updater).
+    // Over-available is clamped and must be acknowledged before saving. The box
+    // already caps on every keystroke, so this is the backstop for other callers.
     const target = cart.find(
       (l): l is CartPart => l.kind === "part" && l.part_id === partId
     );
-    // Any later IN-RANGE quantity change means the cashier has seen the
-    // correction and acted on it, so the gate lifts — otherwise fixing the
-    // number by hand still cost a wasted Save press.
+    // Any later in-range change means the cashier saw the correction, so the
+    // gate lifts and fixing the number by hand costs no extra Save press.
     if (target) setQtyCorrected(qty > target.available);
     setCart((c) =>
       c.map((l) =>
@@ -552,11 +494,8 @@ export function RecordSaleForm({
   }
 
   const q = search.trim().toLowerCase();
-  // only sellable stock is browsable — a 0-on-hand item can't be sold
-  // Filter on the SHELF, not on `available`: an item whose whole stock is
-  // already committed to an unapproved sale must stay visible and say so
-  // ("0 left · 4.8 awaiting Admin"). Vanishing from the picker while a full bag
-  // sits on the counter is the more confusing failure.
+  // Filter on the SHELF, not `available` — a fully-committed item stays visible
+  // reading "0 left · 4.8 awaiting Admin" rather than vanishing off the picker.
   const inStock = stock.filter((p) => p.qty > 0);
   const matches = q
     ? inStock.filter(
@@ -576,13 +515,8 @@ export function RecordSaleForm({
     : engines;
 
   async function onSubmit() {
-    // Refuse the click that CAUSED a correction. Historically the clamp fired on
-    // blur, and pressing Save blurs the quantity box — so the correction and the
-    // save landed in one gesture and the cashier saw "Only 2.1 kg left" AND a
-    // saved sale at 2.1 they never typed. The box is hard-capped on every
-    // keystroke now, so nothing typed can reach this gate; it stays as the
-    // backstop for a caller that sets a quantity without going through the box.
-    // Cleared here, so the very next press goes through deliberately.
+    // Refuse the click that caused a correction, then clear so the next press
+    // goes through deliberately. Backstop — typing can no longer reach this.
     if (qtyCorrected) {
       setQtyCorrected(false);
       toast.error(
@@ -715,11 +649,8 @@ export function RecordSaleForm({
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  // This box has no submit action, so a scan that lands here by
-                  // mistake would sit and the NEXT scan would append to it —
-                  // two codes run together match nothing and the list claims
-                  // "Nothing in stock matches" for items that are in stock.
-                  // Enter sends focus back where a scan belongs.
+                  // No submit action here, so a stray scan would sit and the
+                  // next would append. Enter sends focus back to the scan box.
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -744,10 +675,8 @@ export function RecordSaleForm({
               ) : view === "table" ? (
                 <div className="flex flex-col gap-1.5">
                   {matches.map((p) => {
-                    // everything on hand is already in the cart — nothing left to add
-                    // "all in cart" only when the cart is what used it up —
-                    // with 0 available and an empty cart the item is blocked by
-                    // an EARLIER unapproved sale, which the caption already says.
+                    // "all in cart" only when the cart used it up; otherwise an
+                    // earlier unapproved sale blocks it and the caption says so.
                     const inCart = cartQtyOf(p.part_id);
                     const maxed = inCart >= p.available;
                     const usedByCart = maxed && inCart > 0;
@@ -816,9 +745,8 @@ export function RecordSaleForm({
                 /* Card grid — image-first so an unfamiliar name is still recognisable */
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                   {matches.map((p) => {
-                    // "all in cart" only when the cart is what used it up —
-                    // with 0 available and an empty cart the item is blocked by
-                    // an EARLIER unapproved sale, which the caption already says.
+                    // "all in cart" only when the cart used it up; otherwise an
+                    // earlier unapproved sale blocks it and the caption says so.
                     const inCart = cartQtyOf(p.part_id);
                     const maxed = inCart >= p.available;
                     const usedByCart = maxed && inCart > 0;
@@ -1205,14 +1133,11 @@ function PartCartLine({
   const below = price <= line.cost_centavos;
   const step = fractional ? 0.1 : 1;
 
-  // Typed quantity is held as text while editing so "0." and "1." are not
-  // fought mid-keystroke. The NUMBER is lifted on every keystroke (see
-  // onChange), so `line.qty` is always what the box means.
+  // Held as text while editing so "0." and "1." survive mid-keystroke; the
+  // number is lifted on every keystroke, so line.qty always matches the box.
   const [qtyRaw, setQtyRaw] = React.useState(String(line.qty));
-  // Resync only when the committed quantity stops matching what the box says —
-  // the −/+ buttons and a restored draft need it, a keystroke does not. A blind
-  // `setQtyRaw(formatQty(line.qty))` would now fire on every keystroke and
-  // rewrite the text mid-word, erasing the "." in "2." as it was typed.
+  // Resync only when the committed qty stops matching the box (−/+ and restored
+  // drafts). A blind resync would erase the "." in "2." as it was typed.
   React.useEffect(() => {
     setQtyRaw((cur) =>
       parseQty(cur, { allowFractional: fractional }) === line.qty
@@ -1224,19 +1149,16 @@ function PartCartLine({
   function commitQty() {
     const parsed = parseQty(qtyRaw, { allowFractional: fractional });
     if (parsed === null) {
-      // NEVER silently. Restoring the previous quantity with no message is what
-      // turned a rejected keystroke into a wrong stock deduction: the cashier
-      // saw the amount stay put, assumed it had taken, and saved the sale.
+      // Never refuse silently — a restored quantity with no message reads as
+      // acceptance and the wrong number gets saved.
       setQtyRaw(formatQty(line.qty));
       toast.error(
         `Enter a quantity like 0.5 or 2.3 — kept ${formatQty(line.qty)} ${line.unit}`
       );
       return;
     }
-    // Blur only NORMALISES what is already committed (".1" → "0.1", "2." → "2").
-    // The cap and its toast both fire in onChange, so there is nothing left to
-    // clamp here and nothing to announce — announcing it again would toast twice
-    // for one correction.
+    // Blur only normalises (".1" → "0.1", "2." → "2"). The cap and its toast
+    // fire in onChange, so re-announcing here would toast twice per correction.
     const capped = Math.min(parsed, line.available);
     setQtyRaw(formatQty(capped));
     // Hand up the RAW parsed value, not `capped`: setQty flags a correction only
@@ -1244,12 +1166,8 @@ function PartCartLine({
     onQty(parsed, true);
   }
 
-  // One step at a time. Reaching 0 removes the line — that is how the cashier
-  // already deletes an item, and it must keep working for weighed goods too.
-  // The ×10/÷10 is not decoration: 0.1 + 0.2 is 0.30000000000000004 in binary
-  // floating point, and that lands in a numeric(12,1) column.
-  // Capped as well as disabled at the button: belt and braces, since the same
-  // handler is reachable from the keyboard.
+  // Reaching 0 removes the line. The ×10/÷10 avoids 0.1 + 0.2 landing in a
+  // numeric(12,1) column as 0.30000000000000004.
   const bump = (by: number) =>
     onQty(Math.min(Math.round((line.qty + by) * 10) / 10, line.available));
 
@@ -1287,36 +1205,14 @@ function PartCartLine({
           </Button>
 
           {fractional ? (
-            // Sold by weight: the customer asks for a *tingi*, so the quantity
-            // has to be typed. −/+ still work, a tenth at a time, because the
-            // counter is often used one-handed.
+            // Sold by weight, so the quantity is typed. −/+ still step a tenth
+            // at a time — the counter is often worked one-handed.
             <Input
               inputMode="decimal"
               aria-label={`Quantity in ${line.unit}`}
               value={qtyRaw}
-              // sanitizeQtyInput, not a bare character strip: this masks a
-              // second decimal and a second dot as they are typed, so the box
-              // can never show a value the database would refuse.
-              //
-              // HARD-CAPPED AT `available` AS YOU TYPE — the same pattern the
-              // owner's delivery form and the shop's transfer form already use.
-              // Clamping only on blur let the box display 6568 kg against 2.1
-              // available, with a ₱656,800 total, until focus left. The clamp
-              // must SAY SO: silently rewriting 12 to 2.1 is the same wrong
-              // number, just quieter. One stable toast id, so a held-down key
-              // replaces the message instead of stacking twenty of them.
-              //
-              // The parsed value is lifted on EVERY keystroke, exactly as the
-              // price boxes do — that is why price never had this bug. Deferring
-              // to blur left the line's amount live while the grand Total, the
-              // change helper and the balance all still read the last committed
-              // quantity, and made the save depend on blur firing before the
-              // click, which is platform behaviour rather than a guarantee.
-              //
-              // Keep the SANITISED STRING when in range, never
-              // String(theNumber): mid-keystroke "1." parses to 1 and
-              // re-stringifies to "1", erasing the decimal point as it is typed
-              // so 1.5 could never be entered.
+              // Hard-capped at `available` as you type; stable toast id so a held
+              // key replaces the message. Keep the string — String(n) eats a typed ".".
               onChange={(e) => {
                 const raw = sanitizeQtyInput(e.target.value);
                 if (raw === "") return setQtyRaw("");
@@ -1329,9 +1225,8 @@ function PartCartLine({
                     { id: `qtycap-${line.part_id}` }
                   );
                 }
-                // parseQty is the validity ANSWER: null for "0." and "0", where
-                // committing would hand setQty a 0 and DELETE the line the
-                // cashier is halfway through typing into.
+                // parseQty returns null for "0." and "0" — committing those would
+                // hand setQty a 0 and delete the line being typed into.
                 const v = parseQty(String(over ? line.available : n), {
                   allowFractional: fractional,
                 });

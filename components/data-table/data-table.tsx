@@ -68,10 +68,8 @@ interface DataTableProps<TData, TValue> {
   enableSelection?: boolean;
   getRowId?: (row: TData) => string;
   onSelectedChange?: (rows: TData[]) => void;
-  /** Notified with the rows left after the global search, in table order.
-   *  Only needed by callers that render the same data somewhere else — e.g.
-   *  the Expenses print sheet, which promises "the rows currently shown" and
-   *  otherwise cannot see this component's internal search state. */
+  /** Rows left after the global search, in table order — for callers that render
+   *  the same data elsewhere (e.g. the Expenses print sheet). */
   onVisibleRowsChange?: (rows: TData[]) => void;
 }
 
@@ -108,10 +106,8 @@ export function DataTable<TData, TValue>({
           }
           onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
           aria-label="Select all on this page"
-          // The box stays 16px visually, but a 16px TAP target fails even WCAG
-          // 2.5.8's 24px floor on a phone. The pseudo-element widens only the
-          // hit area to ~44px. Safe here because the checkbox is alone in its
-          // cell — do NOT copy this to a checkbox sitting beside a label.
+          // Pseudo-element widens the TAP target to ~44px without resizing the
+          // box. Safe only because the checkbox is alone in its cell.
           className="relative after:absolute after:-inset-3.5 after:content-['']"
         />
       ),
@@ -155,13 +151,8 @@ export function DataTable<TData, TValue>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowSelection]);
 
-  // Bridge the post-search rows to the parent.
-  //
-  // Deliberately NOT keyed on `data`: callers build that array inline
-  // (`expenses.filter(...)`), so its identity changes every render — and since
-  // the callback sets parent state, depending on it is an infinite loop. Run on
-  // every render instead and emit only when the row SET actually changed, which
-  // makes the loop self-limiting no matter how the caller passes `data`.
+  // NOT keyed on `data` — callers build it inline, so its identity changes every
+  // render and the parent setState would loop. Emit only on a real set change.
   const lastEmitted = React.useRef<string | null>(null);
   React.useEffect(() => {
     if (!onVisibleRowsChange) return;

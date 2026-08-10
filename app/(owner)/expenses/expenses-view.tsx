@@ -179,12 +179,8 @@ export function ExpensesView({
     (e) => e.source === "shop" && (e.status === "pending" || e.status === "questioned")
   ).length;
 
-  // Money figures count APPROVED rows only — a pending claim isn't spend yet
-  // and a rejected one never was (same rule the reports already enforce).
-  // The Print button promises "the rows currently shown", but the table's own
-  // search box lives inside DataTable, so `filtered` (date/category/scope only)
-  // was NOT what the user was looking at: searching narrowed the table and
-  // printed everything anyway. DataTable now reports its post-search rows here.
+  // Money counts APPROVED rows only. Print promises "the rows currently shown",
+  // so it uses DataTable's post-search rows, not just the date/category filters.
   const [searchedRows, setSearchedRows] = React.useState<ExpenseRow[] | null>(null);
   const shown = searchedRows ?? filtered;
 
@@ -628,12 +624,8 @@ export function ExpensesView({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Print sheet — hidden on screen, the ONLY thing that prints. Renders the exact
-// rows the filters currently show (all of them, unpaginated), so a filtered
-// view prints filtered. Money totals mirror the on-screen summary: approved
-// rows only.
-// ---------------------------------------------------------------------------
+// ── Print sheet — hidden on screen, the ONLY thing that prints ──────────────
+// Exactly the rows currently shown, unpaginated. Totals: approved rows only.
 function ExpensesPrintSheet({
   business,
   rows,
@@ -757,9 +749,7 @@ function ExpensesPrintSheet({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Record / edit dialog
-// ---------------------------------------------------------------------------
+// ── Record / edit dialog ───────────────────────────────────────────────────
 function ExpenseDialog({
   open,
   onOpenChange,

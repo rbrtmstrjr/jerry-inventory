@@ -121,9 +121,8 @@ const OWNER_NAV: NavGroup[] = [
     ],
   },
   {
-    // Settings lives in the profile menu (top right), not here — it's about
-    // the owner's account and business config, not a place stock or money
-    // moves through.
+    // Settings lives in the profile menu, not here — it is account and business
+    // config, not a place stock or money moves through.
     label: "Administration",
     items: [
       { href: "/shops", label: "Shops & Employees", icon: Store },
@@ -168,10 +167,8 @@ export interface AppShellProps {
   children: React.ReactNode;
 }
 
-/** Pages that exist only for Gerry — hidden from the admin's nav AND gated
- *  server-side in each page (the nav is convenience, the gate is the rule).
- *  /shops left this set in 0104 — it's office-wide now, with credentials +
- *  close re-gated to Gerry inside the page. */
+/** Gerry-only pages — hidden here AND gated server-side in each page. The nav
+ *  is convenience; the gate is the rule. */
 const GERRY_ONLY_HREFS = new Set(["/reports"]);
 
 function isActive(pathname: string, href: string, allHrefs: string[]) {
@@ -273,12 +270,8 @@ function useSignOut() {
   };
 }
 
-/**
- * Account actions live here, not in the sidebar — Settings, Support and
- * Sign out are about the ACCOUNT, not a place to navigate stock or money
- * through, so they belong under the identity that's always pinned top-right
- * rather than competing for space with the nav on every page.
- */
+/** Settings, Support and Sign out are ACCOUNT actions, not destinations, so they
+ *  sit under the pinned identity rather than in the nav. */
 function UserMenu({
   variant,
   role,

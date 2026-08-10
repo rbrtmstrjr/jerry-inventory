@@ -17,18 +17,8 @@ export interface UnitOption {
   allows_fractional: boolean;
 }
 
-/**
- * The product's unit, chosen from a controlled list — never typed.
- *
- * This is not tidiness. Since 0116 a quantity may be a tenth, and WHICH
- * products may be sold that way is decided by the unit: kilos yes, pieces no.
- * While `parts.unit` was free text, "kg" / "kilo" / "kls" / "Kg" all behaved
- * differently and the rule hinged on spelling. The dropdown is what makes the
- * unit trustworthy enough to key a business rule on.
- *
- * Units are reference data the office manages (public.units, migration 0114),
- * so selling rope by the metre is a new row rather than a code change.
- */
+/** The unit is CHOSEN, never typed — it decides which products sell in tenths,
+ *  and free text made that rule hinge on spelling. Reference data, not code. */
 export function UnitSelect({
   value,
   onChange,

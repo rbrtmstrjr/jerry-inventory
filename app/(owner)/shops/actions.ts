@@ -25,9 +25,7 @@ async function requireOfficeAction(): Promise<string | null> {
   return profile.id;
 }
 
-// ---------------------------------------------------------------------------
-// Shops
-// ---------------------------------------------------------------------------
+// ── Shops ──────────────────────────────────────────────────────────────────
 const shopSchema = z.object({
   id: z.uuid().optional(),
   name: z.string().trim().min(1, "Name is required"),
@@ -86,11 +84,8 @@ export async function setShopLogo(
   return { ok: true };
 }
 
-/**
- * Close a shop permanently (bankruptcy / not earning). Guarded: everything
- * must be settled first — stock returned to master, engines moved, staff
- * reassigned or deactivated, and no submissions waiting in the queue.
- */
+/** Close a shop permanently. Guarded — stock returned, engines moved, staff
+ *  reassigned, and nothing left waiting in the approval queue. */
 export async function closeShop(id: string): Promise<ActionResult> {
   const ownerId = await requireOwnerAction();
   if (!ownerId) return { ok: false, error: "Only the owner can close shops" };
@@ -189,9 +184,7 @@ export async function closeShop(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Employees (auth admin — owner verified first, service role only after)
-// ---------------------------------------------------------------------------
+// ── Employees (auth admin — owner verified first, service role only after) ─
 const employeeSchema = z.object({
   email: z.email("Valid email required"),
   password: z.string().min(8, "Password needs at least 8 characters"),
@@ -288,10 +281,8 @@ export async function updateEmployee(input: unknown): Promise<ActionResult> {
   return { ok: true };
 }
 
-/**
- * Change a shop login's credentials: email (username), optionally a new
- * password, and whether the account is enabled.
- */
+/** Change a shop login's email, optionally its password, and whether the
+ *  account is enabled. */
 const credentialsSchema = z.object({
   id: z.uuid(),
   email: z.email("Valid email required"),
@@ -355,11 +346,8 @@ export async function updateShopCredentials(input: unknown): Promise<ActionResul
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Staff — the people who work at a shop (NOT app logins). Slim since payroll
-// was removed: name, shop, birthday, photo, notes. The birthday drives the
-// Dashboard/nav reminder; the photo rides the public product-images bucket.
-// ---------------------------------------------------------------------------
+// ── Staff — the people at a shop, NOT app logins ────────────────────────────
+// Name, shop, birthday, photo, notes. The birthday drives the nav reminder.
 const staffSchema = z.object({
   id: z.uuid().optional(),
   full_name: z.string().trim().min(1, "Name is required"),

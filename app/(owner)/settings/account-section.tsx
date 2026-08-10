@@ -19,39 +19,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-/**
- * Account — the security-critical section.
- *
- * THE RE-AUTH GATE. Every change here demands the CURRENT password first,
- * verified against Supabase, before the change is attempted. A live session is
- * explicitly not enough: the threat is a walked-away laptop or a lifted
- * session, and in both of those the attacker already has the session. Only the
- * password proves the person at the keyboard is Jerry.
- *
- * Verify and change happen in ONE submit, deliberately. A two-step wizard would
- * park a `verified: true` flag in client state, and a flag in client state is
- * not a gate — it is a thing to flip in a console. Here the update call is
- * physically unreachable except on the line after a successful verify.
- *
- * HONEST LIMIT: this gate is client-side, because `updateUser` runs on the
- * user's own session and there is no server action that can hold the old
- * password without being handed it. It stops a walked-away session cold, but it
- * is not a server-enforced control — someone with the session and a devtools
- * console could call updateUser directly. The server-side version of this is
- * Supabase's own "Secure password change" / "Secure email change" options
- * (Dashboard → Authentication → Providers → Email), which make the platform
- * itself demand recent re-auth. Turn those on; this gate is the UI half.
- */
-/**
- * Auth errors are not always readable. When GoTrue fails on something that
- * happens BEHIND the request — an SMTP send that the mail provider rejects is
- * the common one — it can answer with a non-2xx and an EMPTY body, and the
- * client surfaces that as the literal string "{}". A toast reading `{}` tells
- * the owner nothing and reads like the app is broken.
- *
- * So: use the real message when there is one, and otherwise say what actually
- * went wrong and where to look, with whatever status/code we did get.
- */
+/** Re-auth gate: every change re-verifies the current password in ONE submit, so
+ *  there is no `verified` flag to flip. Client-side half of Supabase's own option. */
+/** GoTrue can fail with an empty body (a rejected SMTP send), which surfaces as
+ *  the literal "{}". Fall back to a message naming what to check. */
 function authErrorText(error: unknown): string {
   const e = error as { message?: string; status?: number; code?: string } | null;
   const raw = (e?.message ?? "").trim();
@@ -109,13 +80,8 @@ export function AccountSection({
   );
 }
 
-/**
- * Verify the CURRENT password by signing in with it.
- *
- * A successful call issues a fresh session for the same user, which is
- * harmless. A failed one leaves the existing session untouched — it does not
- * sign anyone out — so a wrong guess costs nothing but the error.
- */
+/** Verify the current password by signing in with it. Success reissues the same
+ *  user's session; failure leaves the existing one untouched. */
 async function verifyCurrentPassword(email: string, password: string): Promise<string | null> {
   const supabase = createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -237,9 +203,8 @@ function ChangeEmailCard({ email }: { email: string | null }) {
   const [busy, setBusy] = React.useState(false);
   const [sentTo, setSentTo] = React.useState<string | null>(null);
 
-  // /auth/confirm sends the owner back here when ONE of the two links has been
-  // accepted but the change is still waiting on the other. Read it off the URL
-  // rather than guessing — the route is the only thing that knows.
+  // /auth/confirm sends the owner back here when one of the two links is
+  // accepted and the other is still pending. Read it off the URL, don't guess.
   const [halfDone, setHalfDone] = React.useState(false);
   React.useEffect(() => {
     const p = new URLSearchParams(window.location.search);
@@ -277,15 +242,12 @@ function ChangeEmailCard({ email }: { email: string | null }) {
     }
 
     const supabase = createClient();
-    // Send the confirmation link to OUR route rather than letting it fall back
-    // to the Site URL. Without this the link goes through Supabase's own verify
-    // endpoint and, when the token has expired or a mail scanner already opened
-    // it, dumps the user on the homepage with a bare "Access denied" fragment.
+    // Point the link at our route, not the Site URL — otherwise an expired or
+    // scanner-consumed token lands on the homepage as a bare "Access denied".
     const { error } = await supabase.auth.updateUser(
       { email: next },
-      // Deliberately NO query string: the email template appends
-      // `?token_hash=…&type=…` to this value, so it has to be a bare URL.
-      // /auth/confirm sends an email_change back to Settings on its own.
+      // No query string — the email template appends `?token_hash=…&type=…`,
+      // so this must be a bare URL.
       { emailRedirectTo: `${window.location.origin}/auth/confirm` }
     );
     setBusy(false);
@@ -417,12 +379,8 @@ function ChangeEmailCard({ email }: { email: string | null }) {
   );
 }
 
-/**
- * The lockout safety net. No re-auth gate here on purpose — the whole point is
- * that it works when you CAN'T prove who you are. It only ever mails the
- * address already on the account, so it hands nothing to anyone who isn't
- * already reading Jerry's inbox.
- */
+/** The lockout safety net — no re-auth gate on purpose, since it must work when
+ *  you can't prove who you are. It only ever mails the address on file. */
 function ResetCard({ email }: { email: string | null }) {
   const [busy, setBusy] = React.useState(false);
   const [sent, setSent] = React.useState(false);

@@ -64,11 +64,8 @@ export async function approveLoss(id: string, note?: string): Promise<ActionResu
   return { ok: true };
 }
 
-/**
- * Approve one shop expense. When its category is a shop proposal:
- * no remap = the proposal becomes an active category; a remap id reassigns the
- * expense to that existing category and the proposal never activates.
- */
+/** Approve one shop expense. With a proposed category: no remap activates the
+ *  proposal, a remap id reassigns it and the proposal never activates. */
 export async function approveExpense(
   id: string,
   note?: string,

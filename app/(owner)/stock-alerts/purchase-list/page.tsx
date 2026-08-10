@@ -10,12 +10,8 @@ import { PrintButton } from "@/components/shell/print-button";
 
 export const metadata: Metadata = { title: "Purchase List" };
 
-/**
- * Standalone print document: what master needs to BUY, grouped by supplier —
- * one block Admin can hand to / order from each supplier.
- * Suggested order qty = shortfall + a small buffer so they aren't reordering the
- * same item next week.
- */
+/** Print document: what master needs to buy, grouped by supplier. Suggested qty
+ *  = shortfall + a buffer, so the same item isn't reordered next week. */
 const BUFFER = 2;
 
 export default async function PurchaseListPage({
@@ -28,10 +24,8 @@ export default async function PurchaseListPage({
 
   const [lowRes, cmpRes, business] = await Promise.all([
     supabase.from("master_low_stock").select("*"),
-    // Cheapest known source per product, with provenance. SUGGESTION ONLY: the
-    // list stays grouped by the supplier Jerry will actually order from —
-    // supplier choice rides on relationships, terms, credit and lead time the
-    // system doesn't know. It says; he decides.
+    // Cheapest known source, with provenance. SUGGESTION ONLY — grouping stays
+    // on the preferred supplier; terms and relationships aren't in the system.
     supabase
       .from("supplier_price_comparison")
       .select(
@@ -41,9 +35,8 @@ export default async function PurchaseListPage({
     getBusinessIdentity(supabase),
   ]);
 
-  // ?ids=<kind:product_id,…> prints EXACTLY the items ticked/filtered on the
-  // Stock Alerts → Master tab — so a tight-budget order sheet lists only what
-  // was chosen, never all low-stock. No ids → the full low-stock list.
+  // ?ids= prints EXACTLY what was ticked or filtered on the Master tab, so a
+  // tight-budget sheet lists only that. No ids → the full low-stock list.
   const allRows = (lowRes.data ?? []) as MasterLowStockRow[];
   const idSet = ids
     ? new Set(ids.split(",").map((s) => s.trim()).filter(Boolean))
@@ -87,10 +80,8 @@ export default async function PurchaseListPage({
     a[0] === "__none__" ? 1 : b[0] === "__none__" ? -1 : a[1].name.localeCompare(b[1].name)
   );
 
-  // Order one supplier at a time: ?supplier=<key> narrows the sheet to that
-  // supplier (letterhead + sign-off intact). An unknown key falls back to all.
-  // Supplier is chosen on the Stock Alerts → Master tab, which links here with
-  // ?supplier=<key>. Narrow the sheet to that supplier (unknown key = all).
+  // ?supplier=<key> narrows the sheet so each supplier gets its own order
+  // sheet; an unknown key falls back to all.
   const isFiltered =
     !!selectedSupplier && blocks.some(([key]) => key === selectedSupplier);
   const visibleBlocks = isFiltered

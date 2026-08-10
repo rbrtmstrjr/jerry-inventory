@@ -4,10 +4,8 @@ import { Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { productImageUrl } from "@/lib/product-image";
 
-/**
- * Square product thumbnail with a token-styled placeholder for imageless
- * products. next/image handles lazy loading + serving a right-sized variant.
- */
+/** Square product thumbnail with a placeholder for imageless products;
+ *  next/image handles lazy loading and sizing. */
 export function ProductThumb({
   path,
   alt,

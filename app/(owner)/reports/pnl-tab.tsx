@@ -41,13 +41,8 @@ export async function PnlTab({ from, to }: { from: string; to: string }) {
   const prevTo = addDays(from, -1);
   const prevFrom = addDays(prevTo, -(len - 1));
 
-  // Net income is bucketed by MONTH, never by day.
-  //
-  // Overhead arrives as monthly bills, so a daily net-income line would have to
-  // spread them across days — inventing a shape the data does not have. That is
-  // the same "allocation is fiction" rule that keeps company overhead out of the
-  // shops. A month is the smallest period where every term of the statement is
-  // genuinely present.
+  // Bucketed by MONTH, never by day — overhead arrives as monthly bills, and
+  // spreading it across days would invent a shape the data does not have.
   const months: { from: string; to: string; label: string }[] = [];
   for (
     let m = monthStart(from);

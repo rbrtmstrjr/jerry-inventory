@@ -20,13 +20,8 @@ function resolveTab(t?: string): QueueTab {
   return t === "sales" || t === "losses" || t === "expenses" ? t : "all";
 }
 
-/**
- * `?tab=` picks the queue view. The shell does NO DB work — it awaits only
- * searchParams — so the heading + tab bar paint instantly (no fall-back to the
- * whole-segment loader). The tab COUNT badges and the ACTIVE tab's data each
- * stream in behind their own `<Suspense>`: the type tabs pull just their own
- * rows, "All" builds the per-shop batches. No tab loads another tab's data.
- */
+/** The shell does NO DB work, so heading and tabs paint instantly. Badges and
+ *  the active tab's data each stream behind their own <Suspense>. */
 export default async function ApprovalsPage({
   searchParams,
 }: {

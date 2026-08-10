@@ -10,15 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-/**
- * No current-password gate here, unlike Settings → Account — and that is the
- * point of recovery. Proof of identity is the emailed link plus the session it
- * established; demanding the password you came here because you forgot would
- * make the safety net useless.
- *
- * Same strength rules as Account, deliberately: the way in must not be a way to
- * set a weaker password than the front door allows.
- */
+/** No current-password gate — the emailed link IS the proof, and demanding the
+ *  forgotten password would defeat recovery. Same strength rules as Account. */
 export function ResetForm() {
   const router = useRouter();
   const [next, setNext] = React.useState("");

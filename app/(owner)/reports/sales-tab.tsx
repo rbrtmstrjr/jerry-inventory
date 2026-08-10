@@ -34,24 +34,8 @@ interface ReportContext {
   lowStock: ReportData["lowStock"];
 }
 
-/**
- * Sales & Inventory tab body. Extracted from the page so it can STREAM inside a
- * <Suspense> — the page shell (heading + tabs) paints instantly while this
- * fetches.
- *
- * FAST PATH (0111): one SQL aggregate RPC (`fn_sales_report`) replaces the old
- * fetchAll-every-sale-line JS row-walk — proven byte-identical to it by
- * scripts/test-sales-report.mjs (36/36). GRACEFUL FALLBACK (lib/dashboard.ts
- * pattern): if the RPC errors — e.g. migration 0111 isn't applied yet — this
- * recomputes the exact same numbers the old way, just heavier, so the page
- * never breaks.
- *
- * Per-line CSV detail is no longer fetched here at all — the RPC returns
- * aggregates, not rows, so CSV export moved to an on-demand server action
- * (./actions.ts#exportSalesCsv) fired only when the owner clicks Export.
- * `low stock` stays a direct fetchAll: it's a CURRENT snapshot, not
- * range-bound, so it was never part of the row-walk this RPC replaces.
- */
+/** Streams inside <Suspense>. Fast path is the fn_sales_report aggregate, with
+ *  a row-walk fallback if 0111 isn't applied; CSV detail is fetched on demand. */
 export async function SalesTab({
   params,
 }: {
@@ -112,9 +96,8 @@ export async function SalesTab({
       ? buildFromRpc(rpcRes.data as any, ctx)
       : await buildFallback(supabase, ctx);
 
-  // The printed range header used to hard-code "Gerwin Trading" — every other
-  // printable document reads the name from Settings, so a rename left this one
-  // sheet stale. Read it from the same source as the rest.
+  // Read the business name from Settings like every other printable — a
+  // hard-coded one goes stale the moment the business is renamed.
   const business = await getBusinessIdentity(supabase);
 
   return <ReportsView data={data} businessName={business.business_name} />;

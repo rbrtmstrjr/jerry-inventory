@@ -665,9 +665,8 @@ function PayDialog({
     }
   }, [target]);
 
-  // FIFO preview for a supplier-level lump sum — mirrors the RPC's oldest-first
-  // (received_at, id) allocation so the owner sees exactly where a partial
-  // payment lands before confirming.
+  // FIFO preview for a lump sum — mirrors the RPC's oldest-first allocation so
+  // the owner sees where a partial payment lands before confirming.
   const fifoPreview = React.useMemo(() => {
     if (!target || target.receiving) return null;
     const amt = parsePesosToCentavos(amount || "0") ?? 0;

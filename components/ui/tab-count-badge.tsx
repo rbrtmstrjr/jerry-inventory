@@ -1,12 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 
-/**
- * Count badge for a tab trigger — the same pill the sidebar nav badges use, so
- * tab counts read consistently across the app instead of a "(3)" in parens.
- * Hidden at 0. Inverts to a light pill when its tab is active (via the
- * `data-state=active` the Tabs trigger sets on itself) so it stays readable on
- * the active fill.
- */
+/** Same pill as the sidebar nav badges, so tab counts read consistently. Hidden
+ *  at 0; inverts on the active tab's fill via `data-state=active`. */
 export function TabCountBadge({ count }: { count: number }) {
   if (!count) return null;
   return (

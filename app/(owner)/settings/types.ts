@@ -3,9 +3,8 @@
 /** The full owner-only settings row. */
 export interface SettingsRow {
   id: number;
-  // Business identity — printed on documents. Also exposed, and ONLY these,
-  // through the `public_settings` view so shop logins can print a complete
-  // receipt (0043).
+  // Business identity, printed on documents. These columns and ONLY these are
+  // exposed via `public_settings` so a shop can print a complete receipt.
   business_name: string;
   address: string | null;
   phone: string | null;
@@ -36,10 +35,8 @@ export interface NotificationChannelRow {
   enabled: boolean;
 }
 
-/**
- * One pg_cron job's health, from `fn_cron_job_health()`.
- * No `command` and no run message: both can carry a service key.
- */
+/** One pg_cron job's health. No `command` and no run message — both can carry
+ *  a service key. */
 export interface CronJobHealth {
   jobname: string;
   schedule: string;

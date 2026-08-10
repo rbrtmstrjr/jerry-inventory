@@ -1,8 +1,7 @@
 export const MAX_REPORT_DAYS = 366;
 
-/** Clamp a report [from,to] span to at most MAX_REPORT_DAYS. If the span is
- *  longer, move `from` up to (to - MAX_REPORT_DAYS) and flag it. Dates are
- *  "YYYY-MM-DD" (UTC). */
+/** Clamp a report span to MAX_REPORT_DAYS by moving `from` up, and flag it.
+ *  Dates are "YYYY-MM-DD" (UTC). */
 export function clampReportRange(from: string, to: string): { from: string; to: string; clamped: boolean } {
   const d0 = new Date(from + "T00:00:00Z").getTime();
   const d1 = new Date(to + "T00:00:00Z").getTime();

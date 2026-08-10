@@ -258,9 +258,7 @@ export function ExpenseCategoriesView({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Shop-proposed categories — approve / rename / merge / dismiss
-// ---------------------------------------------------------------------------
+// ── Shop-proposed categories — approve / rename / merge / dismiss ──────────
 function ProposedSection({
   proposed,
   activeCategories,

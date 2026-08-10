@@ -49,10 +49,8 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-/**
- * EDIT-only since 0049 — engines are born on a supplier receiving; there is
- * no create mode here (and no direct INSERT grant to back one).
- */
+/** EDIT-only since 0049 — engines are born on a receiving, and there is no
+ *  direct INSERT grant to back a create mode. */
 export function EngineFormDialog({
   open,
   onOpenChange,
@@ -124,9 +122,8 @@ export function EngineFormDialog({
       : models.filter((m) => m.is_serialized === ownModelSerialized);
   const ownModelRetired = engine != null && !models.some((m) => m.id === engine.engine_model_id);
 
-  // Selling price must clear cost — floor moves live if Gerry edits the cost.
-  // Not enforced under priceLocked: the admin can't change money anyway (the
-  // action strips it), and a legacy at/below-cost row must not block their edit.
+  // Selling price must clear cost, but not under priceLocked: the admin can't
+  // change money anyway, and a legacy at-cost row must not block their edit.
   const costC = parsePesosToCentavos(watch("cost")) ?? engine?.cost_centavos ?? 0;
   const priceC = parsePesosToCentavos(watch("price"));
   const belowCost = !priceLocked && priceC !== null && priceC <= costC;

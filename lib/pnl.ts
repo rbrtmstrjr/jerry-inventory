@@ -1,70 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/**
- * The business's profit math — ONE implementation, two pages.
- *
- * NO `server-only` here, deliberately, unlike lib/business-identity.ts. This
- * module holds no secret and opens no connection: it takes the caller's client
- * as a parameter and is otherwise pure. Its guard is RLS — every table it reads
- * is owner-only, so an anon client would simply see nothing.
- *
- * What that buys is worth more than the guard: `scripts/test-pnl.mjs` imports
- * this file directly and asserts against THE CODE BOTH PAGES RUN, rather than
- * scraping numbers out of rendered HTML or re-deriving the arithmetic in the
- * test — a second implementation of the math is exactly the drift this module
- * exists to prevent, and a test that reimplements it proves nothing.
- *
- * `/shops/reports` (per-shop contribution) and `/reports?tab=pnl` (consolidated
- * P&L) are the same numbers looked at from two directions. They were never
- * allowed to disagree, so they must not be computed twice: this module is the
- * single source, and both pages import it.
- *
- * ---------------------------------------------------------------------------
- * THE IDENTITY THAT HOLDS THIS TOGETHER
- *
- *   Σ shop net contribution − company overhead − shrinkage = net income
- *
- * Note the shrinkage term. The spec for this feature asserted
- * `Σ shop net − overhead = net income` exactly, which is arithmetically
- * impossible here: a shop's net contribution deliberately EXCLUDES losses (a
- * branch is not blamed for stock that never sold), while the business's net
- * income must include them (a stolen engine is real money gone). The two sides
- * differ by exactly the shrinkage, so the identity carries it explicitly.
- *
- * Both rules survive, and neither page lies:
- *   • per shop  — contribution, losses shown alongside as context
- *   • business  — net income, shrinkage subtracted where it actually lands
- *
- * It holds by construction, not by coincidence:
- *   shopNetTotal = Σ(gross_profit − shop opex)
- *                = grossProfit − shopOpex
- *   netIncome    = grossProfit − shrinkage − shopOpex − companyOverhead
- *                = shopNetTotal − companyOverhead − shrinkage   ∎
- *
- * ---------------------------------------------------------------------------
- * THE RULES, AND WHY
- *
- *  • Revenue is APPROVED sales only. recorded/pending/questioned/rejected are
- *    not revenue — the owner hasn't agreed they happened.
- *  • Revenue is ACCRUAL. It includes utang not yet collected. Net income is
- *    what was EARNED; see `collected` for what actually arrived. Never present
- *    one as the other.
- *  • COGS is read from `sale_line_costs`, frozen at approval (0038) — never
- *    from `parts.cost_centavos`, which is mutable and would let one cost edit
- *    silently rewrite last month's profit.
- *  • Losses are valued at COST, never selling price. `losses.value_centavos` is
- *    stamped at approval from cost. Valuing a damaged engine at what it might
- *    have fetched invents a loss that never happened.
- *  • Returns are NOT a loss. Stock moved back; nothing was destroyed. The
- *    three-way separation (transit write-off · shop loss · return) survives.
- *  • Labor is NOT a line here. Payroll was removed from the app; wages, if the
- *    owner records them, ride the Expenses module (shop opex / company overhead)
- *    like any other operating cost.
- *  • Company overhead is NEVER allocated across shops. It is subtracted once,
- *    at the bottom. Honest beats clever.
- *  • Closed shops still count. A branch that shut mid-period still sold and
- *    still cost money in that period.
- */
+/** The profit math — one implementation, imported by both report tabs so they
+ *  can never disagree. Identity + rules: see CLAUDE.md "Per-shop profitability". */
 
 export interface PnlShopRow {
   shop_id: string;
@@ -121,69 +58,31 @@ export interface PnlResult {
   /** Σ(asking − agreed) on approved engine lines. What the shops negotiated away. */
   engineDiscount: number;
   engineDiscountLines: number;
-  /**
-   * Approved engine lines with no asking/agreed recorded — sales from before
-   * tier pricing existed (0020). Reported, never counted as a zero discount:
-   * "we don't know" and "nothing was discounted" are different claims.
-   */
+  /** Approved engine lines with no asking/agreed recorded (pre-0020). Reported
+   *  separately — "unknown" is not the same claim as "zero discount". */
   engineDiscountUnknownLines: number;
 }
 
 const pct = (part: number, whole: number) =>
   whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0;
 
-/**
- * Refuse to compute a P&L for anyone but the owner.
- *
- * RLS already stops a shop reading costs and expenses — but that is precisely
- * the danger. Run on an employee's session the queries all SUCCEED and simply
- * return less: COGS 0, opex 0, while `sales` stays
- * readable because a shop must see its own sales to submit them. The arithmetic
- * then happily reports gross profit = revenue and a net income that is just
- * revenue wearing a hat — a confidently wrong number, which is worse than an
- * error.
- *
- * A partial view is not a safe view. Fail loudly instead.
- */
+/** On a shop session every query SUCCEEDS and just returns less (COGS 0, opex 0),
+ *  yielding a net income made only of revenue. Fail loudly instead. */
 async function requireOwner(supabase: SupabaseClient): Promise<void> {
   const { data, error } = await supabase.rpc("is_owner");
   if (error) throw new Error(`Could not verify the caller: ${error.message}`);
   if (!data) throw new Error("Only the owner can compute the P&L");
 }
 
-/**
- * Fetch EVERY row of a query, 1,000 at a time.
- *
- * PostgREST silently caps an un-ranged select at the API's max-rows. At demo
- * scale that was invisible; the 300k-row load test showed the P&L quietly
- * computing from the first 1,000 of ~29,000 sales — a confidently wrong
- * number. On 2026-08-09 the same cap hit STOCK: Gloria Trading crossed 1,032
- * products and the 32 sorting last (the Zekokis) vanished from every shop
- * screen — invisible on the shelf, unsellable at the counter, never flagged
- * low. The rows were in `stock_levels` the whole time.
- *
- * It truncates with no error, so the failure always looks like missing data
- * rather than a broken query. Any select over a set that GROWS — stock,
- * catalog, ledger — must page through this.
- *
- * The builder is a FACTORY because a supabase query is consumed on await;
- * each page needs a fresh one. A page error throws — partial data is worse
- * than no data, because it looks like an answer.
- *
- * `key` must be UNIQUE across the whole result set. Keyset pagination steps
- * with `> cursor`, so a duplicate key at a page boundary silently drops every
- * row sharing it. Scope the query until the key is unique (per shop, say)
- * rather than reaching for a non-unique one.
- */
+/** Page every row — PostgREST truncates an un-ranged select at 1,000 with no
+ *  error. `key` must be UNIQUE, or a page boundary silently drops rows. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function fetchAll<T = any>(
   build: () => any,
   key = "id"
 ): Promise<T[]> {
-  // KEYSET pagination, not offset: `.range(25000, …)` makes Postgres walk and
-  // discard 25k rows per page, which blows the free tier's statement timeout
-  // on deep pages. A `> cursor` on the PK is an index seek — every page costs
-  // the same. The builder must NOT set its own order/limit; this owns both.
+  // Keyset, not offset — a deep `.range()` walks and discards every prior row
+  // and times out. The builder must not set its own order/limit; this owns both.
   const out: T[] = [];
   let cursor: string | null = null;
   for (;;) {
@@ -209,19 +108,8 @@ export async function fetchAll<T = any>(
   }
 }
 
-/**
- * Same guarantee for a table with NO single unique column — a composite
- * primary key, or a view that exposes no id (`part_fitments`, `shop_stock`
- * read across every shop).
- *
- * Offset paging, so deep pages get progressively more expensive: Postgres
- * walks and discards everything before the offset. Use `fetchAll` whenever a
- * unique key exists. This is for the tables that genuinely have none, and it
- * is still strictly better than a silent truncation.
- *
- * `order` must be a total ordering or a row can repeat/vanish across pages;
- * pass every column of the composite key.
- */
+/** Offset paging for tables with no single unique column. Prefer `fetchAll`.
+ *  `order` must be a TOTAL ordering or rows repeat/vanish across pages. */
 export async function fetchAllOffset<T = any>(
   build: () => any,
   order: string[]
@@ -239,15 +127,8 @@ export async function fetchAllOffset<T = any>(
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-/**
- * Did this shop earn or cost anything in the period?
- *
- * The money-only test. An OPEN shop always deserves a row even at zero — it's
- * a branch that exists. A CLOSED one only earns a row if something actually
- * happened, so a branch that shut two years ago doesn't pad every report
- * forever. Callers with extra context (stock on hand, deliveries, pending
- * approvals) should OR this with their own.
- */
+/** Money-only activity test. Open shops always get a row; closed ones only when
+ *  something happened. Callers with extra context should OR in their own. */
 export function pnlHasActivity(r: PnlShopRow): boolean {
   return (
     r.revenue !== 0 ||
@@ -273,13 +154,8 @@ const zero = (): Agg => ({
   engine_discount: 0,
 });
 
-/**
- * Compute the P&L for a PH business-date range.
- *
- * `shopId` filters to one branch — used by /shops/reports' shop picker. The
- * consolidated P&L never passes it: company overhead belongs to no shop, so a
- * filtered "net income" would be a category error.
- */
+/** P&L for a PH business-date range. `shopId` filters to one branch; the
+ *  consolidated P&L never passes it — overhead belongs to no shop. */
 // ── P&L facts: the per-shop + global aggregates the statement is built from ──
 interface PnlFacts {
   perShop: Map<string, Agg>;
@@ -324,11 +200,8 @@ function factsFromRpc(data: any): PnlFacts {
   };
 }
 
-/**
- * The original O(transactions) implementation — fetch every sale/line/cost in
- * the range and sum in JS. Kept as the fallback (works before 0075 is applied)
- * and as the reference the SQL path is proven byte-identical against.
- */
+/** O(transactions) row-walk: the fallback before 0075 is applied, and the
+ *  reference the SQL path is proven byte-identical against. */
 async function factsFromRowWalk(
   supabase: SupabaseClient,
   from: string,
@@ -385,10 +258,8 @@ async function factsFromRowWalk(
           .from("stock_movements")
           .select("id, qty_change, parts(cost_centavos), engines(cost_centavos)")
           .eq("movement_type", "transit_writeoff")
-          // Anchor the [from,to] bounds to Philippine time (+08:00, no DST) so a
-          // write-off's UTC created_at is matched by PH calendar day — same
-          // semantics as business_date. Bare bounds compared at UTC midnight
-          // dropped write-offs made in the PH-morning / UTC-previous-day window.
+          // Anchor to PH time (+08:00) so created_at matches by PH calendar day,
+          // like business_date. UTC-midnight bounds dropped morning write-offs.
           .gte("created_at", `${from}T00:00:00+08:00`)
           .lte("created_at", `${to}T23:59:59.999+08:00`)
       ),
@@ -467,11 +338,8 @@ async function factsFromRowWalk(
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-/**
- * Gather P&L facts: SQL fast path (fn_pnl_facts, 0075) → flat O(shops×days);
- * falls back to the row-walk if the migration isn't applied. Both paths are
- * asserted byte-identical (scripts/test-pnl + the capture check).
- */
+/** SQL fast path (fn_pnl_facts, 0075), falling back to the row-walk if the
+ *  migration isn't applied. test-pnl asserts the two are byte-identical. */
 async function gatherFacts(
   supabase: SupabaseClient,
   from: string,
@@ -566,14 +434,8 @@ export async function computePnl(
     engineDiscountUnknownLines: f.engineDiscountUnknownLines,
   };
 }
-// ---------------------------------------------------------------------------
-// Cash vs accrual
-//
-// Net income is EARNED. This is what actually arrived. They are different
-// numbers and the UI must never let one stand in for the other: a month can
-// earn ₱200k and collect ₱40k, and paying suppliers out of the ₱200k is how a
-// profitable business runs out of money.
-// ---------------------------------------------------------------------------
+// Cash vs accrual: net income is EARNED, this is what ARRIVED. Never let one
+// stand in for the other — a month can earn ₱200k and collect ₱40k.
 export interface CashPosition {
   /** Approved sales value in range (accrual) — ties to PnlResult.revenue. */
   earned: number;
@@ -589,9 +451,8 @@ export async function computeCashPosition(
   supabase: SupabaseClient,
   { from, to }: { from: string; to: string }
 ): Promise<CashPosition> {
-  // Same reasoning as computePnl: a shop can read its own sales and its own
-  // receivables, so this would return a real-looking cash position covering one
-  // branch and call it the business's.
+  // Same reasoning as computePnl — a shop reads its own sales and receivables,
+  // so this would return one branch's position and call it the business's.
   await requireOwner(supabase);
 
   const [sales, allPayments, allReceivables, payablesRes] = await Promise.all([
@@ -605,9 +466,8 @@ export async function computeCashPosition(
         .is("deleted_at", null)
     ),
 
-    // `business_date` — utang_payments has no paid_on. And voided payments are
-    // soft-deleted, so they drop out here on their own: the balance they gave
-    // back is real, and so is their absence from cash in.
+    // `business_date` — utang_payments has no paid_on. Voided payments are
+    // soft-deleted, so they drop out of cash-in on their own.
     fetchAll(() =>
       supabase
         .from("utang_payments")
@@ -628,14 +488,8 @@ export async function computeCashPosition(
   ]);
   const earned = sales.reduce((t, s) => t + (s.total_centavos ?? 0), 0);
 
-  // Cash taken at the till.
-  //
-  // NOT simply Σ amount_paid_centavos: that column arrived with partial payments
-  // (0020) and is NULL on every full-payment sale recorded before it, so summing
-  // it books a fully-paid ₱75,360 sale as ₱0 collected and quietly breaks
-  // `collected + outstanding = earned`. A 'full' sale is paid in full by
-  // definition — its total IS the cash. The column only ever means anything on a
-  // partial sale, where it is the downpayment.
+  // NOT Σ amount_paid_centavos — it is NULL on full sales predating 0020, which
+  // books them as ₱0 collected. A full sale's total IS the cash.
   const atSale = sales.reduce(
     (t, s) =>
       t +

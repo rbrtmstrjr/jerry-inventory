@@ -9,10 +9,8 @@ import { Spinner } from "@/components/ui/spinner";
 
 export const RECEIPTS_BUCKET = "receipts";
 
-/**
- * Receipt image from the PRIVATE receipts bucket — resolved via a signed URL
- * (only the owner's session can mint one; Storage RLS enforces it).
- */
+/** Receipt image from the PRIVATE bucket, via a signed URL only the owner's
+ *  session can mint (Storage RLS enforces it). */
 export function ReceiptImage({
   path,
   alt = "Receipt",

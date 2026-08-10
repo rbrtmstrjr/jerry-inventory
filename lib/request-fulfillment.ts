@@ -1,15 +1,5 @@
-/**
- * Classify a shop's delivery-request lines against master availability, for the
- * "Convert to delivery" prefill. Pure + dependency-free so it's unit-testable
- * (scripts/test-convert-request.mjs imports it directly).
- *
- * Rules (decided in the add-on):
- *  • Part with master_qty > 0  → AVAILABLE, qty capped at min(requested, on-hand).
- *  • Part with master_qty === 0 → NO STOCK (shown disabled, never delivered).
- *  • Engine model: auto-pick up to `requested` in-master serials (first-come,
- *    never reusing a serial across lines). ≥1 matched → AVAILABLE (partial keeps
- *    its matched serials + a "short" caption); 0 matched → NO STOCK.
- */
+/** Classify request lines against master availability for the Convert prefill:
+ *  parts cap at on-hand, engines auto-pick serials, zero matches → no stock. */
 
 export interface RequestLine {
   part_id: string | null;

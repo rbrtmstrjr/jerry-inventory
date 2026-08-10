@@ -1,17 +1,7 @@
 // Row shapes used by the UI (hand-maintained; matches supabase/migrations)
 
-/**
- * Business identity as printed on the six documents, read from the
- * `public_settings` view (0043).
- *
- * The view — not the `settings` table — because `settings` is owner-only, and
- * two of these documents are printed by SHOPS (the sale receipt after every
- * sale, and the shop's warranty certificate). Reading the table there returned
- * NULL and the page silently fell back to a hardcoded name with no address or
- * footer, so the copy a customer got was worse than the owner's reprint of the
- * same sale. The view exposes these columns and nothing else — no operating
- * thresholds, no payroll dials.
- */
+/** Business identity for the printed documents, read from `public_settings` —
+ *  the `settings` table is owner-only and shops print two of these. */
 export interface BusinessIdentity {
   business_name: string;
   address: string | null;
@@ -74,11 +64,8 @@ export interface EngineRow {
   cost_centavos: number;
   price_centavos: number;
   warranty_months: number | null;
-  // The full `engine_status` enum. 0027 added 'in_transit' and 0069 added
-  // 'defective', but this type was never widened — so a `Record<EngineRow
-  // ["status"], …>` looked EXHAUSTIVE to tsc while the database could produce
-  // two values it had no key for. That is exactly how the Engines tab came to
-  // crash on an in-transit engine (see engines-table.tsx STATUS_BADGE).
+  // The FULL engine_status enum. A narrower type makes a Record<> look
+  // exhaustive to tsc while the DB emits values it has no key for.
   status:
     | "in_master"
     | "in_transit"
@@ -141,9 +128,8 @@ export interface ReceivingBalanceRow {
   days_overdue: number | null;
 }
 
-// Employee-safe view rows. Since 0053 these carry the OWN-SHOP unit cost
-// (read-only, the tawad floor) — and nothing else about cost. Cost stays
-// hidden on suppliers/quotes/comparison/payables/receiving/sale_line_costs.
+// Employee-safe view rows. These carry the OWN-SHOP unit cost (the tawad floor)
+// and nothing else about cost — every other cost surface stays owner-only.
 export interface ShopStockRow {
   shop_id: string;
   part_id: string;
@@ -174,10 +160,8 @@ export interface ShopEngineRow {
   image_path: string | null;
 }
 
-/**
- * One open (or settled) partial-payment sale. Balance is computed in the DB:
- * total − amount_paid_at_sale − Σ(approved payments). Selling prices only.
- */
+/** One partial-payment sale. Balance is computed in the DB (total − paid-at-sale
+ *  − Σ approved payments). Selling prices only. */
 export interface ReceivableRow {
   sale_id: string;
   receipt_no: string | null;

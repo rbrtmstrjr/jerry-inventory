@@ -29,12 +29,8 @@ async function ExpenseCategoriesBody() {
       .select("id, name, sort_order, active, status, shops(name, color_key)")
       .is("deleted_at", null)
       .order("sort_order"),
-    // PAGED. An unpaged select stops at PostgREST's 1,000-row cap, and staging
-    // already holds 13k expenses — so every usage count here was computed from
-    // ~8% of the data. Effects: a proposal's "N expenses" caption read 0, the
-    // Merge dialog promised to move "0 expenses" while moving one, and a
-    // category that IS in use got the "It can no longer be picked; history
-    // stays intact." copy meant for an unused one.
+    // PAGED — an unpaged select stops at 1,000 rows, so every usage count here
+    // was computed from a fraction of the data and read as zero.
     fetchAll<{ id: string; category_id: string; status: string }>(
       () => supabase.from("expenses").select("id, category_id, status").is("deleted_at", null),
       "id"

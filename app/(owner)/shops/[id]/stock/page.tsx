@@ -56,10 +56,8 @@ export default async function OwnerShopStockPage({
 
 async function ShopStockBody({ shopId }: { shopId: string }) {
   const supabase = await createClient();
-  // the same employee-safe views — for the owner they return every shop,
-  // so filter to this one
-  // Paged, and scoped to ONE shop first: part_id is unique per shop but not
-  // across shops, and keyset paging on a repeated key drops rows.
+  // Employee-safe views return every shop for the owner, so scope to this one
+  // FIRST: part_id repeats across shops and keyset paging would drop rows.
   const [stock, engines] = await Promise.all([
     fetchAll<ShopStockRow>(
       () => supabase.from("shop_stock").select("*").eq("shop_id", shopId),

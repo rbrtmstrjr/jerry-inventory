@@ -10,13 +10,8 @@ import { PrintButton } from "@/components/shell/print-button";
 
 export const metadata: Metadata = { title: "Delivery Note" };
 
-/**
- * The SHOP's copy of the delivery note — its receipt of what actually arrived.
- * Reads the shop-safe views (RLS-scoped to the caller's own shop, no cost
- * exposed), so a shop can print/keep the same document the owner has. Once the
- * delivery is confirmed the Qty reflects what LANDED (qty_received); anything
- * short was returned to master or written off, so it never reached the shop.
- */
+/** The shop's copy of the delivery note, read from the shop-safe views. Once
+ *  confirmed, Qty reflects what LANDED (qty_received), not what was sent. */
 export default async function ShopDeliveryNotePage({
   params,
 }: {

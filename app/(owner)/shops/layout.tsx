@@ -1,8 +1,7 @@
 import { requireOwner } from "@/lib/auth";
 
-// Per-shop profitability moved to /reports?tab=shops — it's financial
-// reporting, not shop management. This page is now purely operational, so the
-// tab bar went with it (one tab is not a tab bar).
+// Per-shop profitability moved to /reports?tab=shops, so this page is purely
+// operational and the tab bar went with it.
 export default async function ShopsLayout({
   children,
 }: {

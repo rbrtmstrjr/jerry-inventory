@@ -16,10 +16,8 @@ export const metadata: Metadata = { title: "Warranties & Serials" };
 
 type SP = Record<string, string | string[] | undefined>;
 
-/** Re-suspend key: everything EXCEPT `q`. Including the search term would
- *  remount the subtree on every debounced keystroke — destroying the search
- *  box (focus loss) and flashing the skeleton while you are still typing.
- *  Search instead re-renders in place behind the table's own pending state. */
+/** Re-suspend key: everything EXCEPT `q` — including it would remount the
+ *  subtree on every keystroke, stealing focus and flashing the skeleton. */
 function suspenseKey(sp: Record<string, string | string[] | undefined>) {
   return JSON.stringify(
     Object.entries(sp)
@@ -29,12 +27,8 @@ function suspenseKey(sp: Record<string, string | string[] | undefined>) {
 }
 
 
-/**
- * Shell: heading + tabs paint instantly; only the ACTIVE tab's page of rows is
- * fetched, sliced in SQL. Previously this pulled every warranty AND every
- * engine into the browser (deep joins, all rows) to paginate client-side, which
- * scaled with the size of the tables. Now the cost is one page of rows.
- */
+/** Heading + tabs paint instantly; only the active tab's page of rows is
+ *  fetched, sliced in SQL rather than paginated in the browser. */
 export default async function WarrantiesPage({
   searchParams,
 }: {

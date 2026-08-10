@@ -10,13 +10,8 @@ import { PrintButton } from "@/components/shell/print-button";
 
 export const metadata: Metadata = { title: "Stock Request Receipt" };
 
-/**
- * The INGOING document: a shop's request for stock, printed as an itemized
- * receipt (every requested item + qty), for the admin's records. The outgoing
- * counterpart is the Delivery Note printed when the request is fulfilled.
- *
- * Owner route (reads parts/engine_models directly, which are owner-only).
- */
+/** The INGOING document — a shop's stock request, itemised, for the admin's
+ *  records. The outgoing counterpart is the Delivery Note. */
 export default async function StockRequestReceiptPage({
   params,
 }: {

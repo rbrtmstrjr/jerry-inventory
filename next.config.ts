@@ -6,21 +6,15 @@ const supabaseHost = process.env.NEXT_PUBLIC_SUPABASE_URL
 
 const nextConfig: NextConfig = {
   experimental: {
-    // Client Router Cache. `dynamic` defaults to 0s in Next 15+, so every page
-    // here (all dynamic — they read cookies() for auth) re-ran its server
-    // component on every back-navigation. 30s makes returning to a page you
-    // just left instant. Safe for this app: mutations go through server actions
-    // that call revalidatePath(), which invalidates the router cache, so a
-    // stale slot can never survive a change the user actually made.
+    // `dynamic` defaults to 0s, so every page re-ran on back-navigation. Safe at
+    // 30s here: every mutation revalidatePath()s, which clears the router cache.
     staleTimes: { dynamic: 30, static: 180 },
   },
   async redirects() {
     return [
       {
-        // Receiving moved to Suppliers (it's a supplier transaction). A config
-        // redirect gives a REAL 307 — unlike the page-level redirect() stubs,
-        // which Next 16 serves to a document GET as a 200 + meta refresh.
-        // Extra query params (?view=<id>) pass through automatically.
+        // A config redirect gives a REAL 307, unlike the page-level redirect()
+        // stubs Next 16 serves as 200 + meta refresh. Query params pass through.
         source: "/master-inventory/receiving",
         destination: "/suppliers?tab=receiving",
         permanent: false,

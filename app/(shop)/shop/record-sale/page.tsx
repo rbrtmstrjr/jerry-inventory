@@ -11,9 +11,8 @@ export const metadata: Metadata = { title: "Record Sale" };
 async function RecordSaleBody() {
   const supabase = await createClient();
 
-  // Every read here is PAGED. A shop past 1,000 products hits PostgREST's
-  // max-rows, which truncates with no error — the products sorting last simply
-  // stop existing at the counter, unsellable, with stock on the shelf.
+  // Every read here is PAGED — truncation is silent, and the products sorting
+  // last would simply stop existing at the counter with stock on the shelf.
   const [rawStock, engines, fitments, modelsRes, openLines] =
     await Promise.all([
       fetchAll<ShopStockRow>(() => supabase.from("shop_stock").select("*"), "part_id"),
@@ -27,14 +26,8 @@ async function RecordSaleBody() {
         .from("engine_models")
         .select("id, brand, model, horsepower")
         .is("deleted_at", null),
-      // Quantities already SPOKEN FOR by sales this shop has recorded but the
-      // owner has not approved. Stock only moves on approval, so shop_stock.qty
-      // still shows those units on the shelf — record four sales against one
-      // 3 kg bag and each of them looks affordable on its own, then the owner's
-      // whole batch fails atomically at approval. RLS scopes this to the
-      // caller's own shop.
-      // Truncating THIS one would understate what is committed and let the
-      // shop oversell — the exact failure the guard exists to prevent.
+      // Quantities already committed to unapproved sales — stock only moves on
+      // approval, so shop_stock.qty still counts them. Must never truncate.
       fetchAll<{ id: string; part_id: string; qty: number }>(
         () =>
           supabase

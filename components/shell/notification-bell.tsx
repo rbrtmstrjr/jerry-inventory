@@ -121,10 +121,8 @@ export function NotificationBell({ variant }: { variant: "owner" | "employee" })
       .order("created_at", { ascending: false })
       .limit(30);
     setItems((data ?? []) as Notification[]);
-    // Counted separately, NOT derived from `items`: the list is capped at 30, so
-    // counting unread within it reports the page size. With 87 unread the badge
-    // still read "9+" (honest) but the aria-label announced "30 unread" — a
-    // precise number that was really just the limit.
+    // Counted separately, NOT derived from `items` — that list is capped at 30,
+    // so counting within it announces the page size as a precise total.
     const { count } = await supabase
       .from("notifications")
       .select("id", { count: "exact", head: true })

@@ -12,20 +12,15 @@ const COLORS = [
   "#38bdf8", // sky
 ];
 
-/** Deterministic pseudo-random in [0,1) — same on server and client, so the
- *  confetti renders identically both places (no hydration mismatch) without a
- *  client-only effect. */
+/** Deterministic pseudo-random in [0,1) — identical on server and client, so
+ *  there is no hydration mismatch and no client-only effect. */
 function rand(i: number, salt: number) {
   const x = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
   return x - Math.floor(x);
 }
 
-/**
- * Decorative exploding-confetti overlay — pure CSS animation (transform +
- * opacity only, GPU-friendly), no dependency. Pieces burst outward from the
- * centre on desynced infinite loops so it reads as a continuous celebration.
- * The global prefers-reduced-motion rule caps it to one instant frame (off).
- */
+/** Decorative confetti overlay — pure CSS (transform + opacity), no dependency.
+ *  The global prefers-reduced-motion rule caps it to one instant frame. */
 export function ConfettiBurst({ count = 44 }: { count?: number }) {
   const pieces = React.useMemo(
     () =>

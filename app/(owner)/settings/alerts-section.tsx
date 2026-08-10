@@ -12,13 +12,8 @@ import { Separator } from "@/components/ui/separator";
 import { updateAlertSettings } from "./actions";
 import type { SettingsRow } from "./types";
 
-/**
- * The alert thresholds, which until now existed only as columns with CHECK
- * constraints and no editor anywhere — changing either meant a SQL console.
- *
- * Each one says what it actually controls, because a number with no sentence
- * next to it is indistinguishable from decoration.
- */
+/** The alert thresholds. Each says what it controls — a number with no sentence
+ *  beside it is indistinguishable from decoration. */
 export function AlertsSection({ settings }: { settings: SettingsRow }) {
   const [warrantyDays, setWarrantyDays] = React.useState(
     String(settings.warranty_expiry_alert_days)

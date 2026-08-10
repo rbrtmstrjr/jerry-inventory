@@ -5,12 +5,8 @@ import { ArrowUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-/**
- * Floating "back to top" button, bottom-right on every app page. The app shell
- * scrolls an inner div (the root is h-svh overflow-hidden), not the window, so
- * this watches that container's scrollTop rather than window.scrollY. Hidden
- * until you scroll past a screenful; hidden entirely when printing.
- */
+/** Floating back-to-top button. The shell scrolls an inner div, not the window,
+ *  so this watches that container's scrollTop. Hidden when printing. */
 export function ScrollToTop({
   scrollRef,
 }: {

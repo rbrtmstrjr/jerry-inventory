@@ -11,13 +11,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "Reports" };
 
-/**
- * Reports streams. The heading + tabs paint instantly; the selected tab's body
- * (which does the heavy fetching/aggregation) streams in behind a skeleton, so
- * the page is never blocked on it. Each tab is an async component — Sales &
- * Inventory, consolidated P&L, and per-shop profitability — all wrapped in one
- * <Suspense> that re-suspends (via `key`) whenever the range/shop changes.
- */
+/** Heading + tabs paint instantly; the selected tab's body streams behind a
+ *  skeleton and re-suspends whenever the range or shop changes. */
 export default async function ReportsPage({
   searchParams,
 }: {

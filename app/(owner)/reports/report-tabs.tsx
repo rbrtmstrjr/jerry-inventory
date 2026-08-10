@@ -11,17 +11,8 @@ const TABS = [
   { value: "shops", label: "Per-Shop Profitability" },
 ] as const;
 
-/**
- * Link-based tabs over `?tab=`, the same shape /deliveries uses.
- *
- * Links rather than client state, because each tab is a genuinely different
- * server fetch: the P&L pulls costs and overhead the sales report has no use
- * for. Holding both in one client view would fetch both every time and make the
- * range un-bookmarkable.
- *
- * The date range rides along, so flipping to the P&L keeps the period you were
- * already looking at instead of silently resetting it.
- */
+/** Links, not client state — each tab is a different server fetch. The date
+ *  range rides along so switching keeps the period you were looking at. */
 export function ReportTabs({ active }: { active: "sales" | "pnl" | "shops" }) {
   const params = useSearchParams();
 

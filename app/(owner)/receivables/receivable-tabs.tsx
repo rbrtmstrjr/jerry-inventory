@@ -12,16 +12,8 @@ const TABS: { value: ReceivableTab; label: string }[] = [
   { value: "paid", label: "Fully paid" },
 ];
 
-/**
- * `?tab=` links (Open / Fully paid), matching /approvals and /movements. Each
- * tab is a DIFFERENT server query — Open pulls balance > 0, Fully paid pulls
- * balance ≤ 0 — so they are links, not client state: the parent never fetches
- * both sets for the client to split.
- *
- * `counts` is OPTIONAL so the bar renders instantly (labels) as a Suspense
- * fallback while the head-count query streams the badges in — the shell never
- * suspends on I/O (which would fall back to the whole-segment loader).
- */
+/** Links, not client state — each tab is a different server query. `counts` is
+ *  optional so the bar can render instantly as a Suspense fallback. */
 export function ReceivableTabs({
   active,
   counts,
