@@ -1,6 +1,6 @@
 // FQ16 — the guard must not break the ordinary sale. Records a real sale of an
 // item that HAS headroom, end to end, and checks the stored line.
-import { launch, session, goto, shot, check, step, summary, toast, dbAuth } from "./qa-lib.mjs";
+import { launch, session, goto, shot, check, step, summary, dbAuth } from "./qa-lib.mjs";
 
 const { browser } = await launch({ headless: true });
 const q = await dbAuth("owner");
@@ -36,9 +36,19 @@ try {
   await shot(shop.page, "fq16-01-cart");
 
   await shop.page.getByRole("button", { name: /record sale|save sale|complete/i }).last().click();
-  const t = await toast(shop.page, { timeout: 25000 });
-  console.log(`  toast: ${t}`);
-  check(/recorded|saved|success/i.test(t), "the sale saved", t);
+  // Read EVERY toast on screen, not the first. `toast()` returns whichever is
+  // topmost, and the "<item> added" toast from adding to the cart is usually
+  // still up when the save lands — so this asserted on a stale toast and failed
+  // while the sale had in fact saved (the DB check below always passed). Its
+  // pass/fail depended on toast ordering, which is not what it is testing.
+  await shop.page.waitForTimeout(2500);
+  const t = await shop.page.evaluate(() =>
+    [...document.querySelectorAll("[data-sonner-toast]")]
+      .map((el) => (el.innerText || "").replace(/\s+/g, " "))
+      .join(" | ")
+  );
+  console.log(`  toasts: ${t}`);
+  check(/recorded|saved|success|printing/i.test(t), "the sale saved", t);
 
   await shop.page.waitForTimeout(1500);
   const after = await q(`sale_lines?select=id,qty,description&order=created_at.desc&limit=1`);

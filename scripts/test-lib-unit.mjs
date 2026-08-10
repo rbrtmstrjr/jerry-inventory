@@ -83,9 +83,25 @@ eq("'-0.5' rejected", parseQty("-0.5", { allowFractional: true }), null);
 // malformed input never becomes a number
 eq("'' rejected", parseQty(""), null);
 eq("'abc' rejected", parseQty("abc"), null);
-eq("'.5' rejected (no whole part)", parseQty(".5", { allowFractional: true }), null);
-eq("'1.' rejected (trailing dot)", parseQty("1.", { allowFractional: true }), null);
 eq("'1e3' rejected (no sci notation)", parseQty("1e3"), null);
+
+// A LEADING or TRAILING dot is NORMALISED, not refused. These two used to
+// assert null, deliberately — and that decision caused a production stock
+// discrepancy. `sanitizeQtyInput` preserves ".1" and "2." so a half-typed value
+// is not fought mid-keystroke, so the commit step was refusing strings the
+// input step exists to allow. Record Sale's refusal branch then restored the
+// PREVIOUS quantity silently: the cashier typed .1, the amount did not move,
+// and the sale deducted 1 kg. ".1" has exactly one meaning — read it.
+eq("'.1' normalised", parseQty(".1", { allowFractional: true }), 0.1);
+eq("'.5' normalised", parseQty(".5", { allowFractional: true }), 0.5);
+eq("'1.' normalised", parseQty("1.", { allowFractional: true }), 1);
+eq("'2.' normalised", parseQty("2.", { allowFractional: true }), 2);
+eq("'.5' still rejected when not fractional", parseQty(".5"), null);
+// normalising must not loosen the tenths rule or the zero rule
+eq("'.12' still rejected (2dp)", parseQty(".12", { allowFractional: true }), null);
+eq("'.' rejected (no digits at all)", parseQty(".", { allowFractional: true }), null);
+eq("'.0' rejected (zero)", parseQty(".0", { allowFractional: true }), null);
+eq("'.0' allowed with allowZero", parseQty(".0", { allowFractional: true, allowZero: true }), 0);
 
 console.log("\nformatQty — mirrors public.fmt_qty() in SQL (0123):");
 eq("12 → whole", formatQty(12), "12");
