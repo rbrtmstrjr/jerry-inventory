@@ -46,15 +46,34 @@ export default function ShopDeliveriesPage() {
 async function ShopDeliveriesBody() {
   const supabase = await createClient();
 
-  // Lines are fetched IN PAGES: an unbounded select caps at 1000 arbitrary rows,
-  // which starved newer deliveries and would book them entirely as missing.
-  const delRes = await supabase
-    .from("shop_incoming_deliveries")
-    .select("*")
-    .order("delivered_at", { ascending: false })
-    .limit(50);
+  // Split the fetch by STATUS, because the "To confirm" tab filters in the
+  // browser and a .limit() applied before that filter hides the oldest work.
+  const [transitRes, historyRes] = await Promise.all([
+    // No limit: this is what the shop must act on, and it must agree with the
+    // sidebar badge, which counts every in_transit row server-side.
+    supabase
+      .from("shop_incoming_deliveries")
+      .select("*")
+      .eq("status", "in_transit")
+      .order("delivered_at", { ascending: false }),
+    supabase
+      .from("shop_incoming_deliveries")
+      .select("*")
+      .neq("status", "in_transit")
+      .order("delivered_at", { ascending: false })
+      .limit(50),
+  ]);
 
-  const deliveries = (delRes.data ?? []) as IncomingDelivery[];
+  // Never render an empty list from a failed read — "Nothing on the way right
+  // now" would tell a shop that real stock in transit does not exist.
+  if (transitRes.error) {
+    throw new Error(`Could not load incoming deliveries: ${transitRes.error.message}`);
+  }
+
+  const deliveries = [
+    ...(transitRes.data ?? []),
+    ...(historyRes.data ?? []),
+  ] as IncomingDelivery[];
 
   const PAGE = 1000;
   const lines: IncomingLine[] = [];
