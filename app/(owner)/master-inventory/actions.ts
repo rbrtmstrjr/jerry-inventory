@@ -690,3 +690,32 @@ export async function setPreferredSupplier(
   revalidatePath("/stock-alerts");
   return { ok: true };
 }
+
+const correctStockSchema = z.object({
+  part_id: z.uuid(),
+  new_qty: qtySchema({ allowZero: true }),
+  reason: z.string().trim().min(1, "Give a reason for the correction").max(300),
+});
+
+/** 0132: Gerry sets master to the actual quantity; the RPC writes the delta as
+ *  a `correction` movement. The RPC re-checks — this just phrases the refusal. */
+export async function correctMasterStock(input: unknown): Promise<ActionResult> {
+  if (!(await isPrimaryOwner())) {
+    return { ok: false, error: "Only the owner can correct stock" };
+  }
+  const parsed = correctStockSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fn_correct_master_stock", {
+    p_part_id: parsed.data.part_id,
+    p_new_qty: parsed.data.new_qty,
+    p_reason: parsed.data.reason,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/master-inventory");
+  revalidatePath("/movements");
+  revalidatePath("/stock-alerts");
+  return { ok: true };
+}
