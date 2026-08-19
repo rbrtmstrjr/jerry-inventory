@@ -79,8 +79,15 @@ function Heading() {
 // ── Receiving — the single stock entry point ────────────────────────────────
 async function ReceivingTab({ view }: { view: string | null }) {
   const supabase = await createClient();
-  const [receivingsRes, suppliersRes, partsRows, modelsRes, categoriesRes, historyRes] =
-    await Promise.all([
+  const [
+    receivingsRes,
+    suppliersRes,
+    partsRows,
+    masterLevels,
+    modelsRes,
+    categoriesRes,
+    historyRes,
+  ] = await Promise.all([
       supabase
         .from("receivings")
         .select("id, received_at, note, suppliers(name), receiving_lines(part_id, engine_id, qty)")
@@ -106,6 +113,16 @@ async function ReceivingTab({ view }: { view: string | null }) {
             .from("parts")
             .select("id, name, sku, barcode, unit, cost_centavos")
             .is("deleted_at", null),
+        "id"
+      ),
+      // MASTER on-hand per part, so a receiving line can say what is already
+      // there. Paged — past 1,000 products a truncated read reads as zero stock.
+      fetchAll<{ id: string; part_id: string; qty: number }>(
+        () =>
+          supabase
+            .from("stock_levels")
+            .select("id, part_id, qty")
+            .is("shop_id", null),
         "id"
       ),
       supabase
@@ -137,11 +154,17 @@ async function ReceivingTab({ view }: { view: string | null }) {
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
+  // part_id → MASTER qty only. Shop stock is deliberately excluded: a receiving
+  // lands in master, so master is the number the buyer is deciding against.
+  const masterQtyByPart: Record<string, number> = {};
+  for (const l of masterLevels) masterQtyByPart[l.part_id] = Number(l.qty);
+
   return (
     <ReceivingView
       receivings={receivings}
       suppliers={(suppliersRes.data ?? []) as SupplierOption[]}
       parts={partsRows.sort((a, b) => a.name.localeCompare(b.name))}
+      masterQtyByPart={masterQtyByPart}
       models={modelsRes.data ?? []}
       categories={categoriesRes.data ?? []}
       history={historyRes as PriceHistoryRow[]}
