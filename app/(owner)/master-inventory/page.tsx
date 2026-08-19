@@ -151,6 +151,7 @@ async function PartsPanel({ sp }: { sp: SP }) {
       pricesByPart={pricesByPart}
       priceLocked={profile?.role === "admin"}
       retireLocked={profile?.role === "admin"}
+      correctLocked={profile?.role === "admin"}
       total={partsRes.count ?? 0}
       page={params.page}
       pageSize={params.pageSize}

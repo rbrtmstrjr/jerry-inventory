@@ -1034,6 +1034,7 @@ export function ReceivingView({
   receivings,
   suppliers,
   parts,
+  masterQtyByPart = {},
   models,
   categories,
   history,
@@ -1042,6 +1043,9 @@ export function ReceivingView({
   receivings: ReceivingRow[];
   suppliers: SupplierOption[];
   parts: PartOption[];
+  /** part_id → MASTER on-hand. Shop stock is excluded — a receiving lands in
+   *  master, so master is what the buyer is deciding against. */
+  masterQtyByPart?: Record<string, number>;
   models: EngineModel[];
   categories: Category[];
   history: PriceHistoryRow[];
@@ -1091,19 +1095,34 @@ export function ReceivingView({
     return m;
   }, [history]);
 
-  /** "Last from this supplier ₱X · date · cheapest elsewhere ₱Y (name)". */
-  function priceContext(productId: string): React.ReactNode {
+  /** "In master N · last from this supplier ₱X · cheapest elsewhere ₱Y".
+   *  `stockUnit` opts a line in to the stock prefix — parts only. */
+  function priceContext(productId: string, stockUnit?: string): React.ReactNode {
     if (!productId) return null;
     const rows = historyByPart.get(productId);
-    if (!rows?.length) return null;
-    const own = supplierId ? rows.find((r) => r.supplier_id === supplierId) : null;
-    const others = rows.filter((r) => r.supplier_id !== supplierId);
+    const stock = stockUnit ? (masterQtyByPart[productId] ?? 0) : null;
+    // A never-bought product has no price history, and that is exactly when the
+    // buyer most wants the on-hand figure — so stock alone still renders.
+    if (!rows?.length && stock === null) return null;
+    const hist = rows ?? [];
+    const own = supplierId ? hist.find((r) => r.supplier_id === supplierId) : null;
+    const others = hist.filter((r) => r.supplier_id !== supplierId);
     const cheapest = others.length
       ? others.reduce((a, b) => (b.unit_cost_centavos < a.unit_cost_centavos ? b : a))
       : null;
-    if (!own && !cheapest) return null;
+    if (!own && !cheapest && stock === null) return null;
     return (
       <p className="text-xs text-muted-foreground" style={{ gridColumn: "1 / -1" }}>
+        {stock !== null && (
+          <>
+            In master:{" "}
+            <span className="font-medium text-foreground tabular-nums">
+              {formatQty(stock)} {stockUnit}
+            </span>
+            {/* only when the price clause renders — `cheapest` brings its own */}
+            {(own || supplierId) && <>{" — "}</>}
+          </>
+        )}
         {own ? (
           <>
             Last paid to {own.supplier_name}:{" "}
@@ -1615,7 +1634,10 @@ export function ReceivingView({
                             purchase sets its cost.
                           </p>
                         ) : (
-                          priceContext(l.part_id)
+                          priceContext(
+                            l.part_id,
+                            parts.find((p) => p.id === l.part_id)?.unit ?? "pc"
+                          )
                         )}
                       </React.Fragment>
                     ))}

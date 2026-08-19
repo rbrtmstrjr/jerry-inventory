@@ -5,6 +5,7 @@ import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   Barcode,
+  ClipboardCheck,
   GitMerge,
   MoreHorizontal,
   PackagePlus,
@@ -48,6 +49,7 @@ import { PartFormDialog } from "./part-form-dialog";
 import { AddProductDialog } from "./add-product-dialog";
 import { FitmentDialog } from "./fitment-dialog";
 import { MergeDuplicatesDialog } from "./merge-dialog";
+import { CorrectStockDialog } from "./correct-stock-dialog";
 import {
   SupplierPricesDialog,
   provenanceLabel,
@@ -64,6 +66,7 @@ export function PartsTable({
   pricesByPart,
   priceLocked = false,
   retireLocked = false,
+  correctLocked = false,
   total,
   page,
   pageSize,
@@ -79,6 +82,8 @@ export function PartsTable({
   priceLocked?: boolean;
   /** 0102: retire + merge are Gerry-only — hidden for the admin, not disabled. */
   retireLocked?: boolean;
+  /** 0132: correcting master stock is Gerry-only — hidden for the admin. */
+  correctLocked?: boolean;
   /** Server-paginated: `parts` is ONE page of the catalog. */
   total: number;
   page: number;
@@ -92,6 +97,7 @@ export function PartsTable({
   const [deleting, setDeleting] = React.useState<PartRow | null>(null);
   const [pricesFor, setPricesFor] = React.useState<PartRow | null>(null);
   const [mergeOpen, setMergeOpen] = React.useState(false);
+  const [correctingFor, setCorrectingFor] = React.useState<PartRow | null>(null);
   const [view, setView] = usePersistedView("jm-view-owner-parts");
 
   async function onGenerateBarcode(part: PartRow) {
@@ -144,6 +150,11 @@ export function PartsTable({
             {(pricesByPart[part.id]?.length ?? 0) > 0 &&
               ` (${pricesByPart[part.id].length})`}
           </DropdownMenuItem>
+          {!correctLocked && (
+            <DropdownMenuItem onClick={() => setCorrectingFor(part)}>
+              <ClipboardCheck className="size-4" /> Correct stock
+            </DropdownMenuItem>
+          )}
           {!retireLocked && (
             <>
               <DropdownMenuSeparator />
@@ -468,6 +479,10 @@ export function PartsTable({
           unit: p.unit,
         }))}
         onClose={() => setMergeOpen(false)}
+      />
+      <CorrectStockDialog
+        part={correctingFor}
+        onOpenChange={(open) => !open && setCorrectingFor(null)}
       />
       <ConfirmDialog
         open={deleting !== null}

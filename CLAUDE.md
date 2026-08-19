@@ -420,12 +420,15 @@ it breaks by exactly the lost qty if the row is moved back. Consequences:
   is orphaned debris with no shelf left to disagree with — not a discrepancy.
   (~77 of ~269 journal rows are that debris and are visible to the owner.)
 
-**Corrections do not exist.** `movement_type` has a `correction` value with
-**zero** rows and no function that can write one; `transfer` is not in the enum
-at all. `stock_movements` has no INSERT/UPDATE/DELETE policy for **anyone** —
-not even the owner — so the ledger is append-only via definer functions, full
-stop. Don't add an edit path; a contra-entry RPC would be a new control
-decision, not a reporting one.
+**Corrections are Gerry's alone (0132).** `movement_type`'s `correction` value
+had zero rows and no writer until `fn_correct_master_stock`, which sets MASTER
+stock for a PART to the actual quantity and writes the delta as a `correction`
+movement. `is_primary_owner()` only — the admin who mis-encodes cannot erase it.
+`lib/pnl.ts` ignores `correction`, so a fixed number never books as shrinkage;
+that is the whole reason it is not a `loss`. Shop stock, engines and genuine
+master shrinkage are all still out of reach — `losses.shop_id` is NOT NULL, so a
+master loss cannot be represented at all. `stock_movements` still has no
+INSERT/UPDATE/DELETE policy for anyone; the RPC is the only writer.
 
 ### Stock alerts — the core distinction
 **Master low → buy from a SUPPLIER** (remedy: the printable purchase list,
@@ -550,7 +553,7 @@ never a stored flag. Receivable balances are
 mutable running total; `sales.balance_due_centavos` stays the at-sale snapshot
 the printed receipt shows.
 
-### Migrations (`supabase/migrations/`, 0001–0131; 0085–0098 retired)
+### Migrations (`supabase/migrations/`, 0001–0132; 0085–0098 retired)
 `0001` schema · `0002` RLS + safe views · `0003` seed · `0004` receiving fns ·
 `0005` delivery fns · `0006` record (sale/loss) fns · `0007` line descriptions ·
 `0008` approval engine + realtime · `0009` count fns · `0010`/`0011` product &
@@ -1213,6 +1216,18 @@ plate-bearing default — it stops a real plate being replaced by a system
 `UNIT-########` by accident, which is the whole point of the `is_serialized`
 gate. More units of a shared-code model is a Receiving action. Do not "fix"
 this by relaxing that dialog.
+· `0132` **owner stock correction** — a counted physical shelf sometimes
+disagrees with the ledger (a miskey, a shrinkage never logged as a loss), and
+until now there was no path to fix MASTER part stock short of a manual SQL
+UPDATE against a live database. `fn_correct_master_stock(p_part_id, p_new_qty,
+p_reason)` sets `stock_levels` (master, `shop_id IS NULL`) to the counted qty
+and writes the signed delta as a `correction` movement — the first writer the
+enum value has ever had. `is_primary_owner()`-guarded, mirroring 0100/0101's
+"the person who can misrecord is not the person who can erase the record"
+shape. Scoped to master parts only — shop stock, engines, and a genuine
+master-side loss (`losses.shop_id` is NOT NULL) stay unreachable by this RPC.
+`lib/pnl.ts` excludes `correction` from shrinkage on purpose: it is a book fix,
+not a loss event. `test-stock-correction.mjs` (59 assertions).
 
 ### Fractional quantities — the *tingi* (0114–0124)
 Gerry sells nails, lead, fasteners, welding materials and powders **by the
@@ -1405,6 +1420,7 @@ a survivor so pricing/comparison roll up. Resolution is always
 `fn_check_supplier_limit_alerts`, `fn_check_supplier_overdue` (daily via
 pg_cron `supplier-overdue-daily`, 01:15 UTC),
 `fn_cron_job_health`, `fn_stock_card`, `fn_set_warranty_serial` (0103),
+`fn_correct_master_stock` (0132),
 plus count functions. (All 14 payroll/contribution RPCs were dropped by 0083;
 `fn_shop_warranty_preview` was dropped by 0103 with the certificates.)
 Helper predicates: `is_owner()` (OFFICE tier since 0099) and
@@ -1473,7 +1489,7 @@ components/
                            Receivables · Warranties), print-button, section-tabs
   ui/                      shadcn/ui primitives
   data-table/ image-upload-field · product-image · receipt-image · location-picker · date-picker · view-toggle · confirm-dialog
-supabase/migrations/       0001–0131 (schema, RLS, functions, features;
+supabase/migrations/       0001–0132 (schema, RLS, functions, features;
                            0085–0098 = a reverted experiment, numbers retired)
 scripts/                   test-*.mjs verification scripts (one per deliverable)
 ```
@@ -1658,6 +1674,9 @@ engine-nonserial (0128/0129: five units from one line on a non-serialized model,
 distinct UNIT- numbers, qty refused on a serialized model, serial still required
 there, serial+qty refused, inline non-serialized model creation, and a
 non-serialized unit selling and warranting like any other),
+stock-correction (0132: `fn_correct_master_stock` sets MASTER part stock to
+the actual counted qty and writes the signed delta as a `correction` movement,
+Gerry-only, admin refused, P&L/shrinkage untouched),
 ia-redirects (HTTP). (The `payroll`, `payroll-contributions`
 and `payroll-vale` suites were deleted with Payroll, 0083; `warranty-preview`
 was deleted with the certificates, 0103.)
