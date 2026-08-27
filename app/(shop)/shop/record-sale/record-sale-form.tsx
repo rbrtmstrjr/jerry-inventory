@@ -1152,8 +1152,12 @@ function PartCartLine({
       // Never refuse silently — a restored quantity with no message reads as
       // acceptance and the wrong number gets saved.
       setQtyRaw(formatQty(line.qty));
+      // The example must match the unit — "like 0.5" on a `pc` or `g` line
+      // names the one value that product cannot take.
       toast.error(
-        `Enter a quantity like 0.5 or 2.3 — kept ${formatQty(line.qty)} ${line.unit}`
+        fractional
+          ? `Enter a quantity like 0.5 or 2.3 — kept ${formatQty(line.qty)} ${line.unit}`
+          : `${line.unit} is sold in whole numbers — kept ${formatQty(line.qty)} ${line.unit}`
       );
       return;
     }
@@ -1204,11 +1208,11 @@ function PartCartLine({
             <Minus className="size-3" />
           </Button>
 
-          {fractional ? (
-            // Sold by weight, so the quantity is typed. −/+ still step a tenth
-            // at a time — the counter is often worked one-handed.
+          {/* Always typed. `fractional` governs DECIMALS, never editability —
+              3000 g or 24 pc must not cost 3000 or 24 clicks on −/+. */}
+          {(
             <Input
-              inputMode="decimal"
+              inputMode={fractional ? "decimal" : "numeric"}
               aria-label={`Quantity in ${line.unit}`}
               value={qtyRaw}
               // Hard-capped at `available` as you type; stable toast id so a held
@@ -1244,10 +1248,9 @@ function PartCartLine({
                     ?.focus({ preventScroll: true });
                 }
               }}
-              className="h-8 w-16 px-2 text-center text-sm tabular-nums"
+              // w-20: a gram quantity is four digits ("3000"), not one or two
+              className="h-8 w-20 px-2 text-center text-sm tabular-nums"
             />
-          ) : (
-            <span className="w-8 text-center tabular-nums text-sm">{formatQty(line.qty)}</span>
           )}
 
           <Button
