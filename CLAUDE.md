@@ -1228,6 +1228,42 @@ shape. Scoped to master parts only — shop stock, engines, and a genuine
 master-side loss (`losses.shop_id` is NOT NULL) stay unreachable by this RPC.
 `lib/pnl.ts` excludes `correction` from shrinkage on purpose: it is a book fix,
 not a loss event. `test-stock-correction.mjs` (59 assertions).
+· `0133` **grams** — see "Grams, not more decimals" below. One INSERT into
+`units`; no quantity column changed.
+
+### Grams, not more decimals (0133)
+A customer buys by PESO AMOUNT — "₱100 of concrete nails". The scale converts
+that to a weight, the employee weighs it and types it in. In kilos that weight
+is `0.6897`, and quantity is `numeric(12,1)`, so it had to be entered as
+`0.7 kg` — overcharging ₱1.50 and deducting 10 g that never left the shop.
+Worst case is half a tenth: 50 g, about **7% of a ₱100 sale**.
+
+The obvious fix was `numeric(12,3)`. **It was designed, costed and rejected**
+(spec kept at `docs/superpowers/specs/2026-08-12-gram-precision-design.md`):
+fifteen quantity columns, nine CHECK constraints, `delivery_lines.qty_outstanding`
+dropped and rebuilt, every dependent view snapshot-restored with its grants,
+revokes AND `security_barrier` reloptions, then the whole PL/pgSQL accumulator
+sweep of 0117–0121/0124 done again. Not re-runnable, against a live database.
+
+Gerry's answer was better: **a `g` unit, whole numbers.** 198 g is `198`; 5 kg
+is `5000`. No precision needed, so **not one quantity column changed** — the
+entire migration is one idempotent INSERT, the same shape as 0127's `ft`.
+`allows_fractional = false`, so `fn_assert_qty` refuses `2.5 g` exactly as it
+refuses half a spark plug.
+
+**`kg` is untouched and stays the common unit.** Grams are for the few products
+sold by the peso off a scale, and those are created FRESH — an existing kg
+product is never converted, because flipping its unit would leave
+`stock_levels` reading 44 where 44,000 belongs and break
+`Σ movements = stock_levels` (movements are append-only; that history cannot be
+restated). A kg product that should be in grams is returned to master and
+re-received under a new gram product instead.
+
+**The cost, accepted deliberately:** `price_centavos` is an integer, so a
+per-gram price moves in whole centavos — 1¢/g × 1000 = **₱10.00/kg**. A
+gram-priced product can only sit on a ₱10-per-kilo grid; ₱145/kg has no gram
+price. Reorder levels are in grams too (5 kg = `5000`), and documents read
+`5000 g`, not `5 kg` — the unit is what it says it is.
 
 ### Fractional quantities — the *tingi* (0114–0124)
 Gerry sells nails, lead, fasteners, welding materials and powders **by the
@@ -1247,7 +1283,8 @@ to it by FK. **`kg`, `m` and `ft` are splittable (0130)**; `pc`, `set`,
 was **reverted by 0131** the same day (Gerry: a roll sells WHOLE; a customer
 wanting part of one buys the by-the-metre product instead). Both the expansion
 and the revert were one-row UPDATEs with no schema change and no code — which
-is the whole reason the vocabulary is data. Tenths
+is the whole reason the vocabulary is data. **`g` (gram) joined as a WHOLE-unit
+in 0133** — see "Grams, not more decimals" below. Tenths
 remain the granularity BY DECISION (Gerry, 2026-08-10): `0.5 ft` is six inches
 and expressible, a second decimal is not, and allowing one would mean ALTERing
 all fifteen quantity columns. The two layers refuse it differently, and the

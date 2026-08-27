@@ -110,6 +110,13 @@ section("Units are controlled reference data");
 {
   const { data: units } = await owner.from("units").select("*").is("deleted_at", null);
   const byCode = Object.fromEntries((units ?? []).map((u) => [u.code, u]));
+  // Gate: parts.unit is an FK to units.code (0115), so a missing `g` row does
+  // not fail an assertion — seedPart throws mid-suite and cleanup never runs.
+  if (!byCode.g) {
+    console.error("test-fractional-qty: migration 0133_gram_unit.sql is not applied — run it in the SQL editor first.");
+    await cleanup();
+    process.exit(2);
+  }
   check("pc exists and is whole-unit", byCode.pc && byCode.pc.allows_fractional === false);
   check("kg exists and is fractional", byCode.kg && byCode.kg.allows_fractional === true);
   // The vocabulary is asserted EXACTLY, so an accidental flip (someone making
@@ -129,9 +136,12 @@ section("Units are controlled reference data");
   // `pc` is already asserted a few lines above — do not double-count it.
   // `roll` is here BY DECISION (0131): Gerry sells a roll whole — part of one
   // is the by-the-metre product, not 0.5 roll.
-  for (const whole of ["set", "box", "pair", "roll"]) {
+  // `g` is here BY DECISION (0133): a shop weighs 198 g off a scale and types
+  // 198. Whole grams need no precision, which is why no qty column changed.
+  for (const whole of ["set", "box", "pair", "roll", "g"]) {
     check(`${whole} is NOT fractional`, byCode[whole]?.allows_fractional === false);
   }
+  check("g exists and is labelled Gram", byCode.g?.label === "Gram", byCode.g?.label);
 
   // The shop needs the label to render "12 kg on hand".
   const { data: seen, error } = await shop.client.from("units").select("code").eq("code", "kg");
@@ -218,6 +228,28 @@ section("The unit decides which products may be split");
     note: `ZZ-TEST kg half ${RUN}`,
   });
   check("a `kg` product accepts the same 2.5", !!okHalf);
+
+  // 0133: grams are the tingi answer — a shop weighs 198 g and types 198.
+  // Whole numbers, so a fraction of a gram must be refused like any pc product.
+  const gramPart = await seedPart({ label: "Gram Nails", cost: 10, price: 15, unit: "g" });
+  const gramWhole = await receive({
+    supplier_id: supplier.id,
+    parts: [{ part_id: gramPart.id, qty: 198, unit_cost_centavos: 10 }],
+    note: `ZZ-TEST grams ${RUN}`,
+  });
+  check("a `g` product accepts a whole 198", !!gramWhole);
+  const gramFrac = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id,
+    p_note: `ZZ-TEST gram frac ${RUN}`,
+    p_parts: [{ part_id: gramPart.id, qty: 2.5, unit_cost_centavos: 10 }],
+    p_engines: [],
+    p_payment_status: "unpaid",
+    p_amount_paid: 0,
+  });
+  check("a `g` product refuses 2.5", /whole numbers only/i.test(gramFrac.error?.message ?? ""),
+    gramFrac.error?.message ?? "it was ACCEPTED");
+  check("the gram refusal names the unit",
+    /\bg\b/.test(gramFrac.error?.message ?? ""), gramFrac.error?.message);
 
   // Flipping the unit flips the rule with no code change — that is the point
   // of keeping it as data (0114).
