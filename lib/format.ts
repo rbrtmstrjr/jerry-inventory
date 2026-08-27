@@ -59,3 +59,33 @@ export function parseQty(
   if (!allowFractional && !Number.isInteger(n)) return null;
   return n;
 }
+
+/** Grams are the unit for products weighed off a scale (0133). The business
+ *  thinks in pesos per KILO, so the forms take that and convert here. */
+export const GRAMS_PER_KILO = 1000;
+
+/**
+ * "₱100 per kilo" → 10 centavos per gram.
+ *
+ * `price_centavos` is an integer, so a per-gram price only exists when the
+ * per-kilo figure lands on a ₱10 grid. Returns null otherwise — NEVER a
+ * rounded value: ₱145/kg quietly becoming ₱140 is the same silent-wrong-number
+ * failure that cost a stock discrepancy on 2026-08-10.
+ */
+export function perKiloToCentavosPerGram(pesosPerKilo: string): number | null {
+  const perKilo = parsePesosToCentavos(pesosPerKilo);
+  if (perKilo === null) return null;
+  if (perKilo % GRAMS_PER_KILO !== 0) return null;
+  return perKilo / GRAMS_PER_KILO;
+}
+
+/** 10 centavos per gram → 10,000 centavos (₱100.00) per kilo. */
+export function centavosPerGramToPerKilo(centavosPerGram: number): number {
+  return centavosPerGram * GRAMS_PER_KILO;
+}
+
+/** The two nearest usable per-kilo prices, in centavos, for the refusal hint. */
+export function nearestGramGrid(perKiloCentavos: number): { low: number; high: number } {
+  const low = Math.floor(perKiloCentavos / GRAMS_PER_KILO) * GRAMS_PER_KILO;
+  return { low, high: low + GRAMS_PER_KILO };
+}
