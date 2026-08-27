@@ -27,6 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UnitSelect } from "@/components/unit-select";
+import { PerKiloEquivalent } from "@/components/gram-price-hint";
 import {
   Select,
   SelectContent,
@@ -260,14 +261,28 @@ export function PartFormDialog({
 
           <div className="grid grid-cols-3 gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="part-cost">Cost ₱</Label>
+              {/* 0133: this dialog keeps taking a PER-GRAM price; the caption
+                  shows the kilo equivalent so a per-kilo figure is obvious. */}
+              <Label htmlFor="part-cost">
+                {watch("unit") === "g" ? "Cost ₱ per gram" : "Cost ₱"}
+              </Label>
               <Input id="part-cost" inputMode="decimal" disabled={priceLocked} {...register("cost")} />
-              {errors.cost && <p className="text-sm text-destructive">{errors.cost.message}</p>}
+              {errors.cost ? (
+                <p className="text-sm text-destructive">{errors.cost.message}</p>
+              ) : (
+                <PerKiloEquivalent unit={watch("unit")} perGram={watch("cost") ?? ""} />
+              )}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="part-price">Price ₱</Label>
+              <Label htmlFor="part-price">
+                {watch("unit") === "g" ? "Price ₱ per gram" : "Price ₱"}
+              </Label>
               <Input id="part-price" inputMode="decimal" disabled={priceLocked} {...register("price")} />
-              {errors.price && <p className="text-sm text-destructive">{errors.price.message}</p>}
+              {errors.price ? (
+                <p className="text-sm text-destructive">{errors.price.message}</p>
+              ) : (
+                <PerKiloEquivalent unit={watch("unit")} perGram={watch("price") ?? ""} />
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="part-reorder">Reorder level</Label>

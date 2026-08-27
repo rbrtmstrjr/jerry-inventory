@@ -24,7 +24,13 @@ import type { ReceivingRow } from "@/lib/db-types";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { ph_today } from "@/lib/ph-date";
-import { formatCentavos, parsePesosToCentavos, formatQty, parseQtyInput } from "@/lib/format";
+import {
+  formatCentavos,
+  parsePesosToCentavos,
+  formatQty,
+  parseQtyInput,
+  perKiloToCentavosPerGram,
+} from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +53,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UnitSelect } from "@/components/unit-select";
+import { GramPriceHint } from "@/components/gram-price-hint";
 import {
   Popover,
   PopoverContent,
@@ -146,6 +153,12 @@ interface PartLine {
   new_part: NewPartDraft | null;
   qty: string;
   unit_cost: string; // pesos
+}
+
+/** Gram products are typed per KILO and stored per gram (0133); every other
+ *  unit is typed and stored the same. Null when the kilo price is off-grid. */
+function pricePerStoredUnit(unit: string, pesos: string): number | null {
+  return unit === "g" ? perKiloToCentavosPerGram(pesos) : parsePesosToCentavos(pesos);
 }
 
 interface EngineLine {
@@ -401,7 +414,9 @@ function NewProductDialog({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="np-price">Selling price ₱ *</Label>
+              <Label htmlFor="np-price">
+                {d.unit === "g" ? "Selling price ₱ per kilo *" : "Selling price ₱ *"}
+              </Label>
               <Input
                 id="np-price"
                 inputMode="decimal"
@@ -409,6 +424,7 @@ function NewProductDialog({
                 onChange={(e) => set({ price: e.target.value })}
                 placeholder="0.00"
               />
+              <GramPriceHint unit={d.unit} perKilo={d.price} />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="np-reorder">Reorder level</Label>
@@ -1095,6 +1111,13 @@ export function ReceivingView({
     return m;
   }, [history]);
 
+  /** A line's unit — from the catalog for an existing part, from the draft for
+   *  one being created here. Drives whether money is typed per kilo (0133). */
+  function lineUnitOf(l: PartLine): string {
+    if (l.new_part) return l.new_part.unit || "pc";
+    return parts.find((p) => p.id === l.part_id)?.unit ?? "pc";
+  }
+
   /** "In master N · last from this supplier ₱X · cheapest elsewhere ₱Y".
    *  `stockUnit` opts a line in to the stock prefix — parts only. */
   function priceContext(productId: string, stockUnit?: string): React.ReactNode {
@@ -1239,20 +1262,31 @@ export function ReceivingView({
         return;
       }
       const qty = parseQtyInput(l.qty || "0");
-      const cost = parsePesosToCentavos(l.unit_cost || "0");
+      // 0133: a gram line is typed per KILO and stored per gram. Both money
+      // boxes on the line use the same basis, so nothing is mixed up.
+      const lineUnit = lineUnitOf(l);
+      const cost = pricePerStoredUnit(lineUnit, l.unit_cost || "0");
       if (isNaN(qty) || qty <= 0) {
         toast.error(`Part line ${i + 1}: qty must be positive`);
         return;
       }
       if (cost === null) {
-        toast.error(`Part line ${i + 1}: invalid ₱ cost`);
+        toast.error(
+          lineUnit === "g"
+            ? `Part line ${i + 1}: per-kilo cost must be a multiple of ₱10 for a gram product`
+            : `Part line ${i + 1}: invalid ₱ cost`
+        );
         return;
       }
       if (l.new_part) {
-        const price = parsePesosToCentavos(l.new_part.price || "");
+        const price = pricePerStoredUnit(lineUnit, l.new_part.price || "");
         const reorder = parseInt(l.new_part.reorder_level || "0", 10);
         if (price === null) {
-          toast.error(`Part line ${i + 1} (${l.new_part.name}): invalid selling price`);
+          toast.error(
+            lineUnit === "g"
+              ? `Part line ${i + 1} (${l.new_part.name}): per-kilo price must be a multiple of ₱10`
+              : `Part line ${i + 1} (${l.new_part.name}): invalid selling price`
+          );
           return;
         }
         newPartNames.push(l.new_part.name);
@@ -1625,6 +1659,16 @@ export function ReceivingView({
                         >
                           <Trash2 className="size-4" />
                         </Button>
+                        {/* 0133: gram lines take money PER KILO, so say so and
+                            show what it becomes per gram. */}
+                        {lineUnitOf(l) === "g" && (
+                          <div style={{ gridColumn: "1 / -1" }}>
+                            <p className="text-xs text-muted-foreground">
+                              Unit cost is <span className="font-medium text-foreground">per kilo</span> for a gram product.
+                            </p>
+                            <GramPriceHint unit="g" perKilo={l.unit_cost} />
+                          </div>
+                        )}
                         {l.new_part ? (
                           <p
                             className="text-xs text-muted-foreground"
