@@ -8,7 +8,12 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { Category } from "@/lib/db-types";
-import { parsePesosToCentavos, parseQtyInput } from "@/lib/format";
+import {
+  parsePesosToCentavos,
+  parseQtyInput,
+  perKiloToCentavosPerGram,
+} from "@/lib/format";
+import { GramPriceHint } from "@/components/gram-price-hint";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -52,12 +57,28 @@ const schema = z
   })
   .refine(
     (v) => {
-      const c = parsePesosToCentavos(v.cost);
-      const p = parsePesosToCentavos(v.price);
+      const c = unitPriceCentavos(v.unit, v.cost);
+      const p = unitPriceCentavos(v.unit, v.price);
       return c === null || p === null || p > c;
     },
     { message: "Selling price must be above cost", path: ["price"] }
-  );
+  )
+  // 0133: a gram product is priced per KILO here and stored per gram, so the
+  // kilo figure must land on the ₱10 grid whole centavos allow.
+  .refine((v) => v.unit !== "g" || perKiloToCentavosPerGram(v.cost) !== null, {
+    message: "Per-kilo cost must be a multiple of ₱10 for a gram product",
+    path: ["cost"],
+  })
+  .refine((v) => v.unit !== "g" || perKiloToCentavosPerGram(v.price) !== null, {
+    message: "Per-kilo price must be a multiple of ₱10 for a gram product",
+    path: ["price"],
+  });
+
+/** Gram products are typed per kilo and stored per gram; everything else is
+ *  typed and stored in the same unit. */
+function unitPriceCentavos(unit: string, pesos: string): number | null {
+  return unit === "g" ? perKiloToCentavosPerGram(pesos) : parsePesosToCentavos(pesos);
+}
 
 type FormValues = z.infer<typeof schema>;
 
@@ -92,8 +113,11 @@ export function AddProductDialog({
     if (open) reset();
   }, [open, reset]);
 
-  const cost = parsePesosToCentavos(watch("cost") || "0");
-  const price = parsePesosToCentavos(watch("price") || "0");
+  const unitValue = watch("unit");
+  const isGram = unitValue === "g";
+  // margin compares like with like — both per gram, or both per whatever else
+  const cost = unitPriceCentavos(unitValue, watch("cost") || "0");
+  const price = unitPriceCentavos(unitValue, watch("price") || "0");
   const margin =
     cost && price && cost > 0 && price > cost
       ? Math.round(((price - cost) / cost) * 100)
@@ -110,8 +134,8 @@ export function AddProductDialog({
       barcode: v.generate_barcode ? null : v.barcode?.trim() || null,
       generate_barcode: v.generate_barcode,
       unit: v.unit,
-      cost_centavos: parsePesosToCentavos(v.cost)!,
-      price_centavos: parsePesosToCentavos(v.price)!,
+      cost_centavos: unitPriceCentavos(v.unit, v.cost)!,
+      price_centavos: unitPriceCentavos(v.unit, v.price)!,
       qty: parseQtyInput(v.qty),
       reorder_level: parseInt(v.reorder_level || "0", 10),
       preferred_supplier_id: v.supplier_id === "none" ? null : v.supplier_id,
@@ -197,18 +221,27 @@ export function AddProductDialog({
 
           <div className="grid grid-cols-3 gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="ap-cost">Cost ₱</Label>
+              <Label htmlFor="ap-cost">{isGram ? "Cost ₱ per kilo" : "Cost ₱"}</Label>
               <Input id="ap-cost" inputMode="decimal" {...register("cost")} />
-              {errors.cost && <p className="text-sm text-destructive">{errors.cost.message}</p>}
+              {errors.cost ? (
+                <p className="text-sm text-destructive">{errors.cost.message}</p>
+              ) : (
+                <GramPriceHint unit={unitValue} perKilo={watch("cost") ?? ""} />
+              )}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="ap-price">Price ₱</Label>
+              <Label htmlFor="ap-price">{isGram ? "Price ₱ per kilo" : "Price ₱"}</Label>
               <Input id="ap-price" inputMode="decimal" {...register("price")} />
               {errors.price ? (
                 <p className="text-sm text-destructive">{errors.price.message}</p>
-              ) : margin != null ? (
-                <p className="text-xs text-muted-foreground">+{margin}% margin</p>
-              ) : null}
+              ) : (
+                <>
+                  <GramPriceHint unit={unitValue} perKilo={watch("price") ?? ""} />
+                  {margin != null && (
+                    <p className="text-xs text-muted-foreground">+{margin}% margin</p>
+                  )}
+                </>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="ap-qty">Opening qty</Label>
