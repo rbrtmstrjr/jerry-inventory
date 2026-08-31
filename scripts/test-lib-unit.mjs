@@ -57,7 +57,7 @@ check("PH date is UTC date or +1 (never behind)", dayDiff === 0 || dayDiff === 1
 check("matches Intl Asia/Manila", t === new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date()), t);
 
 // ── quantities: tenths only, and the unit decides (0114–0124) ───────────────
-console.log("\nparseQty — the client-side gate that stops 0.12 before the server:");
+console.log("\nparseQty — the client-side gate that stops 0.255 before the server:");
 // whole numbers, always allowed
 eq("'1'", parseQty("1"), 1);
 eq("'12'", parseQty("12"), 12);
@@ -67,11 +67,13 @@ eq("'0.1' fractional", parseQty("0.1", { allowFractional: true }), 0.1);
 eq("'2.3' fractional", parseQty("2.3", { allowFractional: true }), 2.3);
 eq("'10.2' fractional", parseQty("10.2", { allowFractional: true }), 10.2);
 eq("'2.0' fractional", parseQty("2.0", { allowFractional: true }), 2);
-// THE rule Gerry asked for: one decimal, never two. A silent round here would
-// be a wrong receipt nobody notices, so it must return null, not 0.1.
-eq("'0.12' rejected (2dp)", parseQty("0.12", { allowFractional: true }), null);
+// THE rule Gerry asked for: two decimals, never three. A silent round here
+// would be a wrong receipt nobody notices, so it must return null, not 0.25.
+eq("'0.25' accepted (the quarter kilo)", parseQty("0.25", { allowFractional: true }), 0.25);
+eq("'0.05' accepted (10 g granularity)", parseQty("0.05", { allowFractional: true }), 0.05);
+eq("'1.25' accepted", parseQty("1.25", { allowFractional: true }), 1.25);
+eq("'0.255' rejected (3dp)", parseQty("0.255", { allowFractional: true }), null);
 eq("'1.005' rejected (3dp)", parseQty("1.005", { allowFractional: true }), null);
-eq("'0.15' rejected (2dp)", parseQty("0.15", { allowFractional: true }), null);
 // a whole-unit product refuses tenths even when the string is well-formed
 eq("'2.5' rejected when not fractional", parseQty("2.5"), null);
 eq("'0.1' rejected when not fractional", parseQty("0.1"), null);
@@ -98,7 +100,8 @@ eq("'1.' normalised", parseQty("1.", { allowFractional: true }), 1);
 eq("'2.' normalised", parseQty("2.", { allowFractional: true }), 2);
 eq("'.5' still rejected when not fractional", parseQty(".5"), null);
 // normalising must not loosen the tenths rule or the zero rule
-eq("'.12' still rejected (2dp)", parseQty(".12", { allowFractional: true }), null);
+eq("'.25' normalised", parseQty(".25", { allowFractional: true }), 0.25);
+eq("'.255' still rejected (3dp)", parseQty(".255", { allowFractional: true }), null);
 eq("'.' rejected (no digits at all)", parseQty(".", { allowFractional: true }), null);
 eq("'.0' rejected (zero)", parseQty(".0", { allowFractional: true }), null);
 eq("'.0' allowed with allowZero", parseQty(".0", { allowFractional: true, allowZero: true }), 0);
@@ -108,11 +111,19 @@ eq("12 → whole", formatQty(12), "12");
 eq("0", formatQty(0), "0");
 eq("9.5", formatQty(9.5), "9.5");
 eq("0.1", formatQty(0.1), "0.1");
+eq("0.25", formatQty(0.25), "0.25");
+eq("0.05", formatQty(0.05), "0.05");
+// trailing zeros are trimmed — 0.50 must not read "0.50" beside a "0.5" elsewhere
+eq("0.5 not '0.50'", formatQty(0.5), "0.5");
+eq("1.2 not '1.20'", formatQty(1.2), "1.2");
 // the reason it exists: a JS sum of tenths is not exact
 eq("0.1 + 0.2 (float artifact)", formatQty(0.1 + 0.2), "0.3");
 eq("2.3 * 3 (float artifact)", formatQty(2.3 * 3), "6.9");
 eq("null → ''", formatQty(null), "");
 eq("undefined → ''", formatQty(undefined), "");
+// below hundredths (invalid input), toFixed(2) rounds to "0.00" — must not
+// collapse to a bare "0", indistinguishable from an exact zero
+eq("0.001 → '0.0' (never a bare integer)", formatQty(0.001), "0.0");
 // PostgREST hands numeric back as a number, but a string must not break it
 eq("'10.5' string", formatQty("10.5"), "10.5");
 eq("'12' string", formatQty("12"), "12");
@@ -135,7 +146,7 @@ eq("'1,250' (comma)", parseQtyInput("1,250"), 1250);
 eq("'' → 0", parseQtyInput(""), 0);
 eq("null → 0", parseQtyInput(null), 0);
 eq("'abc' → 0", parseQtyInput("abc"), 0);
-// It must NOT round: 0.12 has to reach the server to be refused by name.
+// It must NOT round: 0.255 has to reach the server to be refused by name.
 eq("'0.12' passes through unrounded", parseQtyInput("0.12"), 0.12);
 
 console.log("\nsanitizeQtyInput — what a quantity box accepts as you type:");
@@ -143,8 +154,9 @@ eq("'2.5'", sanitizeQtyInput("2.5"), "2.5");
 eq("'2.' (mid-typing survives)", sanitizeQtyInput("2."), "2.");
 eq("'0.1'", sanitizeQtyInput("0.1"), "0.1");
 eq("'abc12' strips letters", sanitizeQtyInput("abc12"), "12");
-eq("'1.2.3' keeps one dot", sanitizeQtyInput("1.2.3"), "1.2");
-eq("'0.12' masks the 2nd decimal", sanitizeQtyInput("0.12"), "0.1");
+eq("'0.25' keeps two decimals", sanitizeQtyInput("0.25"), "0.25");
+eq("'0.255' masks the 3rd decimal", sanitizeQtyInput("0.255"), "0.25");
+eq("'1.2.3' keeps one dot", sanitizeQtyInput("1.2.3"), "1.23");
 eq("'' stays empty", sanitizeQtyInput(""), "");
 
 console.log("\nqtySchema — the server action's gate:");
@@ -156,7 +168,12 @@ check("12 accepted", okQ(12) === true);
 // would reject a quantity the database accepts.
 check("0.3 accepted despite the IEEE-754 artifact", okQ(0.3) === true);
 check("0.7 accepted despite the IEEE-754 artifact", okQ(0.7) === true);
-check("0.12 rejected", okQ(0.12) === false);
+check("0.25 accepted (the quarter kilo)", okQ(0.25) === true);
+check("0.05 accepted", okQ(0.05) === true);
+// 0.29 * 100 is 28.999999999999996 — an exact check would reject what the
+// database accepts, so the tolerance is not optional.
+check("0.29 accepted despite the IEEE-754 artifact", okQ(0.29) === true);
+check("0.255 rejected", okQ(0.255) === false);
 check("1.005 rejected", okQ(1.005) === false);
 check("0 rejected by default", okQ(0) === false);
 check("0 accepted with allowZero", okQ(0, { allowZero: true }) === true);

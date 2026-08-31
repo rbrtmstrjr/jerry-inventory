@@ -23,25 +23,31 @@ export function formatQty(qty: number | string | null | undefined): string {
   if (qty === null || qty === undefined || qty === "") return "";
   const n = typeof qty === "string" ? Number(qty) : qty;
   if (!Number.isFinite(n)) return "";
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  if (Number.isInteger(n)) return String(n);
+  // Two decimals, trailing zeros trimmed, so 0.5 never renders "0.50" beside a
+  // "0.5" elsewhere. toFixed also absorbs the float artifact this exists for.
+  const trimmed = n.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  // A non-integer input must never collapse to a bare integer string — that
+  // reads as an exact zero. Below 0.005, toFixed(2) rounds to "0.00"/"x.00".
+  return /\./.test(trimmed) ? trimmed : `${trimmed}.0`;
 }
 
-/** Keystroke sanitiser for a quantity box: digits plus one decimal, returned as
- *  a STRING so a half-typed "2." survives. Masks a second decimal as you type. */
+/** Keystroke sanitiser for a quantity box: digits plus two decimals, returned as
+ *  a STRING so a half-typed "2." survives. Masks a third decimal as you type. */
 export function sanitizeQtyInput(raw: string): string {
   const cleaned = raw.replace(/[^\d.]/g, "");
   const [whole, ...rest] = cleaned.split(".");
-  return rest.length ? `${whole}.${rest.join("").slice(0, 1)}` : whole;
+  return rest.length ? `${whole}.${rest.join("").slice(0, 2)}` : whole;
 }
 
 /** `parseInt`'s contract without the truncation — 0.5 stays 0.5, invalid → 0.
- *  Never rounds; `0.12` is refused downstream. Use `parseQty` for a yes/no. */
+ *  Never rounds; `0.255` is refused downstream. Use `parseQty` for a yes/no. */
 export function parseQtyInput(input: string | null | undefined): number {
   const n = Number(String(input ?? "").replace(/[,\s]/g, ""));
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Validity ANSWER for a typed quantity: one decimal max, null when refused.
+/** Validity ANSWER for a typed quantity: two decimals max, null when refused.
  *  Mirrors fn_assert_qty — this is the convenience, that is the control. */
 export function parseQty(
   input: string,
@@ -52,7 +58,7 @@ export function parseQty(
   // step refuses strings the input step exists to permit (".1" deducted 1 kg).
   if (cleaned.startsWith(".")) cleaned = `0${cleaned}`;
   if (cleaned.endsWith(".")) cleaned = cleaned.slice(0, -1);
-  if (!/^\d+(\.\d)?$/.test(cleaned)) return null; // tenths only — 0.12 refused
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null; // hundredths — 0.255 refused
   const n = Number(cleaned);
   if (!Number.isFinite(n)) return null;
   if (n === 0) return allowZero ? 0 : null;

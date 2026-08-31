@@ -70,6 +70,6 @@ export async function processProductImage(file: File): Promise<ProcessedImage> {
 }
 
 export function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`; // not-a-qty-decimal: megabytes
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }

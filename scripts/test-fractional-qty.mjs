@@ -3,13 +3,15 @@
  *
  * Gerry sells nails, lead, fasteners, welding material and powders BY THE KILO,
  * and a customer buys a part-kilo. Quantity therefore has to accept 0.1, 2.3,
- * 10.2 — but ONLY for goods that are actually weighed, and only to one decimal.
+ * 10.25 — but ONLY for goods that are actually weighed, and only to two decimals.
  *
  * The rule has exactly three parts and this suite proves each one separately,
  * because each is enforced in a different place and any one could rot alone:
  *
- *   1. TENTHS ONLY — 0.12 is REFUSED, not silently rounded to 0.1.
- *      numeric(12,1) would round it on cast, which is a wrong receipt nobody
+ *   1. HUNDREDTHS ONLY — 0.255 is REFUSED, not silently rounded to 0.26.
+ *      Two decimals is 10 g granularity, which covers every fraction a customer
+ *      asks for; three would be the false precision the `g` unit exists to avoid.
+ *      numeric(12,2) would round it on cast, which is a wrong receipt nobody
  *      notices, so `fn_assert_qty` raises first and a CHECK backs it at rest.
  *   2. THE UNIT DECIDES — a `pc` product refuses 2.5; a `kg` product takes it.
  *      That is why 0114/0115 turned `parts.unit` from free text into a FK: the
@@ -42,17 +44,21 @@ import {
   }
 }
 
-// ── 0. STATIC: no quantity may be validated or parsed as an integer ─────────
+// ── 0. STATIC: no quantity may be validated, parsed or rounded as if it had
+//    only one decimal ──────────────────────────────────────────────────────
 //
 //    This section exists because the DB-level suites below all passed while
 //    the app was still refusing "0.5" at the counter. They call the RPCs
-//    directly, so they proved the DATABASE takes tenths and said nothing about
-//    the two layers in front of it:
+//    directly, so they proved the DATABASE takes fractions and said nothing
+//    about the layers in front of it:
 //      • a server action's Zod schema — `z.number().int()` rejected it outright
 //      • a form's parseInt()          — silently TRUNCATED 0.5 to 0
-//    Both are invisible to an RPC-level test, so they get a static one, in the
+//      • a native `step="0.1"`, a `Math.round(x * 10) / 10`, a `toFixed(1)`,
+//        or a one-decimal regex — each quietly caps the box or the display
+//        at tenths after 0134 moved the ceiling to hundredths
+//    All are invisible to an RPC-level test, so they get a static one, in the
 //    same spirit as test-definer-guards.
-section("No quantity is treated as an integer (static)");
+section("No quantity is treated as an integer or capped at one decimal (static)");
 {
   const { readdirSync, readFileSync, statSync } = await import("node:fs");
   const { join } = await import("node:path");
@@ -61,7 +67,7 @@ section("No quantity is treated as an integer (static)");
     const p = join(dir, e);
     return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(p) ? [p] : [];
   });
-  const files = [...walk("app"), ...walk("components")];
+  const files = [...walk("app"), ...walk("components"), ...walk("lib")];
 
   // A quantity identifier — deliberately NOT reorder_level (a threshold, not a
   // measurement; Gerry asked for those to stay whole) and not *_centavos.
@@ -76,16 +82,35 @@ section("No quantity is treated as an integer (static)");
   const QTY = String.raw`\w*(?<!reorder_)qty\w*|\bcounted\b|\bgood\b|\bdamaged\b|\bavailable\b`;
   const WHOLE_UNIT = /whole-unit-qty/;
 
+  // The one-decimal idioms below (step="0.1", the `* 10) / 10` round, and
+  // toFixed(1)) are flagged UNCONDITIONALLY — they are not qty-scoped like
+  // the checks above, because that is exactly how the real defects hid: none
+  // of them had "qty" on the same line (a percentage, a file size, a confetti
+  // pixel). A genuine non-quantity use claims the exemption the same way —
+  // a trailing `not-a-qty-decimal` marker comment naming what it actually is.
+  const NOT_QTY = /not-a-qty-decimal/;
+
   const zodInts = [];
   const parseInts = [];
+  const stepTenths = [];
+  const roundTenths = [];
+  const toFixedOnes = [];
+  const oneDecimalRegexes = [];
   for (const f of files) {
     const src = readFileSync(f, "utf8");
     src.split("\n").forEach((line, i) => {
-      if (WHOLE_UNIT.test(line)) return;
-      if (new RegExp(String.raw`(${QTY})\s*:\s*z\s*\.number\(\)\s*\.int\(\)`).test(line))
-        zodInts.push(`${f}:${i + 1}`);
-      if (/parseInt\(/.test(line) && new RegExp(QTY, "i").test(line))
-        parseInts.push(`${f}:${i + 1}`);
+      if (!WHOLE_UNIT.test(line)) {
+        if (new RegExp(String.raw`(${QTY})\s*:\s*z\s*\.number\(\)\s*\.int\(\)`).test(line))
+          zodInts.push(`${f}:${i + 1}`);
+        if (/parseInt\(/.test(line) && new RegExp(QTY, "i").test(line))
+          parseInts.push(`${f}:${i + 1}`);
+      }
+      if (!NOT_QTY.test(line)) {
+        if (/step\s*=\s*["']0\.1["']/.test(line)) stepTenths.push(`${f}:${i + 1}`);
+        if (/\*\s*10\)\s*\/\s*10\b/.test(line)) roundTenths.push(`${f}:${i + 1}`);
+        if (/toFixed\(1\)/.test(line)) toFixedOnes.push(`${f}:${i + 1}`);
+        if (/\(\\\.\\d\)\?/.test(line)) oneDecimalRegexes.push(`${f}:${i + 1}`);
+      }
     });
   }
 
@@ -93,6 +118,14 @@ section("No quantity is treated as an integer (static)");
     zodInts.length === 0, zodInts.join("\n      "));
   check("no form parses a quantity with parseInt (it truncates 0.5 to 0)",
     parseInts.length === 0, parseInts.join("\n      "));
+  check("no input uses a tenths step (0134 moved the ceiling to hundredths)",
+    stepTenths.length === 0, stepTenths.join("\n      "));
+  check("no site rounds to tenths with the `x * 10) / 10` idiom",
+    roundTenths.length === 0, roundTenths.join("\n      "));
+  check("no site formats a quantity with toFixed(1) (hundredths need toFixed(2))",
+    toFixedOnes.length === 0, toFixedOnes.join("\n      "));
+  check("no site validates with a one-decimal regex (\\.\\d)?",
+    oneDecimalRegexes.length === 0, oneDecimalRegexes.join("\n      "));
 }
 
 const shop = await provisionShop("Tingi");
@@ -155,7 +188,7 @@ section("Units are controlled reference data");
 }
 
 // ── 2. receiving a fractional quantity ──────────────────────────────────────
-section("Receiving accepts tenths for a weighed product");
+section("Receiving accepts fractions for a weighed product");
 {
   const ok = await receive({
     supplier_id: supplier.id,
@@ -172,25 +205,31 @@ section("Receiving accepts tenths for a weighed product");
   check("qty is stored as an exact decimal", String(lvl?.qty) === "25.5", String(lvl?.qty));
 }
 
-// ── 3. tenths only — 0.12 is refused, not rounded ───────────────────────────
-section("Tenths only (0.12 is refused, never rounded)");
+// ── 3. hundredths only — 0.255 is refused, not rounded ──────────────────────
+section("Hundredths only (0.255 is refused, never rounded)");
 {
-  const twoDp = await owner.rpc("fn_receive_stock", {
+  // The quarter kilo is the whole point of 0134.
+  const quarter = await owner.rpc("fn_receive_stock", {
     p_supplier_id: supplier.id,
-    p_note: `ZZ-TEST 2dp ${RUN}`,
-    p_parts: [{ part_id: kilo.id, qty: 0.12, unit_cost_centavos: 100 }],
+    p_note: `ZZ-TEST quarter ${RUN}`,
+    p_parts: [{ part_id: kilo.id, qty: 0.25, unit_cost_centavos: 100 }],
     p_engines: [],
     p_payment_status: "unpaid",
     p_amount_paid: 0,
   });
-  check("receiving 0.12 kg is refused", /too many decimals/i.test(twoDp.error?.message ?? ""),
-    twoDp.error?.message ?? "it was ACCEPTED");
+  if (/too many decimals/i.test(quarter.error?.message ?? "")) {
+    console.error(
+      "test-fractional-qty: migration 0134_two_decimal_qty.sql is not applied — run it in the SQL editor first."
+    );
+    await cleanup();
+    process.exit(2);
+  }
+  check("receiving 0.25 kg is accepted", !quarter.error, quarter.error?.message);
 
-  // The dangerous failure is the silent one: if it were accepted, the cast to
-  // numeric(12,1) would have stored 0.1 and nobody would ever see the error.
-  const { data: lvl } = await owner.from("stock_levels")
+  const { data: after } = await owner.from("stock_levels")
     .select("qty").eq("part_id", kilo.id).is("shop_id", null).single();
-  check("the refused 0.12 changed nothing", Number(lvl?.qty) === 25.5, String(lvl?.qty));
+  check("0.25 survives the round trip exactly", Number(after?.qty) === 25.75,
+    String(after?.qty));
 
   const threeDp = await owner.rpc("fn_receive_stock", {
     p_supplier_id: supplier.id,
@@ -201,7 +240,13 @@ section("Tenths only (0.12 is refused, never rounded)");
     p_amount_paid: 0,
   });
   check("receiving 1.005 kg is refused", /too many decimals/i.test(threeDp.error?.message ?? ""),
-    threeDp.error?.message);
+    threeDp.error?.message ?? "it was ACCEPTED");
+
+  // The dangerous failure is the silent one: if 1.005 were accepted, the cast
+  // to numeric(12,2) would store 1.00 and nobody would ever see the error.
+  const { data: lvl } = await owner.from("stock_levels")
+    .select("qty").eq("part_id", kilo.id).is("shop_id", null).single();
+  check("the refused 1.005 changed nothing", Number(lvl?.qty) === 25.75, String(lvl?.qty));
 }
 
 // ── 4. the UNIT decides, not the caller ─────────────────────────────────────
@@ -267,7 +312,7 @@ section("The unit decides which products may be split");
 }
 
 // ── 5. delivery, confirmation and the ledger invariant at a tenth ────────────
-section("Stock moves in tenths and the ledger still reconciles");
+section("Stock moves in fractions and the ledger still reconciles");
 {
   // The `pc` product rides along so the till tests below hit the QUANTITY rule
   // and not the "not delivered to your shop" one that would mask it.
@@ -281,7 +326,7 @@ section("Stock moves in tenths and the ledger still reconciles");
 
   const { data: atMaster } = await owner.from("stock_levels")
     .select("qty").eq("part_id", kilo.id).is("shop_id", null).single();
-  check("master is 28 − 10.5 = 17.5", Number(atMaster?.qty) === 17.5, String(atMaster?.qty));
+  check("master is 28.25 − 10.5 = 17.75", Number(atMaster?.qty) === 17.75, String(atMaster?.qty));
 
   // THE invariant: Σ movements(product, location) = stock_levels(product, location).
   // A float column would fail this at the third or fourth fractional move.
@@ -337,15 +382,16 @@ section("Selling a part-kilo (money rounds per line)");
   check("selling half a `pc` product is refused",
     /whole numbers only/i.test(bad.error?.message ?? ""), bad.error?.message ?? "it was ACCEPTED");
 
-  const twoDp = await shop.client.rpc("fn_record_sale", {
+  // 0.25 is now valid (0134) — the till's decimal ceiling is three places, not two.
+  const saleThreeDp = await shop.client.rpc("fn_record_sale", {
     p_customer_id: cust.id,
-    p_part_lines: [{ part_id: kilo.id, qty: 0.25, unit_price_centavos: 1550 }],
+    p_part_lines: [{ part_id: kilo.id, qty: 0.255, unit_price_centavos: 1550 }],
     p_engine_lines: [],
     p_payment_type: "full",
     p_amount_paid_centavos: null,
   });
-  check("selling 0.25 kg is refused", /too many decimals/i.test(twoDp.error?.message ?? ""),
-    twoDp.error?.message ?? "it was ACCEPTED");
+  check("selling 0.255 kg is refused", /too many decimals/i.test(saleThreeDp.error?.message ?? ""),
+    saleThreeDp.error?.message ?? "it was ACCEPTED");
 
   // Zero and negative are still not quantities.
   const zero = await shop.client.rpc("fn_record_sale", {
@@ -372,8 +418,24 @@ section("Selling a part-kilo (money rounds per line)");
 }
 
 // ── 7. the smallest sellable amount ─────────────────────────────────────────
-section("0.1 is the floor Gerry asked for");
+section("0.01 is the floor (10 g), and 0.1 still works");
 {
+  // The actual boundary 0134 moved — 10 g, the smallest legal quantity.
+  const hundredth = await shop.client.rpc("fn_record_sale", {
+    p_customer_id: cust.id,
+    p_part_lines: [{ part_id: kilo.id, qty: 0.01, unit_price_centavos: 1550 }],
+    p_engine_lines: [],
+    p_payment_type: "full",
+    p_amount_paid_centavos: null,
+  });
+  check("0.01 kg sells", !hundredth.error && !!hundredth.data, hundredth.error?.message);
+
+  const { data: hl } = await owner.from("sale_lines")
+    .select("qty, line_total_centavos").eq("sale_id", hundredth.data).single();
+  check("0.01 survives the round trip", Number(hl?.qty) === 0.01, String(hl?.qty));
+  // ₱15.50 × 0.01 = ₱0.155 — round() at the line gives ₱0.16.
+  check("₱15.50 × 0.01 = ₱0.16", hl?.line_total_centavos === 16, String(hl?.line_total_centavos));
+
   const tenth = await shop.client.rpc("fn_record_sale", {
     p_customer_id: cust.id,
     p_part_lines: [{ part_id: kilo.id, qty: 0.1, unit_price_centavos: 1550 }],
@@ -388,10 +450,41 @@ section("0.1 is the floor Gerry asked for");
   check("0.1 survives the round trip", Number(l?.qty) === 0.1, String(l?.qty));
   // ₱15.50 × 0.1 = ₱1.55 — round() at the line, so no half-centavo anywhere.
   check("₱15.50 × 0.1 = ₱1.55", l?.line_total_centavos === 155, String(l?.line_total_centavos));
+
+  // A quarter kilo sells and the money rounds ONCE, at the line.
+  const qtr = await shop.client.rpc("fn_record_sale", {
+    p_customer_id: cust.id,
+    p_part_lines: [{ part_id: kilo.id, qty: 0.25, unit_price_centavos: 1550 }],
+    p_engine_lines: [],
+    p_payment_type: "full",
+    p_amount_paid_centavos: null,
+  });
+  check("0.25 kg sells", !qtr.error && !!qtr.data, qtr.error?.message);
+
+  const { data: ql } = await owner.from("sale_lines")
+    .select("qty, line_total_centavos").eq("sale_id", qtr.data).single();
+  check("0.25 survives the round trip", Number(ql?.qty) === 0.25, String(ql?.qty));
+  // ₱15.50 × 0.25 = ₱3.875 — round() at the line gives ₱3.88, never a half centavo.
+  check("₱15.50 × 0.25 = ₱3.88", ql?.line_total_centavos === 388,
+    String(ql?.line_total_centavos));
+
+  // Grams are untouched by 0134: g has allows_fractional = false.
+  const gram = await seedPart({ label: "GramNails", cost: 10, price: 15, unit: "g" });
+  const gFrac = await owner.rpc("fn_receive_stock", {
+    p_supplier_id: supplier.id,
+    p_note: `ZZ-TEST g frac ${RUN}`,
+    p_parts: [{ part_id: gram.id, qty: 0.5, unit_cost_centavos: 10 }],
+    p_engines: [],
+    p_payment_status: "unpaid",
+    p_amount_paid: 0,
+  });
+  check("0.5 g is still refused — grams are whole",
+    /whole numbers only/i.test(gFrac.error?.message ?? ""),
+    gFrac.error?.message ?? "it was ACCEPTED");
 }
 
 // ── 8. a loss can be a part-kilo too ────────────────────────────────────────
-section("Losses and counts take tenths");
+section("Losses and counts take fractions");
 {
   const loss = await shop.client.rpc("fn_record_loss", {
     p_part_id: kilo.id, p_engine_id: null, p_qty: 1.5,

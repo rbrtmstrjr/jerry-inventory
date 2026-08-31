@@ -51,8 +51,8 @@ async function RecordSaleBody() {
   const stock = rawStock
     .map((s) => {
       const held = committed.get(s.part_id) ?? 0;
-      // round to a tenth: these are numeric(12,1) values summed in JS
-      const left = Math.max(0, Math.round((Number(s.qty) - held) * 10) / 10);
+      // round to a hundredth: these are numeric(12,2) values summed in JS
+      const left = Math.max(0, Math.round((Number(s.qty) - held) * 100) / 100);
       return { ...s, available: left, committed: held };
     })
     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));

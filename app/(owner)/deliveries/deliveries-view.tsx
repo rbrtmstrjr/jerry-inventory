@@ -442,7 +442,7 @@ function TransferForm({
                           max={opt?.available}
                           value={l.qty}
                           onChange={(e) => {
-                            // Tenths only, hard-capped at available. Keep the
+                            // Up to two decimals, hard-capped at available. Keep the
                             // string — String(n) eats a mid-keystroke ".".
                             const raw = sanitizeQtyInput(e.target.value);
                             if (raw === "") {

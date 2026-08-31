@@ -17,7 +17,7 @@ export interface UnitOption {
   allows_fractional: boolean;
 }
 
-/** The unit is CHOSEN, never typed — it decides which products sell in tenths,
+/** The unit is CHOSEN, never typed — it decides which products sell in fractions,
  *  and free text made that rule hinge on spelling. Reference data, not code. */
 export function UnitSelect({
   value,
