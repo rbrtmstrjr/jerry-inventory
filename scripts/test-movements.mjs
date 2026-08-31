@@ -27,6 +27,9 @@ import {
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
 const COST = 10_000;
 const PRICE = 25_000;
+// numeric(12,2) columns; JS `+` accumulation drifts by ~1e-16 on tenths/hundredths.
+// Round to the column's own precision before comparing — exact, discards no real drift.
+const round2 = (n) => Math.round(n * 100) / 100;
 
 const shop = await provisionShop("Ledger");
 const emp = shop.client;
@@ -119,16 +122,16 @@ section("Σ movements = stock_levels, per product × location");
 
   check(
     `master: ledger ${ledger.get("master")} = shelf ${shelf.get("master")}`,
-    ledger.get("master") === shelf.get("master"),
+    round2(ledger.get("master") ?? 0) === round2(shelf.get("master") ?? 0),
     `${ledger.get("master")} vs ${shelf.get("master")}`
   );
   check(
     `shop: ledger ${ledger.get(shop.id)} = shelf ${shelf.get(shop.id)}`,
-    ledger.get(shop.id) === shelf.get(shop.id),
+    round2(ledger.get(shop.id) ?? 0) === round2(shelf.get(shop.id) ?? 0),
     `${ledger.get(shop.id)} vs ${shelf.get(shop.id)}`
   );
-  check("master reconciles to the expected 2 on hand", shelf.get("master") === 2, `${shelf.get("master")}`);
-  check("shop reconciles to the expected 3 on hand", shelf.get(shop.id) === 3, `${shelf.get(shop.id)}`);
+  check("master reconciles to the expected 2 on hand", round2(shelf.get("master") ?? 0) === 2, `${shelf.get("master")}`);
+  check("shop reconciles to the expected 3 on hand", round2(shelf.get(shop.id) ?? 0) === 3, `${shelf.get(shop.id)}`);
 
   // Now every LIVE product × location in the whole database, not just ours.
   //
@@ -194,11 +197,35 @@ section("Σ movements = stock_levels, per product × location");
     if (page.length < 1000) break;
   }
   const shelves = new Map(allLv.map((l) => [`${l.part_id}|${l.shop_id ?? "master"}`, l.qty]));
-  const bad = [...all.entries()].filter(([k, v]) => (shelves.get(k) ?? 0) !== v);
+  const bad = [...all.entries()].filter(([k, v]) => round2(shelves.get(k) ?? 0) !== round2(v));
+
+  // Report EVERY mismatch, not just the first — a real problem must not hide
+  // behind whichever pair happened to sort first. Names, not bare UUIDs.
+  let detail = "";
+  if (bad.length) {
+    const badPartIds = [...new Set(bad.map(([k]) => k.split("|")[0]))];
+    const badShopIds = [...new Set(bad.map(([k]) => k.split("|")[1]).filter((s) => s !== "master"))];
+    const { data: partRows } = await owner.from("parts").select("id, name").in("id", badPartIds);
+    const partNames = new Map((partRows ?? []).map((p) => [p.id, p.name]));
+    const { data: shopRows } = badShopIds.length
+      ? await owner.from("shops").select("id, name").in("id", badShopIds)
+      : { data: [] };
+    const shopNames = new Map((shopRows ?? []).map((s) => [s.id, s.name]));
+
+    const lines = bad.slice(0, 10).map(([k, v]) => {
+      const [partId, shopId] = k.split("|");
+      const partLabel = partNames.get(partId) ?? partId;
+      const shopLabel = shopId === "master" ? "master" : (shopNames.get(shopId) ?? shopId);
+      return `${partLabel} @ ${shopLabel}: ledger ${round2(v)} vs shelf ${round2(shelves.get(k) ?? 0)}`;
+    });
+    detail = `${bad.length} mismatch(es) — ${lines.join("; ")}`
+      + (bad.length > 10 ? ` … and ${bad.length - 10} more` : "");
+  }
+
   check(
     `EVERY live product × location in the database reconciles (${all.size} checked)`,
     bad.length === 0,
-    bad.slice(0, 3).map(([k, v]) => `${k}: ledger ${v} vs shelf ${shelves.get(k) ?? 0}`).join("; ")
+    detail
   );
 }
 

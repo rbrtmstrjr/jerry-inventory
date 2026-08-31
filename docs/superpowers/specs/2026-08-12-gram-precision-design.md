@@ -3,6 +3,9 @@
 Status: **SUPERSEDED by 0133 (grams as a whole-number unit).** Kept for the
 reasoning: this records what widening to numeric(12,3) would have cost, and why
 a new unit was the cheaper answer. Do NOT implement this.
+Partly revived by 0134 (kg to two decimals, 2026-08-31): the column work
+described here is real, but the accumulator sweep it feared is not needed.
+See 2026-08-31-kg-two-decimals-design.md.
 Migration: never allocated — 0133 went to the gram unit instead.
 Depends on: 0114–0131 (the fractional-quantity feature)
 

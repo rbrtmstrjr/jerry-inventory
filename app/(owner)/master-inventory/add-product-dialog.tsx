@@ -49,9 +49,9 @@ const schema = z
     unit: z.string().trim().min(1, "Unit is required"),
     cost: peso,
     price: peso,
-    // Opening qty may be a tenth (0116) — the unit decides, and fn_assert_qty
+    // Opening qty may be fractional to two decimals (0134) — the unit decides, and fn_assert_qty
     // is the one that knows it. Reorder level stays whole: it's a threshold.
-    qty: z.string().regex(/^\d*(\.\d)?$/, "Up to one decimal, e.g. 2.5"),
+    qty: z.string().regex(/^\d*(\.\d{1,2})?$/, "Up to two decimals, e.g. 0.25"),
     reorder_level: z.string().regex(/^\d*$/, "Whole number"),
     supplier_id: z.string(),
   })
@@ -245,7 +245,7 @@ export function AddProductDialog({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="ap-qty">Opening qty</Label>
-              <Input id="ap-qty" type="number" min={0} step="0.1" {...register("qty")} />
+              <Input id="ap-qty" type="number" min={0} step="0.01" {...register("qty")} />
             </div>
           </div>
 

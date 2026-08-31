@@ -36,8 +36,8 @@ export function ConfettiBurst({ count = 44 }: { count?: number }) {
             "--rot": `${Math.round(rand(i, 4) * 900 - 450)}deg`,
             "--dur": `${(1.6 + rand(i, 5) * 1.6).toFixed(2)}s`,
             "--delay": `${(rand(i, 6) * 2.4).toFixed(2)}s`,
-            width: `${size.toFixed(1)}px`,
-            height: `${(size * (rand(i, 7) > 0.5 ? 1 : 1.8)).toFixed(1)}px`,
+            width: `${size.toFixed(1)}px`, // not-a-qty-decimal: pixels
+            height: `${(size * (rand(i, 7) > 0.5 ? 1 : 1.8)).toFixed(1)}px`, // not-a-qty-decimal: pixels
             background: COLORS[i % COLORS.length],
             borderRadius: rand(i, 8) > 0.6 ? "9999px" : "1px",
           } as React.CSSProperties,
