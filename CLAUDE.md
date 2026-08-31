@@ -29,7 +29,7 @@ retire, accounts, settings) belong to Gerry alone.
 
 **Conventions**
 - Money is stored as integer **centavos** (bigint); helpers in `lib/format.ts` (`formatCentavos`, `parsePesosToCentavos`).
-- Quantity is **`numeric(12,1)`** since 0116 — goods sold by the kilo need tenths. `numeric`, never float: the ledger invariant is an equality, and 0.1 + 0.2 in binary floating point is not 0.3. Helpers in `lib/format.ts` (`formatQty`, `parseQty`), mirrored by `public.fmt_qty()` in SQL. See "Fractional quantities" below.
+- Quantity is **`numeric(12,2)`** since 0134 (was `numeric(12,1)` from 0116 to 0133) — goods sold by the kilo need down to a quarter kilo. `numeric`, never float: the ledger invariant is an equality, and 0.1 + 0.2 in binary floating point is not 0.3. Helpers in `lib/format.ts` (`formatQty`, `parseQty`), mirrored by `public.fmt_qty()` in SQL. See "Fractional quantities" below.
 - **Soft-delete everywhere** (`deleted_at` column) — nothing is hard-deleted.
 - `stock_movements` is an **append-only ledger**; stock is never mutated directly, only via definer functions.
 - Business dates are computed in Philippine time (`lib/ph-date.ts`).
@@ -457,7 +457,7 @@ model may be received by the quantity), `parts` (+`merged_into` tombstone since
 0052), `part_fitments`, `part_merges` (merge audit, owner-only), `customers`,
 `engines` (serial-tracked), `stock_levels` (per-shop on-hand),
 `units` (0114 — controlled vocabulary for `parts.unit`; `allows_fractional`
-decides which products may be sold in tenths).
+decides which products may be sold in fractions).
 
 **Movement & transactions:** `receivings`(+`receiving_lines`),
 `deliveries`(+`delivery_lines`), `returns`(+`return_lines`),
@@ -553,7 +553,7 @@ never a stored flag. Receivable balances are
 mutable running total; `sales.balance_due_centavos` stays the at-sale snapshot
 the printed receipt shows.
 
-### Migrations (`supabase/migrations/`, 0001–0132; 0085–0098 retired)
+### Migrations (`supabase/migrations/`, 0001–0135; 0085–0098 retired)
 `0001` schema · `0002` RLS + safe views · `0003` seed · `0004` receiving fns ·
 `0005` delivery fns · `0006` record (sale/loss) fns · `0007` line descriptions ·
 `0008` approval engine + realtime · `0009` count fns · `0010`/`0011` product &
@@ -1171,7 +1171,10 @@ swept the views), and `case when sl.qty > 1` — with integers `> 1` and `<> 1`
 were the same test, but with tenths they are not, so **a 0.5 kg sale line
 printed no quantity at all** on the one screen the owner uses to review what a
 shop already did. 0051's body byte-for-byte with only those two expressions
-changed · `0127` **`ft` (foot) joins the unit vocabulary** — production sells
+changed. (The identical `> 1` mistake recurred client-side in
+`app/receipt/[saleId]/page.tsx` — found on this branch's review and fixed the
+same way, `!== 1`; no migration needed, it was never in the SQL) ·
+`0127` **`ft` (foot) joins the unit vocabulary** — production sells
 bronze and Ehe pipe BY THE FOOT (five products, ~217 ft on hand) and `feet` was
 free text before 0115 wired `parts.unit` to the FK. Relabelling to `m` would
 have left the quantity alone and changed what it MEANS — 48 ft reading as 48 m
@@ -1230,13 +1233,39 @@ master-side loss (`losses.shop_id` is NOT NULL) stay unreachable by this RPC.
 not a loss event. `test-stock-correction.mjs` (59 assertions).
 · `0133` **grams** — see "Grams, not more decimals" below. One INSERT into
 `units`; no quantity column changed.
+· `0134` **two-decimal quantities** — a customer buys a quarter kilo and
+`numeric(12,1)` refuses `0.25`. Widens all fifteen quantity columns to
+`numeric(12,2)` (the 0116 shape, run again: snapshot every view, drop, alter,
+restore + re-verify grants/reloptions/revokes), replaces the nine `_tenths`
+CHECKs with `_hundredths` (`round(qty, 2)`), and redefines `fn_assert_qty` +
+`fmt_qty` for the new decimal depth. See "Fractional quantities" below — the
+two-vs-three-decimal call is made there, not here. Applied to staging;
+**frozen, do not edit**. `test-fractional-qty.mjs` extended (0.25 accepted,
+0.255 refused).
+· `0135` **`fn_save_count`'s missed cast** — 0134 widened
+`count_snapshot_lines.counted_qty` to `numeric(12,2)` and the counts action
+now sends hundredths, but `fn_save_count`'s `jsonb_to_recordset` still parsed
+`counted_qty` as `int` — the JSON-to-int cast rounds silently, so "10.25"
+landed as `10` and `fn_record_shortages` posted a phantom shortage against the
+missing 0.25. The same PL/pgSQL-silently-rounds shape as 0119/0124, in a
+function outside the 0117–0121 sweep's path (a count function, not a stock-
+pipeline one). One word changed (`int` → `numeric`) in the recordset column
+list; body otherwise byte-for-byte 0009's. Separate migration because 0134 is
+already applied to staging and its `add constraint` statements are not
+re-runnable.
 
 ### Grams, not more decimals (0133)
 A customer buys by PESO AMOUNT — "₱100 of concrete nails". The scale converts
 that to a weight, the employee weighs it and types it in. In kilos that weight
-is `0.6897`, and quantity is `numeric(12,1)`, so it had to be entered as
-`0.7 kg` — overcharging ₱1.50 and deducting 10 g that never left the shop.
-Worst case is half a tenth: 50 g, about **7% of a ₱100 sale**.
+is `0.6897`, and at the time (quantity was `numeric(12,1)`, one decimal — see
+"Fractional quantities" below for the later 0134 widening) it had to be
+entered as `0.7 kg` — overcharging ₱1.50 and deducting 10 g that never left
+the shop. Worst case was half a tenth: 50 g, about **7% of a ₱100 sale**.
+0134 later moved kg to two decimals (10 g granularity), which narrows but
+does not close this gap: `0.6897` still rounds, now to `0.69 kg` (69 g off by
+2 g rather than 50 g). `g` remains the exact answer for a peso-amount sale —
+whole grams need no rounding at any decimal depth, which is why 0133 was
+never superseded.
 
 The obvious fix was `numeric(12,3)`. **It was designed, costed and rejected**
 (spec kept at `docs/superpowers/specs/2026-08-12-gram-precision-design.md`):
@@ -1265,11 +1294,11 @@ gram-priced product can only sit on a ₱10-per-kilo grid; ₱145/kg has no gram
 price. Reorder levels are in grams too (5 kg = `5000`), and documents read
 `5000 g`, not `5 kg` — the unit is what it says it is.
 
-### Fractional quantities — the *tingi* (0114–0124)
+### Fractional quantities — the *tingi* (0114–0124, 0134–0135)
 Gerry sells nails, lead, fasteners, welding materials and powders **by the
 kilo**, and a customer buys a part-kilo. Quantity therefore accepts `0.1`,
-`2.3`, `10.2` — **to ONE decimal only** (`0.12` is refused, never rounded) and
-**only for products actually sold by weight**.
+`2.3`, `10.25` — **to TWO decimals only** (`0.255` is refused, never rounded)
+and **only for products actually sold by weight**.
 
 **The unit decides, and that is why `units` exists.** Keying the rule off
 `parts.unit` was the obvious idea and the obvious objection was that the column
@@ -1284,23 +1313,41 @@ was **reverted by 0131** the same day (Gerry: a roll sells WHOLE; a customer
 wanting part of one buys the by-the-metre product instead). Both the expansion
 and the revert were one-row UPDATEs with no schema change and no code — which
 is the whole reason the vocabulary is data. **`g` (gram) joined as a WHOLE-unit
-in 0133** — see "Grams, not more decimals" below. Tenths
-remain the granularity BY DECISION (Gerry, 2026-08-10): `0.5 ft` is six inches
-and expressible, a second decimal is not, and allowing one would mean ALTERing
-all fifteen quantity columns. The two layers refuse it differently, and the
-difference matters when reading a bug report: the DATABASE refuses `0.25` by
-name (`fn_assert_qty` raises, the `round(qty, 1)` CHECKs back it at rest), while
-a quantity BOX masks the second decimal as it is typed (`sanitizeQtyInput`), so
-a cashier typing `0.25 ft` ends up with `0.2` in the box rather than an error.
-Office writes it, every role reads it (the shop needs
+in 0133** — see "Grams, not more decimals" below.
+
+**Tenths were the granularity BY DECISION (Gerry, 2026-08-10) — superseded
+2026-08-31.** The original call was: `0.5 ft` is six inches and expressible, a
+second decimal is not, and allowing one would mean ALTERing all fifteen
+quantity columns. That held until a customer asked for a quarter kilo — `0.25`
+has no honest one-decimal answer (`0.2` under by 50 g, `0.3` over by 50 g, the
+same ₱1.50-on-₱100 problem 0133 exists to solve for the peso-amount case) — so
+`0134` did the ALTER the 2026-08-10 decision was declining to do. **Two
+decimals, not three:** the migration costs the same either way (same 15
+columns, same 9 CHECKs — see below), so the choice is only about which values
+validate. Two decimals is 10 g granularity, which covers every fraction a
+customer actually asks for; three would let a cashier record a single gram of
+lead as a kilogram quantity, which is exactly the false precision the `g` unit
+(0133) exists to avoid — a third kg decimal and a `g` product would be two
+ways to say the same thing, and only one of them is honest about what a scale
+actually reads.
+
+The two layers refuse a fraction too fine differently, and the difference
+matters when reading a bug report: the DATABASE refuses `0.255` by name
+(`fn_assert_qty` raises, the `round(qty, 2)` CHECKs back it at rest), while a
+quantity BOX masks the third decimal as it is typed (`sanitizeQtyInput`), so a
+cashier typing `0.255 ft` ends up with `0.25` in the box rather than an error.
+Office writes the unit, every role reads it (the shop needs
 the label to render "12 kg on hand"). Choosing "Kilogram" in Receiving is the
 whole action — there is no per-product flag to remember.
 
 **Three rules, three enforcement sites** (each could rot alone, so
 `test-fractional-qty.mjs` proves each separately):
-1. **Tenths only.** `numeric(12,1)` would *round* `0.12` to `0.1` on cast — a
-   wrong receipt nobody notices. So `fn_assert_qty` RAISES first, and a
-   `check (qty = round(qty, 1))` on all seven quantity columns backs it at rest.
+1. **Hundredths only.** `numeric(12,2)` would *round* `0.255` to `0.26` on cast
+   — a wrong receipt nobody notices. So `fn_assert_qty` RAISES first, and a
+   `check (qty = round(qty, 2))` backs it at rest — nine such CHECKs, one per
+   table, across the fifteen quantity columns 0134 widened (not every widened
+   column carries its own CHECK — e.g. `delivery_lines.qty_outstanding` is
+   generated from columns that already are).
 2. **The unit decides.** `fn_assert_qty` reads the product's unit and refuses a
    fraction unless `allows_fractional`. Naming the product and its unit in the
    message is deliberate — the cashier must know *why*.
@@ -1317,7 +1364,14 @@ views in a retry loop and *verifies the count and the `security_barrier`
 reloptions survived* before committing. Postgres refuses `ALTER COLUMN TYPE`
 while a view or generated column depends on it, and `DROP VIEW` discards grants
 AND reloptions — so the restore is the migration, not an afterthought. Its
-`add constraint` has no `if not exists`: **run it exactly once.**
+`add constraint` has no `if not exists`: **run it exactly once.** `0134`
+repeats this exact shape for the move to hundredths — same snapshot/drop/
+alter/restore/verify structure, fifteen columns this time (0125 had widened
+two more), and its `add constraint` statements are equally not re-runnable (all fifteen columns
+0134 lists, including the two 0125 had to widen separately).
+It **replaces** the tenths CHECKs with `_hundredths` ones rather than adding
+alongside them (a value can't satisfy `round(qty,1)` and also legally be
+`0.25`), so after 0134 the tenths CHECKs described here no longer exist.
 
 **`0117`–`0121`, `0124` are the accumulator sweep.** PL/pgSQL **rounds silently
 on assignment** to `int`/`bigint`, so every local variable that receives a
@@ -1326,7 +1380,16 @@ quantity had to widen to `numeric`. Missing one is silent and catastrophic:
 discrepancy-vs-confirmed — a 0.4 kg shortfall would have rounded to 0 and broken
 the ledger invariant with no error. When auditing for these, match **`bigint`
 and `RETURNS TABLE` columns too**, not just `int` (that omission is what `0121`
-had to fix in `fn_stock_card`).
+had to fix in `fn_stock_card`). **`0134` did not repeat this sweep** — its own
+header argues that nothing is declared `numeric(12,1)` (the accumulators are
+unconstrained `numeric`) and the int/bigint offenders were already fixed here,
+so anything that rounds at two decimals already rounded at one. That argument
+missed one function outside the stock pipeline this sweep followed:
+`fn_save_count`'s `jsonb_to_recordset` cast (a count function, not a
+receive/deliver/sell one) still parsed `counted_qty int`, rounding a counted
+`10.25` to `10` and letting a phantom 0.25 kg "shortage" reach the loss queue.
+**`0135`** is that one site, fixed the same way as 0119/0124 — the column type
+in the recordset, not a new accumulator.
 
 **`0122` re-revokes `anon`.** `0116` restored grants on the recreated views but
 not the REVOKEs, and Supabase's default privileges re-grant `anon` on newly
@@ -1339,13 +1402,17 @@ printed from. `formatQty` exists for the **sums**, not the singles: PostgREST
 hands `numeric` back as a JSON *number*, so a bare `{row.qty}` already renders
 `12` as "12" — but any `reduce((s, l) => s + l.qty, 0)` in the browser is
 IEEE-754, and `0.1 + 0.2` prints as `0.30000000000000004` on a delivery note.
+**`0134` redefines both** for the third decimal depth (whole / tenths /
+hundredths) — same agree-or-a-document-lies contract, one more branch each.
 
 **Three layers, and only ONE of them knows the rule.** The database migrations
 are not the whole feature — an RPC-level test suite can be fully green while the
 counter still refuses `0.5`, which is exactly what happened:
-- **the form** — a quantity box is `sanitizeQtyInput` (digits + one decimal) and
-  `parseQtyInput`, *never* `parseInt`, which silently TRUNCATED 0.5 to 0 at ~20
-  sites, and never a `/\D/g` stripper, which eats the decimal point itself.
+- **the form** — a quantity box is `sanitizeQtyInput` (digits + up to two
+  decimals — one before 0134, masking any typed digit past the depth rather
+  than rejecting it) and `parseQtyInput`, *never* `parseInt`, which silently
+  TRUNCATED 0.5 to 0 at ~20 sites, and never a `/\D/g` stripper, which eats
+  the decimal point itself.
   **`sanitizeQtyInput` deliberately PRESERVES `.1` and `2.`** so a half-typed
   weight is not fought mid-keystroke — so anything that validates the box must
   NORMALISE those two forms, not refuse them. `parseQty` originally refused both
@@ -1353,17 +1420,19 @@ counter still refuses `0.5`, which is exactly what happened:
   discrepancy on 2026-08-10: a cashier typed `.1`, Record Sale's refusal branch
   restored the PREVIOUS quantity **silently**, the amount never moved, and the
   approved sale deducted 1 kg instead of 0.1. `parseQty` now prepends the `0`
-  and drops a trailing dot before its tenths regex; `0.12`, `.` and `.0` are
-  still refused. Two lessons, both general: a refusal must never be silent (it
-  reads as acceptance and the wrong number gets saved), and the sanitiser and
-  the validator must agree on the intermediate forms typing produces.
+  and drops a trailing dot before its decimal-depth regex (hundredths since
+  0134, tenths before it); `0.255`, `.` and `.0` are refused (`0.12` — legal
+  now, was the one-decimal-era example of refused). Two lessons, both general:
+  a refusal must never be silent (it reads as acceptance and the wrong number
+  gets saved), and the sanitiser and the validator must agree on the
+  intermediate forms typing produces.
 - **the server action** — `qtySchema()` from `lib/qty-schema.ts`, never
   `z.number().int()`, which rejected the decimal outright with "expected int,
   received number" before the database was ever asked.
 - **`fn_assert_qty`** — the only authority on whether THIS product may be split,
   because only it knows the unit. The two layers above deliberately allow a
-  tenth on every product and let the database refuse it by name; two places
-  enforcing one business rule is how they drift apart.
+  fraction (to two decimals) on every product and let the database refuse it
+  by name; two places enforcing one business rule is how they drift apart.
 
 `test-fractional-qty.mjs` opens with a STATIC section asserting no quantity is
 validated with `.int()` and none is parsed with `parseInt` — the RPC-level
@@ -1371,7 +1440,16 @@ assertions below it cannot see either layer. Reorder levels are exempt on
 purpose (a threshold, not a measurement), as is money in centavos. Engine
 counts are the other exemption (0128/0129) — an engine is counted, not
 measured — claimed explicitly per site with a trailing `whole-unit-qty`
-marker comment rather than a name rule, so the scan stays honest.
+marker comment rather than a name rule, so the scan stays honest. The same
+section also flags `step="0.1"`, the `Math.round(x * 10) / 10` idiom,
+`toFixed(1)`, and a one-decimal validation regex — added after a branch
+review caught a live `step="0.1"` and two `* 10) / 10` sites that the
+`.int()`/`parseInt` checks could not see, since none of them treats a
+quantity as an integer. Those four are flagged UNCONDITIONALLY (not scoped to
+a `qty`-named line), because that is exactly how the real defects hid — a
+percentage, a file size, a confetti pixel, none with "qty" anywhere on the
+line — so a genuine non-quantity use claims the exemption with its own
+trailing `not-a-qty-decimal` marker comment.
 
 **Money rounds PER LINE and is stored** — `round(unit_price × qty)` at the line,
 never re-derived from a fractional quantity downstream, or the receipt and the
@@ -1684,12 +1762,15 @@ discount-cards (0072: suki cards — owner-only issuing + one-active-per-custome
 SC prefix, shop lookup returns customer+rates only, card price server-derived
 with cost+1 cap, client price clamped to the card price, inactive card dead,
 card-less sale unchanged; refuses to run until 0072 is applied),
-fractional-qty (0114–0124: the units vocabulary and its RLS; tenths accepted
-end-to-end through receive → deliver → confirm → sell → write off; 0.12 and
-1.005 REFUSED and provably changing nothing; a `pc` product refusing 2.5 while
-a `kg` product takes it, and the rule following the unit when it is flipped;
-the ledger invariant holding EXACTLY at a fractional quantity; ₱15.50 × 2.3 =
-₱35.65 rounded once and stored; engines pinned at 1; reorder levels whole.
+fractional-qty (0114–0124, 0134: the units vocabulary and its RLS; fractions
+(to two decimals since 0134) accepted end-to-end through receive → deliver →
+confirm → sell → write off; 0.25 accepted, 1.005 and 0.255 REFUSED and
+provably changing nothing; a `pc` product refusing 2.5 while a `kg` product
+takes it, and the rule following the unit when it is flipped; the ledger
+invariant holding EXACTLY at a fractional quantity; ₱15.50 × 2.3 = ₱35.65
+rounded once and stored; engines pinned at 1; reorder levels whole; a STATIC
+section catching `.int()`/`parseInt` on a quantity plus the one-decimal-era
+idioms (`step="0.1"`, `* 10) / 10`, `toFixed(1)`, a one-decimal regex).
 Exits 2 until 0114 is applied),
 pricing (0053: unified single price,
 sale floor = cost strictly-greater for parts + engines, cost visible read-only

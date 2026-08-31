@@ -44,7 +44,7 @@ export function CorrectStockDialog({
     }
   }, [part]);
 
-  // Every product allows a tenth here; fn_assert_qty is the single authority
+  // Every product allows a fraction here; fn_assert_qty is the single authority
   // that refuses a whole-unit product, by name, on save.
   const parsed = parseQty(raw, { allowFractional: true, allowZero: true });
   const delta = parsed === null || !part ? null : parsed - part.master_qty;
@@ -113,7 +113,7 @@ export function CorrectStockDialog({
                 // Never refuse silently — a greyed-out Save with no message
                 // reads as acceptance.
                 <p className="text-xs text-muted-foreground">
-                  Enter a quantity with at most one decimal, e.g. 0.5 or 2.3.
+                  Enter a quantity with at most two decimals, e.g. 0.25 or 2.5.
                 </p>
               )}
             </div>

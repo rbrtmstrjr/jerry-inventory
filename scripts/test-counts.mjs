@@ -185,6 +185,66 @@ section("Approve through the NORMAL queue:");
     error?.message);
 }
 
+section("Fractional counts on a `kg` product (0135):");
+{
+  const kgPart = await seedPart({ label: "KgCount", unit: "kg", cost: 1000, price: 2000 });
+  await receive({ parts: [{ part_id: kgPart.id, qty: 10.25, unit_cost_centavos: 1000 }] });
+  await deliverAndConfirm(SHOP, { parts: [{ part_id: kgPart.id, qty: 10.25 }] });
+  check("shop holds 10.25 kg", (await shopQty(kgPart.id)) === 10.25);
+
+  const { data: snap2Id, error: snap2Err } = await owner.rpc("fn_create_count_snapshot", {
+    p_shop_id: SHOP.id, p_note: `ZZ-TEST fractional ${RUN}`,
+  });
+  check("second snapshot created", !snap2Err, snap2Err?.message);
+  const { data: snap2Lines } = await owner
+    .from("count_snapshot_lines").select("id, part_id, expected_qty").eq("snapshot_id", snap2Id);
+  const kgLine = snap2Lines?.find((l) => l.part_id === kgPart.id);
+  check("expected_qty froze at 10.25, not rounded to 10", Number(kgLine?.expected_qty) === 10.25,
+    String(kgLine?.expected_qty));
+
+  // exact match — this is precisely where the pre-0135 int cast rounded
+  // 10.25 counted to 10, undercutting expected and inventing a shortage.
+  {
+    const { error } = await owner.rpc("fn_save_count", {
+      p_snapshot_id: snap2Id, p_lines: [{ line_id: kgLine.id, counted_qty: 10.25 }],
+    });
+    check("fractional count saved", !error, error?.message);
+    const { data: stored } = await owner
+      .from("count_snapshot_lines").select("counted_qty").eq("id", kgLine.id).single();
+    check("counted_qty stored as exactly 10.25, not rounded to 10",
+      Number(stored?.counted_qty) === 10.25, String(stored?.counted_qty));
+
+    const { data: created2, error: shortErr2 } = await owner.rpc("fn_record_count_shortages", {
+      p_snapshot_id: snap2Id, p_lines: [{ line_id: kgLine.id, reason: "nawala" }],
+    });
+    check("no phantom loss on an exact fractional match", !shortErr2 && created2 === 0,
+      shortErr2?.message ?? `created ${created2}`);
+    const { data: noLoss } = await owner
+      .from("losses").select("id").eq("part_id", kgPart.id).eq("status", "pending");
+    check("no loss row exists for the kg part", (noLoss ?? []).length === 0);
+  }
+
+  // a genuine fractional shortage — 10.25 expected, 9.75 counted, short 0.5
+  {
+    const { error } = await owner.rpc("fn_save_count", {
+      p_snapshot_id: snap2Id, p_lines: [{ line_id: kgLine.id, counted_qty: 9.75 }],
+    });
+    check("re-count saved", !error, error?.message);
+
+    const { data: created3, error: shortErr3 } = await owner.rpc("fn_record_count_shortages", {
+      p_snapshot_id: snap2Id, p_lines: [{ line_id: kgLine.id, reason: "nawala" }],
+    });
+    check("a genuine fractional shortage creates 1 loss", !shortErr3 && created3 === 1,
+      shortErr3?.message ?? `created ${created3}`);
+
+    const { data: kgLoss } = await owner
+      .from("losses").select("qty, note").eq("part_id", kgPart.id).eq("status", "pending").single();
+    check("loss qty is exactly 0.5, not rounded", Number(kgLoss?.qty) === 0.5, String(kgLoss?.qty));
+    check("loss note carries expected/counted at two decimals",
+      /expected 10\.25, counted 9\.75/.test(kgLoss?.note ?? ""), kgLoss?.note);
+  }
+}
+
 section("Cleanup:");
 await cleanup();
 summary();

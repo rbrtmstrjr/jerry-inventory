@@ -139,7 +139,8 @@ export default async function ReceiptPage({
               <div className="row">
                 <span className="min-w-0">
                   {l.description ?? "Item"}
-                  {l.qty > 1 && ` × ${formatQty(l.qty)}`}
+                  {/* `!== 1`, not `> 1`: with fractions those are not the same test (0126). */}
+                  {l.qty !== 1 && ` × ${formatQty(l.qty)}`}
                 </span>
                 <span>{formatCentavos(l.line_total_centavos)}</span>
               </div>

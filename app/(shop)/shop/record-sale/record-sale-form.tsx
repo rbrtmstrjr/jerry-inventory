@@ -322,7 +322,7 @@ export function RecordSaleForm({
   const cartQtyOf = (partId: string) =>
     cart.find((l): l is CartPart => l.kind === "part" && l.part_id === partId)?.qty ?? 0;
 
-  // Which units sell in tenths. Read from `units` rather than widening
+  // Which units sell in fractions (to hundredths). Read from `units` rather than widening
   // shop_stock — every rebuild of a safe view risks losing a grant.
   const units = useUnits();
   const isFractional = React.useCallback(
@@ -1124,13 +1124,15 @@ function PartCartLine({
 }: {
   line: CartPart;
   sukiMax: number | null;
-  /** The product's unit allows tenths (kilos, not pieces) — see units.allows_fractional. */
+  /** The product's unit allows fractions (kilos, not pieces) — see units.allows_fractional. */
   fractional: boolean;
   onPriceChange: (raw: string) => void;
   onQty: (qty: number, keepFocus?: boolean) => void;
 }) {
   const price = partPrice(line);
   const below = price <= line.cost_centavos;
+  // 0.1 stays a coarse convenience step for the ± buttons; typing handles
+  // hundredths like 0.25 (a 0.01 step would make stepping there tediously slow).
   const step = fractional ? 0.1 : 1;
 
   // Held as text while editing so "0." and "1." survive mid-keystroke; the
@@ -1152,11 +1154,11 @@ function PartCartLine({
       // Never refuse silently — a restored quantity with no message reads as
       // acceptance and the wrong number gets saved.
       setQtyRaw(formatQty(line.qty));
-      // The example must match the unit — "like 0.5" on a `pc` or `g` line
+      // The example must match the unit — "like 0.25" on a `pc` or `g` line
       // names the one value that product cannot take.
       toast.error(
         fractional
-          ? `Enter a quantity like 0.5 or 2.3 — kept ${formatQty(line.qty)} ${line.unit}`
+          ? `Enter a quantity like 0.25 or 2.5 — kept ${formatQty(line.qty)} ${line.unit}`
           : `${line.unit} is sold in whole numbers — kept ${formatQty(line.qty)} ${line.unit}`
       );
       return;
@@ -1170,10 +1172,10 @@ function PartCartLine({
     onQty(parsed, true);
   }
 
-  // Reaching 0 removes the line. The ×10/÷10 avoids 0.1 + 0.2 landing in a
-  // numeric(12,1) column as 0.30000000000000004.
+  // Reaching 0 removes the line. The ×100/÷100 avoids 0.1 + 0.2 landing in a
+  // numeric(12,2) column as 0.30000000000000004.
   const bump = (by: number) =>
-    onQty(Math.min(Math.round((line.qty + by) * 10) / 10, line.available));
+    onQty(Math.min(Math.round((line.qty + by) * 100) / 100, line.available));
 
   return (
     <div className="flex flex-col gap-2 rounded-md border bg-card px-3 py-2.5 shadow-sm">

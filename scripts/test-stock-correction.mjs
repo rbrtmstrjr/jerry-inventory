@@ -14,20 +14,20 @@ const ADMIN_EMAIL = `zz-corr-${RUN.toLowerCase()}@test.local`;
 const ADMIN_PASSWORD = `Zz-test-${RUN}`;
 let adminUserId = null;
 
-const round1 = (n) => Math.round(n * 10) / 10;
+const round2 = (n) => Math.round(n * 100) / 100;
 
 const masterQty = async (partId) => {
   const { data } = await admin.from("stock_levels")
     .select("qty").eq("part_id", partId).is("shop_id", null).maybeSingle();
   return Number(data?.qty ?? 0);
 };
-// Sums with plain JS `+`, so the final total is rounded to one decimal —
-// numeric(12,1) never has a second, and IEEE-754 can drift by 1e-16 (see the
+// Sums with plain JS `+`, so the final total is rounded to two decimals —
+// numeric(12,2) never has a third, and IEEE-754 can drift by 1e-16 (see the
 // same class of bug in test-movements).
 const masterLedger = async (partId) => {
   const { data } = await admin.from("stock_movements")
     .select("qty_change").eq("part_id", partId).is("shop_id", null);
-  return round1((data ?? []).reduce((s, m) => s + Number(m.qty_change), 0));
+  return round2((data ?? []).reduce((s, m) => s + Number(m.qty_change), 0));
 };
 const correct = (client, partId, qty, reason = `ZZ-TEST fix ${RUN}`) =>
   client.rpc("fn_correct_master_stock", {
@@ -123,8 +123,14 @@ try {
     const { error: kgOk } = await correct(owner, kgPart.id, 2.5);
     check("a `kg` product accepts a tenth", !kgOk, kgOk?.message);
 
-    const { error: tooPrecise } = await correct(owner, kgPart.id, 1.25);
-    check("two decimals are refused", !!tooPrecise);
+    const { data: hundredths, error: hErr } = await correct(owner, kgPart.id, 1.25);
+    check("a `kg` product accepts hundredths", !hErr, hErr?.message);
+    check("...and the delta reflects the precise value",
+      !hErr && Number(hundredths) === -1.25, String(hundredths));
+    check("master reflects 1.25 exactly", (await masterQty(kgPart.id)) === 1.25);
+
+    const { error: tooPrecise } = await correct(owner, kgPart.id, 1.255);
+    check("three decimals are refused", !!tooPrecise);
     check("...for having too many decimals, not some other reason",
       /too many decimals/i.test(tooPrecise?.message ?? ""), tooPrecise?.message);
 

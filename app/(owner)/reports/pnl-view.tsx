@@ -136,7 +136,7 @@ export function PnlView({ data }: { data: PnlViewData }) {
 
   // % of revenue, the column an accountant reads first.
   const ofRev = (v: number) =>
-    pnl.revenue > 0 ? `${(Math.round((v / pnl.revenue) * 1000) / 10).toFixed(1)}%` : "—";
+    pnl.revenue > 0 ? `${(Math.round((v / pnl.revenue) * 1000) / 10).toFixed(1)}%` : "—"; // not-a-qty-decimal: a percentage
 
   const markupPct =
     pnl.cogs > 0 ? Math.round((pnl.grossProfit / pnl.cogs) * 1000) / 10 : 0;
